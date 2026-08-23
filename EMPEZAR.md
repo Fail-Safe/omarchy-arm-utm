@@ -7,7 +7,7 @@ Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |
 |---|---|
-| **Solo quiero la VM** | descomprime `dist/omarchy-arm-utm.zip` y doble clic → [salta al final](#si-solo-quieres-la-vm) |
+| **Solo quiero la VM** | descárgala de [archive.org](https://archive.org/details/omarchy-arm-utm) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
 | **Quiero construirla yo** | `./build-omarchy-arm.sh` → sigue leyendo |
 
 ---
@@ -194,7 +194,10 @@ de tu Mac.
 
 ## Si solo quieres la VM
 
+Descárgala de **https://archive.org/details/omarchy-arm-utm** (6,5 GB) y:
+
 ```bash
+shasum -a 256 -c omarchy-arm-utm.zip.sha256
 unzip omarchy-arm-utm.zip
 open "Omarchy ARM.utm"
 ```

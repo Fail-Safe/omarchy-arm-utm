@@ -57,7 +57,22 @@ package would have done.
 
 Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 4.
 
-## Quick start
+## Or skip the build
+
+The image this produces is on the Internet Archive, sanitised and ready to
+import — no build, no Homebrew, no waiting:
+
+**https://archive.org/details/omarchy-arm-utm** · 6.5 GB · `sha256 9d6afb16843bd868…`
+
+```bash
+shasum -a 256 -c omarchy-arm-utm.zip.sha256
+unzip omarchy-arm-utm.zip
+open "Omarchy ARM.utm"
+```
+
+User `omarchy`, password `omarchy` (also root) — **change it with `passwd`**.
+
+## Quick start (build it yourself)
 
 ```bash
 git clone https://github.com/ggalancs/omarchy-arm-utm.git
