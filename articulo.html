@@ -280,7 +280,7 @@ curl -sI https://stable-mirror.omarchy.org/core/os/aarch64/core.db | head -1
 <span class="o">→ HTTP/2 404</span>   <span class="c">(el de x86_64 devuelve 200)</span>
 
 <span class="c"># 3. El guard del instalador</span>
-curl -s .../install/preflight/guard.sh | grep -A2 'x86 only'
+curl -s .../<span class="o">master</span>/install/preflight/guard.sh | grep -A2 'x86 only'
 <span class="o">→ if [[ $(uname -m) != "x86_64" ]]; then
 →   abort "x86_64 CPU"</span>
 
@@ -298,7 +298,38 @@ curl -s .../omarchy-iso/main/plans/aarch64-support.md | head -20
   | sudo tee /etc/pacman.d/mirrorlist</code></pre>
       <p>
         <strong>Sobrescribe la lista de mirrors completa.</strong> En ARM, el primer
-        <code>pacman -Syu</code> posterior fallaría, porque ese mirror no sirve aarch64.
+        <code>pacman -Syu</code> posterior falla, porque ese mirror no sirve aarch64. En
+        quattro esto vive en <code>install/post-install/pacman.sh</code>.
+      </p>
+
+      <h3>Corrección: en quattro ese guard ya no existe</h3>
+      <p>
+        Meses después volví a comprobarlo y el punto 3 <strong>había dejado de ser
+        cierto</strong>. Clonando las dos ramas:
+      </p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Rama</th><th><code>install/preflight/guard.sh</code></th><th><code>uname -m</code> en todo el repo</th></tr></thead>
+        <tbody>
+          <tr><td><code>master</code> (3.8.x)</td><td>existe, línea 25</td><td>1 aparición</td></tr>
+          <tr><td><strong><code>quattro</code></strong> (4.x, la de por defecto)</td><td><strong>el directorio <code>preflight/</code> no existe</strong></td><td><strong>0 apariciones</strong></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        Omarchy 4 <strong>no se niega a correr en ARM64</strong>. Lo que falta es el
+        repositorio: el árbol es shell, Lua y QML, agnóstico de arquitectura, y el paquete
+        <code>omarchy</code> se declara <code>arch=('any')</code>. El bloqueo pasó de «se
+        niega» a «no hay de dónde instalar», que es un problema mucho más pequeño —lo
+        cerraría publicar unos 25 paquetes aarch64— y explica por qué varios proyectos de
+        terceros han tenido que montarse su propio repositorio por separado.
+      </p>
+      <p class="note">
+        Dejo el error a la vista en vez de reescribir la historia, porque es
+        representativo: <strong>verifiqué contra la rama equivocada</strong>.
+        <code>master</code> suena a rama principal; en este repositorio la de por defecto es
+        <code>quattro</code>. La misma trampa que ya me había costado un arranque en modo
+        emergencia, otra vez y en otro sitio.
       </p>
     </section>
   </div>

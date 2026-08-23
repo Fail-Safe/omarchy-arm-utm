@@ -23,15 +23,23 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 Omarchy 4 no se puede instalar en ARM64. Verificado contra las fuentes
 primarias:
 
-| Comprobación | Resultado |
+| Comprobación (23-08-2026) | Resultado |
 |---|---|
-| `install/preflight/guard.sh` | `[[ $(uname -m) != "x86_64" ]] && abort` |
-| `stable-mirror.omarchy.org/core/os/aarch64/core.db` | **404** (x86_64 sí existe) |
+| `stable-mirror.omarchy.org/core/os/aarch64/core.db` | **404** (x86_64 → 200) |
+| `install/post-install/pacman.sh` | sobrescribe el mirrorlist con `stable-mirror.omarchy.org/$repo/os/$arch` |
 | `omarchy.org/install-bare` (de la guía #452) | **404**, eliminado |
 | `omacom-io/omarchy-iso` → `plans/aarch64-support.md` | ARM64 = plan **sin implementar** |
 
-Además `boot.sh` **sobrescribe** `/etc/pacman.d/mirrorlist` con el mirror de
-Omarchy, que no sirve aarch64: en ARM el primer `pacman -Syu` fallaría.
+El instalador apunta pacman a un espejo sin árbol aarch64, así que en ARM el
+primer `pacman -Syu` falla. El árbol de Omarchy en sí es agnóstico de
+arquitectura: son scripts, Lua y QML.
+
+**Una corrección que conviene hacer**, porque se repite mucho: Omarchy 3.x sí
+tenía un guard explícito —`install/preflight/guard.sh:25`, `[[ $(uname -m) !=
+"x86_64" ]] && abort`—. **Quattro no.** El directorio `preflight/` ha
+desaparecido y `uname -m` aparece **cero veces** en toda la rama. El bloqueo pasó
+de «se niega» a «no hay repositorio del que instalar», que es un problema mucho
+menor: lo cerraría publicar unos 25 paquetes aarch64.
 
 Por eso aquí se monta la base equivalente —Arch Linux ARM + Hyprland— y se le
 aplica el **contenido real** del repositorio de Omarchy.

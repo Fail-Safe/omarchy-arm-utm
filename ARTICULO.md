@@ -30,7 +30,7 @@ curl -sI https://omarchy.org/install-bare | head -1
 curl -sI https://stable-mirror.omarchy.org/core/os/aarch64/core.db | head -1
 # → HTTP/2 404          (el de x86_64 devuelve 200)
 
-# 3. El guard del instalador
+# 3. El guard del instalador... en la rama 3.x
 curl -s https://raw.githubusercontent.com/basecamp/omarchy/master/install/preflight/guard.sh \
   | grep -A2 'x86 only'
 # → if [[ $(uname -m) != "x86_64" ]]; then
@@ -47,15 +47,32 @@ plan** para soportar aarch64, y en ese documento enumeran los bloqueantes que
 ellos mismos tienen. Entre otros: *"`pkgs.omarchy.org/{stable,edge}/aarch64/`
 must serve a real repo. Probed today, both return 404"*.
 
-Hay un detalle que remata el asunto. El instalador de Omarchy hace esto:
+Hay un detalle que remata el asunto. El instalador de Omarchy sobrescribe la
+lista de mirrors completa —en quattro, desde `install/post-install/pacman.sh`—
+con `stable-mirror.omarchy.org/$repo/os/$arch`. En ARM, el primer `pacman -Syu`
+posterior falla, porque ese mirror no sirve aarch64.
 
-```bash
-echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' \
-  | sudo tee /etc/pacman.d/mirrorlist
-```
+### Corrección: en quattro ese guard ya no existe
 
-**Sobrescribe la lista de mirrors completa.** En ARM, el primer `pacman -Syu`
-posterior fallaría, porque ese mirror no sirve aarch64.
+Meses después volví a comprobarlo y el punto 3 **había dejado de ser cierto**.
+Clonando las dos ramas:
+
+| Rama | `install/preflight/guard.sh` | `uname -m` en todo el repo |
+|---|---|---|
+| `master` (3.8.x) | existe, línea 25 | 1 aparición |
+| **`quattro` (4.x, la de por defecto)** | **el directorio `preflight/` no existe** | **0 apariciones** |
+
+Omarchy 4 **no se niega a correr en ARM64**. Lo que falta es el repositorio: el
+árbol es shell, Lua y QML, agnóstico de arquitectura, y el paquete `omarchy` en
+sí se declara `arch=('any')`. El bloqueo pasó de «se niega» a «no hay de dónde
+instalar», que es un problema mucho más pequeño —lo cerraría publicar unos 25
+paquetes aarch64— y que además explica por qué varios proyectos de terceros han
+tenido que montarse su propio repositorio por separado.
+
+Dejo el error a la vista en vez de reescribir la historia, porque es
+representativo: **verifiqué contra la rama equivocada**. `master` suena a rama
+principal; en este repositorio la de por defecto es `quattro`. La misma trampa
+que ya me había costado un arranque en modo emergencia, otra vez, en otro sitio.
 
 ### La decisión
 

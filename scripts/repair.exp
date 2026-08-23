@@ -12,7 +12,14 @@ proc wait_for {pat code msg {t 900}} {
     expect { -ex $pat {} timeout { puts "\n!! TIMEOUT: $msg"; exit $code }
              eof { puts "\n!! EOF: $msg"; exit [expr {$code+40}] } }
 }
-spawn -noecho @OMARM_ROOT@/scripts/qemu-build.sh
+# write_payloads sustituye @OMARM_ROOT@ al desplegar este fichero. Si el
+# marcador sigue ahi es que se esta ejecutando desde un clon del repositorio:
+# entonces la raiz viene de OMARM_ROOT o del directorio actual.
+set ROOT "@OMARM_ROOT@"
+if {[string match "@*@" $ROOT]} {
+  set ROOT [expr {[info exists env(OMARM_ROOT)] ? $env(OMARM_ROOT) : [pwd]}]
+}
+spawn -noecho $ROOT/scripts/qemu-build.sh
 wait_for "localhost login:" 10 "login de Alpine" 300
 send "root\r"
 wait_for "localhost:~#" 11 "shell de root" 120

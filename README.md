@@ -14,17 +14,27 @@ manual steps in the UTM interface.
 
 ## Why not just install Omarchy?
 
-Omarchy 4 cannot be installed on ARM64. Verified against primary sources:
+Not because it refuses to run — **because the packages do not exist**. Verified
+against primary sources on 2026-08-23:
 
 | Check | Result |
 |---|---|
-| `install/preflight/guard.sh` | `[[ $(uname -m) != "x86_64" ]] && abort` |
-| `stable-mirror.omarchy.org/core/os/aarch64/core.db` | **404** (x86_64 exists) |
+| `stable-mirror.omarchy.org/core/os/aarch64/core.db` | **404** (x86_64 → 200) |
+| `install/post-install/pacman.sh` | overwrites `/etc/pacman.d/mirrorlist` with `stable-mirror.omarchy.org/$repo/os/$arch` |
 | `omarchy.org/install-bare` | **404**, removed |
 | `omacom-io/omarchy-iso` → `plans/aarch64-support.md` | ARM64 = **planned, not implemented** |
 
-`boot.sh` also **overwrites** `/etc/pacman.d/mirrorlist` with Omarchy's mirror,
-which does not serve aarch64 — so on ARM the very first `pacman -Syu` fails.
+So the installer points pacman at a mirror with no aarch64 tree, and the first
+`pacman -Syu` on ARM fails. The Omarchy tree itself is architecture-agnostic:
+it's shell, Lua and QML.
+
+**A correction worth making**, because it is repeated a lot: Omarchy 3.x had an
+explicit architecture guard — `install/preflight/guard.sh`, line 25,
+`[[ $(uname -m) != "x86_64" ]] && abort`. **Quattro does not.** The `preflight/`
+directory is gone and `uname -m` appears **zero times** in the whole branch. The
+blocker moved from "it refuses" to "there is no repo to install from", which is
+a much smaller problem — and one that publishing ~25 aarch64 packages would
+close.
 
 This project builds the equivalent base — Arch Linux ARM + Hyprland — and
 applies the **actual contents** of the Omarchy repository on top.
@@ -180,6 +190,31 @@ which ships inside Google Chrome arm64 (`omarchy-arm-extras chrome spotify-web`)
 
 The full write-up, including the audit that found 37 defects in this very
 script, is in [ARTICULO.md](ARTICULO.md) (Spanish).
+
+## Prior art, and where this fits
+
+This is not the only attempt, and for bare-metal Apple Silicon it is not the
+best one. Verified 2026-08-23:
+
+| Project | Target | |
+|---|---|---|
+| [omarchy-mac/omarchy-mac](https://github.com/omarchy-mac/omarchy-mac) | **Omarchy 4 on Asahi Alarm, M1/M2 bare metal**, one command, LUKS | 896★, active |
+| [omarchy-mac/omarchy-pkgs-aarch64](https://github.com/omarchy-mac/omarchy-pkgs-aarch64) | The aarch64 pacman repo that upstream doesn't publish | the missing piece |
+| [jondkinney/armarchy](https://github.com/jondkinney/armarchy) | Omarchy **3.x** on Asahi and VMs | 33★ |
+| [Linux-for-Fydetab-Duo/imagebuild](https://github.com/Linux-for-Fydetab-Duo/imagebuild) | Omarchy 4 on RK3588S hardware | new |
+
+**If you have an M1 or M2 and want Omarchy on the metal, use omarchy-mac.** It
+is more mature than this and it gives you a real GPU.
+
+This project covers what that one cannot:
+
+- **M3, M4 and whatever comes next.** Asahi's installer supports M1 and M2 only;
+  M3 is work in progress and M4 is not started. A VM works on any of them.
+- **Keeping macOS untouched.** No partitioning, no reduced-security boot.
+- **External monitors.** Asahi still lists USB-C displays and Thunderbolt as
+  unsupported; in a VM the host handles the screens.
+
+The trade is the one stated above: no GPU acceleration inside the VM.
 
 ## Layout
 

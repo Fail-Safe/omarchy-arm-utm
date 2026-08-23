@@ -125,6 +125,26 @@ orph=$(pacman -Qdtq 2>/dev/null | tr '\n' ' ')
 rm -rf "/home/$NEW/.cargo" "/home/$NEW/go" "/home/$NEW/.rustup" "/home/$NEW/.npm" 2>/dev/null
 echo "  imprescindibles que deben seguir: $(for p in hyprland quickshell sddm; do printf '%s ' "$(pacman -Q $p 2>/dev/null || echo FALTA-$p)"; done)"
 
+log "7d/10 adelgazando: lo que no puede hacer falta en una VM"
+# Medido en una imagen real: 675 MiB de firmware para hardware que en una VM
+# QEMU con dispositivos virtio no puede existir. linux-firmware no se instala a
+# proposito, pero los splits por fabricante entran como dependencias.
+FW=$(pacman -Qq 2>/dev/null | grep -E '^linux-firmware-(intel|nvidia|amdgpu|atheros|broadcom|realtek|mediatek|marvell|qcom|qlogic|liquidio|bnx2x|mellanox|nfp|other)$' | tr '\n' ' ')
+if [ -n "${FW// /}" ]; then
+  echo "  firmware de hardware ausente: $FW"
+  # -Rdd: los splits los reclama el metapaquete linux-firmware, que tampoco
+  # hace falta. Si algo se opone, se deja como esta y no se rompe nada.
+  pacman -Rdd --noconfirm $FW linux-firmware >/dev/null 2>&1 \
+    && echo "  retirados" || echo "  (no se pudieron retirar; se dejan)"
+fi
+# Documentacion y manuales: 469 MiB. Es una imagen para probar un escritorio,
+# no un servidor donde vayas a leer man. Los .md de Omarchy NO se tocan.
+for d in /usr/share/doc /usr/share/man /usr/share/info /usr/share/gtk-doc; do
+  [ -d "$d" ] && { echo "  $d: $(du -shx "$d" 2>/dev/null | cut -f1)"; rm -rf "$d"; }
+done
+mkdir -p /usr/share/man /usr/share/doc
+echo "  ocupacion tras el recorte: $(df -h / | awk 'NR==2{print $3}')"
+
 log "7/10 logs y caches del sistema"
 rm -rf /var/log/journal/* /var/log/omarchy* /var/log/pacman.log
 find /var/log -type f -name "*.log" -delete 2>/dev/null || true
