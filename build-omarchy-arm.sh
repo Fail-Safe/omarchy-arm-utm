@@ -2554,6 +2554,12 @@ write_readme() {
   cat > "$1" <<'__PAYLOAD_LEEME_MD__'
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
+<!-- NOTA DE VERSIÓN: esta es la copia mantenida. La que viaja dentro del .zip
+     publicado en archive.org es de una revisión anterior y difiere en dos
+     frases (el recuento de comandos y la nota sobre herdr/Zig). No se ha
+     rehecho el zip para no invalidar el sha256 ya publicado por un cambio
+     cosmético; la versión al día está suelta en el propio item. -->
+
 Máquina virtual **aarch64 nativa** (acelerada con HVF, sin emulación) con
 Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
 [Omarchy 4](https://omarchy.org).
@@ -2603,7 +2609,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los ~430 comandos `omarchy-*`.
+menú, terminal, navegador, y los 432 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -2622,7 +2628,8 @@ Limitaciones propias de correr Omarchy en ARM:
   (llvmpipe). Bajo virtio-gpu los clientes GPU se mapean pero no se pintan; el
   blur y las sombras vienen desactivados para compensar. Es fluido para uso
   normal, no para vídeo ni 3D.
-- **Falta `herdr`**, que necesita Zig 0.15 y Arch Linux ARM solo empaqueta la 0.16.
+- **Falta `herdr`**: quiere la semántica de Zig 0.15, y ni ARM ni x86_64
+  empaquetan ya esa versión (los dos van por la 0.16).
 - **El disco viene comprimido** dentro del `.qcow2`. Ocupa la mitad y se
   descomprime al vuelo; si prefieres velocidad de lectura sobre espacio,
   `qemu-img convert -O qcow2 disco.qcow2 sin-comprimir.qcow2`.

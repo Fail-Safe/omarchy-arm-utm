@@ -71,7 +71,7 @@ diferencia deliberada: upstream instala sus comandos en `/usr/bin` y aquí van a
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los ~435 comandos `omarchy-*`** (aquí en `/usr/local/bin`;
+- **Dotfiles, temas y los 432 comandos `omarchy-*`** (aquí en `/usr/local/bin`;
   el paquete de upstream los pone en `/usr/bin`)
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
@@ -88,8 +88,8 @@ De los 148 paquetes de `omarchy-base.packages`, **121 existen en Arch Linux
 ARM** por nombre (123 si sustituyes `nvim`→`neovim` y
 `ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). De los que faltan,
 **17 se compilan desde fuente**. Quedan fuera las
-apps propietarias (1Password, Spotify, Obsidian, Typora) y `herdr`, que necesita
-Zig 0.15 cuando ARM solo empaqueta la 0.16.
+apps propietarias (1Password, Spotify, Obsidian, Typora) y `herdr`, que necesita la semántica de
+Zig 0.15: ni ARM ni x86_64 empaquetan ya esa versión, los dos van por la 0.16.
 
 Y algo que tardé en ver: **no todo lo que falta hay que compilarlo**. `mako`,
 `swayosd`, `walker` y `elephant` los instalé por inercia de Omarchy 3, y

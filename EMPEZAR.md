@@ -66,7 +66,7 @@ W=/Volumes/Externo/omarchy ./build-omarchy-arm.sh
 ./build-omarchy-arm.sh
 ```
 
-Y ya está. Con terminal te hará seis preguntas, todas **prerrellenadas con lo
+Y ya está. Con terminal te hará primero seis preguntas **prerrellenadas con lo
 que detecta de tu Mac**, así que se contestan con Enter:
 
 ```

@@ -913,7 +913,7 @@ cargo build --release &amp;&amp; sudo install -Dm755 target/release/ttfx /usr/lo
       <p>
         De las 25 ausencias, <strong>20 quedaron instaladas</strong>. Solo una resistió, y
         por un motivo concreto: <code>herdr</code> invoca <code>zig fetch</code> con la
-        semántica de Zig 0.15, y Arch Linux ARM solo empaqueta la 0.16 —falla con
+        semántica de Zig 0.15 y los repos van por la 0.16 —el mismo <code>zig 0.16.0-1</code> en ARM que en x86_64, así que esto no es cosa de ARM— y falla con
         <em>«no build.zig file found»</em>—. Construir Zig 0.15 desde fuente son horas, y es
         una herramienta de desarrollo, no parte del escritorio. El resto de ausencias son
         las genuinamente imposibles: binarios propietarios solo para x86_64.
@@ -1159,7 +1159,7 @@ zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
             btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
             de Omarchy 4 —quickshell como barra, menú, OSD y notificaciones, hyprlock,
             hypridle, uwsm, SDDM con
-            autologin—, los temas, los ~430 comandos <code>omarchy-*</code>, y
+            autologin—, los temas, los 432 comandos <code>omarchy-*</code>, y
             <code>omarchy-update</code>.
           </p>
         </div>

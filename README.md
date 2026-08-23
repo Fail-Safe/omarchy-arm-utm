@@ -89,10 +89,11 @@ Requirements: **Apple Silicon Mac**, Homebrew, **UTM 4.7+**, Xcode Command Line
 Tools (for `git` and `python3`), **~40 GB free**. No `sudo` needed — the script
 touches nothing outside its own working directory.
 
-It asks six questions, all pre-filled from your Mac (timezone from
-`/etc/localtime`, keyboard from macOS preferences, cores and RAM from `sysctl`),
-so Enter accepts everything. Add `--yes` to skip the questions entirely; with no
-tty it never asks.
+It asks six values that it pre-fills from your Mac — timezone from
+`/etc/localtime`, keyboard from macOS preferences, cores and RAM from `sysctl` —
+so Enter accepts them, then three decisions (compile the tools? include OBS and
+Pinta? prepare the image for distribution?) and a couple of follow-ups depending
+on the last one. Add `--yes` to skip all of it; with no tty it never asks.
 
 **The script is a single self-contained file.** It embeds the twelve files it
 needs — three install stages, the sanitiser, the repair harness, the optional-app
@@ -127,7 +128,7 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **~435 `omarchy-*` commands** (in `/usr/local/bin`
+- Dotfiles, themes and the **432 `omarchy-*` commands** (in `/usr/local/bin`
   here; upstream's package puts them in `/usr/bin`)
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
@@ -154,8 +155,8 @@ built from source; the build prints the list every run.
 - **Resolution is fixed at boot** (1920x1200 by default, editable in
   `~/.config/hypr/monitors.lua`). Changing the mode at runtime whites out the
   screen under virtio-gpu.
-- **`herdr` is missing** — it needs Zig 0.15 and Arch Linux ARM only packages
-  0.16.
+- **`herdr` is missing** — it wants Zig 0.15 semantics, and neither ARM nor
+  x86_64 packages that any more; both are on 0.16.
 - Single monitor.
 
 ## Keyboard on a Mac

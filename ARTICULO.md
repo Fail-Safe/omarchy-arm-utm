@@ -663,8 +663,10 @@ es tiempo de máquina, no de persona.
 ### El resultado
 
 De las 25 ausencias, **20 quedaron instaladas**. Solo una resistió, y por un
-motivo concreto: `herdr` invoca `zig fetch` con la semántica de Zig 0.15, y Arch
-Linux ARM solo empaqueta la 0.16 —falla con *«no build.zig file found»*—.
+motivo concreto: `herdr` invoca `zig fetch` con la semántica de Zig 0.15 y los repos van por la
+0.16 —falla con *«no build.zig file found»*—. Conviene precisar que **esto no es
+cosa de ARM**: `zig 0.16.0-1` es la versión tanto en Arch Linux ARM como en
+x86_64, así que el mismo tropiezo lo tendría cualquiera.
 Construir Zig 0.15 desde fuente son horas, y es una herramienta de desarrollo,
 no parte del escritorio.
 
@@ -888,7 +890,7 @@ qemu-img create -f qcow2 -b slim.qcow2 -F qcow2 prueba.qcow2
 **Funciona:** Arch Linux ARM aarch64 nativo con HVF, kernel `linux-aarch64` 7.2,
 btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
 de Omarchy 4 —quickshell como barra, menú, OSD y demonio de notificaciones,
-hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los ~430 comandos `omarchy-*`, y `omarchy-update`.
+hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 432 comandos `omarchy-*`, y `omarchy-update`.
 
 **No funciona:** la aceleración GL dentro de la VM (render por software), y los
 paquetes propios de Omarchy y las apps propietarias que solo existen para
