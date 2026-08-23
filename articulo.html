@@ -1,0 +1,1302 @@
+<title>Omarchy en Apple Silicon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap">
+
+<style>
+/* ── tokens ─────────────────────────────────────────────────────────────
+   Paleta: neutros de sesgo azul (pizarra) + un solo acento ámbar quemado.
+   Los bloques de código van oscuros en ambos temas a propósito: son
+   transcripciones de consola y así se leen como lo que son.            */
+:root {
+  --ground:      #F5F7F9;
+  --surface:     #FFFFFF;
+  --ink:         #14181E;
+  --ink-2:       #48505B;
+  --ink-3:       #79828F;
+  --rule:        #E1E5EA;
+  --rule-strong: #C9D0D8;
+  --accent:      #A2551A;
+  --accent-ink:  #8A4715;
+  --accent-soft: #F4EADF;
+  --ok:          #2C6E4E;
+  --no:          #A63A3A;
+
+  --term-bg:     #11151B;
+  --term-ink:    #D7DDE5;
+  --term-dim:    #7C8796;
+  --term-accent: #E3A863;
+  --term-rule:   #242B34;
+
+  --measure: 34rem;
+  --step--1: clamp(.82rem, .8rem + .1vw, .875rem);
+  --step-0:  clamp(1.0625rem, 1.02rem + .18vw, 1.15rem);
+  --step-1:  clamp(1.3rem, 1.2rem + .4vw, 1.5rem);
+  --step-2:  clamp(1.65rem, 1.45rem + .8vw, 2.1rem);
+  --step-3:  clamp(2.3rem, 1.85rem + 2vw, 3.4rem);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0E1116;
+    --surface:     #151A20;
+    --ink:         #E5E9EE;
+    --ink-2:       #A6AFBB;
+    --ink-3:       #6E7783;
+    --rule:        #232A33;
+    --rule-strong: #333C47;
+    --accent:      #E0A055;
+    --accent-ink:  #EBB673;
+    --accent-soft: #241C13;
+    --ok:          #5FBF8B;
+    --no:          #E08585;
+    --term-bg:     #0A0D12;
+    --term-rule:   #1C232B;
+  }
+}
+:root[data-theme="dark"] {
+  --ground:      #0E1116;
+  --surface:     #151A20;
+  --ink:         #E5E9EE;
+  --ink-2:       #A6AFBB;
+  --ink-3:       #6E7783;
+  --rule:        #232A33;
+  --rule-strong: #333C47;
+  --accent:      #E0A055;
+  --accent-ink:  #EBB673;
+  --accent-soft: #241C13;
+  --ok:          #5FBF8B;
+  --no:          #E08585;
+  --term-bg:     #0A0D12;
+  --term-rule:   #1C232B;
+}
+
+/* ── base ───────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+  font-size: var(--step-0);
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 78rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+
+/* rejilla: raíl estrecho de etiquetas + columna de lectura */
+.grid {
+  display: grid;
+  grid-template-columns: minmax(0, var(--measure));
+  justify-content: center;
+  gap: 0;
+}
+@media (min-width: 62rem) {
+  .grid { grid-template-columns: 9rem minmax(0, var(--measure)); justify-content: center; column-gap: 3rem; }
+}
+
+/* ── tipografía ─────────────────────────────────────────────────────── */
+h1, h2, h3 { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; text-wrap: balance; margin: 0; }
+h1 { font-size: var(--step-3); font-weight: 700; letter-spacing: -.028em; line-height: 1.02; }
+h2 { font-size: var(--step-2); font-weight: 700; letter-spacing: -.022em; line-height: 1.12; }
+h3 { font-size: var(--step-1); font-weight: 600; letter-spacing: -.014em; line-height: 1.25; }
+p  { margin: 0 0 1.1em; }
+a  { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: .18em; }
+a:hover { text-decoration-thickness: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
+strong { font-weight: 600; color: var(--ink); }
+em { font-style: italic; }
+hr { border: 0; border-top: 1px solid var(--rule); margin: 3.5rem 0; }
+
+.eyebrow {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .68rem; font-weight: 500; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ── cabecera ───────────────────────────────────────────────────────── */
+header.masthead { border-bottom: 1px solid var(--rule); margin-bottom: 3.5rem; }
+.masthead-inner { padding: 4.5rem 0 2.75rem; }
+.deck {
+  font-size: var(--step-1); line-height: 1.45; color: var(--ink-2);
+  margin: 1.4rem 0 0; max-width: 40rem;
+}
+.meta {
+  display: flex; flex-wrap: wrap; gap: 0 2.25rem;
+  margin-top: 2.5rem; padding-top: 1.25rem; border-top: 1px solid var(--rule);
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: var(--step--1); color: var(--ink-3);
+}
+.meta b { display: block; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.meta span { padding: .35rem 0; }
+
+/* ── secciones ──────────────────────────────────────────────────────── */
+section { margin-bottom: 3.25rem; }
+.rail { grid-column: 1; }
+.col  { grid-column: 1; }
+@media (min-width: 62rem) { .col { grid-column: 2; } }
+.rail-label { position: sticky; top: 2rem; padding-top: .55rem; display: none; }
+@media (min-width: 62rem) { .rail-label { display: block; text-align: right; } }
+
+h2 { margin-bottom: 1.1rem; }
+h3 { margin: 2.25rem 0 .85rem; }
+.col > :first-child { margin-top: 0; }
+
+ul, ol { margin: 0 0 1.2em; padding-left: 1.3em; }
+li { margin-bottom: .4em; }
+li::marker { color: var(--ink-3); }
+
+/* ── código ─────────────────────────────────────────────────────────── */
+code {
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .84em;
+}
+:not(pre) > code {
+  background: var(--accent-soft); color: var(--accent-ink);
+  padding: .12em .38em; border-radius: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, transparent);
+}
+pre {
+  margin: 1.6rem 0; padding: 1.15rem 1.3rem;
+  background: var(--term-bg); color: var(--term-ink);
+  border: 1px solid var(--term-rule); border-radius: 5px;
+  overflow-x: auto; line-height: 1.6;
+  font-size: .82rem;
+  box-shadow: 0 1px 2px rgb(0 0 0 / .18);
+}
+pre code { font-size: inherit; color: inherit; background: none; border: 0; padding: 0; }
+/* en pantallas anchas el código respira más que el texto */
+@media (min-width: 62rem) { pre { margin-left: -2.25rem; margin-right: -4.5rem; } }
+.c  { color: var(--term-dim); }           /* comentario */
+.o  { color: var(--term-accent); }        /* salida destacada */
+.p  { color: var(--term-dim); }           /* prompt */
+
+/* ── hallazgos ──────────────────────────────────────────────────────── */
+.finding {
+  border-left: 2px solid var(--accent);
+  padding: .1rem 0 .1rem 1.4rem;
+  margin: 2.75rem 0 2rem;
+}
+.finding > .eyebrow { display: block; margin-bottom: .5rem; color: var(--accent-ink); }
+.finding h3 { margin-top: 0; }
+
+/* ── nota al margen ─────────────────────────────────────────────────── */
+.note {
+  background: var(--surface); border: 1px solid var(--rule);
+  border-radius: 5px; padding: 1.05rem 1.2rem; margin: 1.75rem 0;
+  font-size: .96em; color: var(--ink-2);
+}
+.note .eyebrow { display: block; margin-bottom: .4rem; }
+blockquote {
+  margin: 1.5rem 0; padding: .1rem 0 .1rem 1.15rem;
+  border-left: 2px solid var(--accent);
+  color: var(--ink-2); font-style: italic;
+}
+blockquote p { margin: 0; }
+.note p:last-child { margin-bottom: 0; }
+
+/* ── tablas ─────────────────────────────────────────────────────────── */
+.tablewrap { overflow-x: auto; margin: 1.75rem 0; }
+table { border-collapse: collapse; width: 100%; font-size: .95em; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+th {
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: .68rem; font-weight: 500; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--ink-3); border-bottom-color: var(--rule-strong);
+}
+td code { white-space: nowrap; }
+
+/* ── veredicto ──────────────────────────────────────────────────────── */
+.verdict { display: grid; gap: 1.25rem; margin: 1.75rem 0; }
+@media (min-width: 40rem) { .verdict { grid-template-columns: 1fr 1fr; } }
+.verdict > div { background: var(--surface); border: 1px solid var(--rule); border-radius: 5px; padding: 1.1rem 1.25rem; }
+.verdict h4 {
+  margin: 0 0 .6rem; font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: .7rem; font-weight: 700; letter-spacing: .13em; text-transform: uppercase;
+}
+.verdict .yes h4 { color: var(--ok); }
+.verdict .nope h4 { color: var(--no); }
+.verdict p { margin: 0; font-size: .95em; color: var(--ink-2); }
+
+footer {
+  margin-top: 4.5rem; padding-top: 1.5rem; border-top: 1px solid var(--rule);
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: var(--step--1); color: var(--ink-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <div class="grid">
+    <div class="col">
+      <div class="masthead-inner">
+        <p class="eyebrow">Registro de construcción · agosto 2026</p>
+        <h1>Omarchy en Apple&nbsp;Silicon</h1>
+        <p class="deck">
+          Cómo reconstruir el escritorio de Omarchy sobre Arch Linux ARM dentro de UTM,
+          por qué el camino oficial está cerrado, y los diez obstáculos que se descubren
+          solo al chocar con ellos.
+        </p>
+        <div class="meta">
+          <span>Anfitrión<b>MacBook M3 Max · macOS 26</b></span>
+          <span>Invitado<b>Arch Linux ARM aarch64</b></span>
+          <span>Aceleración<b>HVF, sin emulación</b></span>
+          <span>Resultado<b>4,2 GB distribuibles</b></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Contexto</p></div>
+  <div class="col">
+    <section>
+      <h2>El punto de partida</h2>
+      <p>
+        Omarchy es la distribución de escritorio de DHH: Arch Linux con Hyprland, temas
+        cuidados y unas 430 utilidades propias. La pregunta era sencilla: <strong>¿se puede
+        tener eso en una máquina virtual en un Mac con Apple Silicon?</strong>
+      </p>
+      <p>
+        Existe una guía de referencia, la
+        <a href="https://github.com/basecamp/omarchy/discussions/452">discusión #452</a>
+        del repositorio, que describe justo eso. El problema es que es de 2025 y el
+        proyecto se mueve rápido.
+      </p>
+
+      <h3>Lo primero: comprobar que la guía sigue siendo válida</h3>
+      <p>Cuatro comprobaciones bastaron para descartarla. Ninguna requiere instalar nada:</p>
+<pre><code><span class="c"># 1. El endpoint que usa la guía</span>
+curl -sI https://omarchy.org/install-bare | head -1
+<span class="o">→ HTTP/2 404</span>
+
+<span class="c"># 2. El mirror de Omarchy, para aarch64</span>
+curl -sI https://stable-mirror.omarchy.org/core/os/aarch64/core.db | head -1
+<span class="o">→ HTTP/2 404</span>   <span class="c">(el de x86_64 devuelve 200)</span>
+
+<span class="c"># 3. El guard del instalador</span>
+curl -s .../install/preflight/guard.sh | grep -A2 'x86 only'
+<span class="o">→ if [[ $(uname -m) != "x86_64" ]]; then
+→   abort "x86_64 CPU"</span>
+
+<span class="c"># 4. El estado real del soporte ARM, en el repositorio del ISO</span>
+curl -s .../omarchy-iso/main/plans/aarch64-support.md | head -20
+<span class="o">→ "Plan: aarch64 ... Target: a parallel generic UEFI aarch64 ISO"</span></code></pre>
+      <p>
+        Ese cuarto punto es el más informativo: el equipo de Omarchy <strong>ya escribió el
+        plan</strong> para soportar aarch64, y en ese documento enumeran sus propios
+        bloqueantes. Entre otros: <em>«<code>pkgs.omarchy.org/{stable,edge}/aarch64/</code>
+        must serve a real repo. Probed today, both return 404»</em>.
+      </p>
+      <p>Hay un detalle que remata el asunto. El instalador de Omarchy hace esto:</p>
+<pre><code>echo 'Server = https://stable-mirror.omarchy.org/$repo/os/$arch' \
+  | sudo tee /etc/pacman.d/mirrorlist</code></pre>
+      <p>
+        <strong>Sobrescribe la lista de mirrors completa.</strong> En ARM, el primer
+        <code>pacman -Syu</code> posterior fallaría, porque ese mirror no sirve aarch64.
+      </p>
+    </section>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Decisión</p></div>
+  <div class="col">
+    <section>
+      <h2>Reconstruir en vez de instalar</h2>
+      <p>
+        Si no se puede instalar Omarchy, se puede reconstruir: montar Arch Linux ARM con
+        Hyprland y aplicarle el contenido real del repositorio de Omarchy —configuración,
+        temas, utilidades—, que es donde está el 90&nbsp;% de la experiencia.
+      </p>
+      <p>
+        Antes de escribir una línea de código conviene medir si eso da algo utilizable. Se
+        puede saber sin instalar nada, cruzando la lista de paquetes de Omarchy con el
+        índice de Arch Linux ARM:
+      </p>
+<pre><code><span class="c"># Índice de paquetes de Arch Linux ARM para aarch64</span>
+curl -s http://mirror.archlinuxarm.org/aarch64/core/core.db   -o core.db
+curl -s http://mirror.archlinuxarm.org/aarch64/extra/extra.db -o extra.db
+mkdir db &amp;&amp; cd db &amp;&amp; tar -xzf ../core.db &amp;&amp; tar -xzf ../extra.db
+ls -1 | sed -E 's/-[^-]+-[^-]+$//' | sort -u &gt; ../alarm.txt
+
+<span class="c"># Lista de paquetes de Omarchy</span>
+curl -s .../omarchy/quattro/install/omarchy-base.packages \
+  | grep -vE '^#|^$' &gt; omarchy.txt
+
+comm -12 &lt;(sort omarchy.txt) ../alarm.txt | wc -l   <span class="c"># disponibles</span>
+comm -23 &lt;(sort omarchy.txt) ../alarm.txt           <span class="c"># los que faltan</span></code></pre>
+      <p>
+        Resultado: <strong>123 de 148 paquetes existen en ARM</strong>. Los 25 que faltan
+        son apps propietarias (1Password, Spotify, Obsidian, Typora) y paquetes propios de
+        Omarchy. Y lo importante: <code>hyprland</code>, <code>hyprlock</code>,
+        <code>hypridle</code>, <code>quickshell</code>, <code>uwsm</code>,
+        <code>sddm</code>, <code>mesa</code> y <code>chromium</code> están todos, con
+        versiones al día. Arch Linux ARM va <strong>a la par</strong> de Arch:
+        <code>firefox 154.0-1</code> en ambos.
+      </p>
+      <p>Con esos números, el proyecto tiene sentido.</p>
+    </section>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Arquitectura</p></div>
+  <div class="col">
+    <section>
+      <h2>Cómo se construye</h2>
+      <p>Tres decisiones estructurales, cada una con su razón.</p>
+      <p>
+        <strong>Construcción sin interfaz gráfica.</strong> Arrancar un instalador y hacer
+        clic no es reproducible. Todo el proceso ocurre en una VM QEMU dirigida por
+        <code>expect</code> a través de la consola serie. Si algo falla, se corrige el
+        script y se repite.
+      </p>
+      <p>
+        <strong>Aceleración HVF.</strong> Como el invitado es aarch64 y el anfitrión
+        también, se puede usar el hipervisor nativo de macOS en vez de emular. La
+        diferencia es de un orden de magnitud.
+      </p>
+      <p>
+        <strong>Alpine como entorno de arranque.</strong> Arch Linux ARM no publica un ISO
+        instalador, solo un tarball de rootfs. Hace falta un Linux mínimo que particione el
+        disco y despliegue ese tarball. Alpine <code>virt</code> pesa 88&nbsp;MB, arranca
+        en segundos y sale directo a una consola serie.
+      </p>
+<pre><code>Alpine live (QEMU + HVF, consola serie)
+  └─ etapa 1: particionar, desplegar rootfs de ALARM, chroot
+       └─ etapa 2 (root): kernel, arranque UEFI, paquetes, usuario
+            └─ etapa 3 (usuario): Omarchy, AUR, temas</code></pre>
+    </section>
+  </div>
+</div>
+
+<hr>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Paso a paso</p></div>
+  <div class="col">
+    <section>
+      <h2>El procedimiento</h2>
+
+      <h3>1 · Dependencias</h3>
+<pre><code>brew install qemu expect aria2
+brew install --cask utm</code></pre>
+
+      <h3>2 · Imágenes base, con verificación</h3>
+<pre><code>aria2c -x8 https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-virt-3.24.1-aarch64.iso
+aria2c -x8 http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz
+
+<span class="c"># El tarball se rehace cada pocas semanas: verifica siempre</span>
+curl -s http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz.md5
+md5 -q ArchLinuxARM-aarch64-latest.tar.gz</code></pre>
+
+      <h3>3 · Particionado y despliegue del rootfs</h3>
+      <p>
+        Dentro de Alpine. Primer detalle no obvio: <strong>hay que cargar el módulo btrfs a
+        mano</strong>. El kernel <code>virt</code> de Alpine lo trae como módulo pero no lo
+        autocarga, y <code>mkfs.btrfs</code> funciona —es userspace— mientras que
+        <code>mount</code> falla con un desconcertante <em>«Invalid argument»</em>.
+      </p>
+<pre><code>modprobe btrfs vfat
+grep -qw btrfs /proc/filesystems || exit 1   <span class="c"># comprobar de verdad</span>
+
+parted -s /dev/vda mklabel gpt
+parted -s /dev/vda mkpart OMBOOT fat32 1MiB 1025MiB
+parted -s /dev/vda set 1 esp on
+parted -s /dev/vda mkpart OMROOT btrfs 1025MiB 100%
+mkfs.vfat -F32 -n OMBOOT /dev/vda1
+mkfs.btrfs -f -L OMROOT  /dev/vda2
+
+mount /dev/vda2 /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+umount /mnt
+mount -o rw,noatime,compress=zstd:3,subvol=@     /dev/vda2 /mnt
+mkdir -p /mnt/home
+mount -o rw,noatime,compress=zstd:3,subvol=@home /dev/vda2 /mnt/home</code></pre>
+      <div class="note">
+        <p class="eyebrow">Orden de montaje</p>
+        <p>
+          La ESP se monta <em>después</em> de extraer el rootfs. El tarball de ALARM
+          contiene enlaces simbólicos en <code>/boot</code> y vfat no los admite: si la ESP
+          está montada durante la extracción, <code>bsdtar</code> falla. Se extrae primero,
+          se descarta ese <code>/boot</code> y pacman lo repuebla sobre la ESP ya montada.
+        </p>
+      </div>
+<pre><code>bsdtar -xpf alarm-rootfs.tgz -C /mnt      <span class="c"># -p preserva permisos y xattr</span>
+rm -rf /mnt/boot &amp;&amp; mkdir /mnt/boot
+mount /dev/vda1 /mnt/boot</code></pre>
+
+      <h3>4 · Sistema base y arranque UEFI</h3>
+      <p>
+        Dentro del chroot. Arch Linux ARM tiene <strong>su propio llavero</strong>, distinto
+        del de Arch:
+      </p>
+<pre><code>pacman-key --init
+pacman-key --populate archlinuxarm     <span class="c"># no "archlinux"</span>
+pacman -Syu --noconfirm
+pacman -S --noconfirm --needed base base-devel linux-aarch64 sudo git \
+  networkmanager btrfs-progs dosfstools efibootmgr</code></pre>
+      <p>
+        El initramfs necesita los módulos virtio explícitos, porque el
+        <code>autodetect</code> de mkinitcpio se ejecuta en un chroot donde el kernel en
+        marcha es el de Alpine:
+      </p>
+<pre><code>sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu btrfs)/' \
+  /etc/mkinitcpio.conf
+mkinitcpio -P</code></pre>
+      <p>Y aquí el detalle que decide si la VM arranca o no:</p>
+<pre><code>bootctl --esp-path=/boot <span class="o">--no-variables</span> install</code></pre>
+      <p>
+        <code>--no-variables</code> evita escribir entradas en la NVRAM UEFI. ¿Por qué?
+        Porque la NVRAM de la VM de construcción <strong>no viaja</strong> al bundle de UTM:
+        son ficheros de variables distintos. El arranque tiene que depender de la ruta de
+        reserva <code>\EFI\BOOT\BOOTAA64.EFI</code>, que <code>bootctl</code> instala
+        igualmente. Si se confía en la NVRAM, la VM construye bien y luego no arranca.
+      </p>
+
+      <h3>5 · Omarchy</h3>
+      <p>Dos líneas y ya está, en teoría:</p>
+<pre><code>git clone --depth 1 https://github.com/basecamp/omarchy.git ~/.local/share/omarchy
+cp -R ~/.local/share/omarchy/config/* ~/.config/</code></pre>
+      <p>En la práctica, Hyprland arrancó en <strong>modo de emergencia</strong>:</p>
+<pre><code><span class="o">⚠ Emergency mode tripped: A lua config error resulted in no binds being registered.
+cannot open /usr/share/omarchy/default/hypr/bootstrap.lua: No such file or directory</span></code></pre>
+      <p>Lo que viene a continuación es la parte que no está en ninguna guía.</p>
+    </section>
+  </div>
+</div>
+
+<hr>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Hallazgos</p></div>
+  <div class="col">
+    <section>
+      <h2>Los seis obstáculos</h2>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 01 · Repositorio</span>
+        <h3><code>git clone</code> no trae <code>master</code></h3>
+<pre><code>curl -s https://api.github.com/repos/basecamp/omarchy | jq -r .default_branch
+<span class="o">→ quattro</span>
+
+curl -s .../omarchy/master/version    <span class="o">→ 3.8.5</span>
+curl -s .../omarchy/quattro/version   <span class="o">→ 4.0.0.alpha</span></code></pre>
+        <p>
+          La rama por defecto <strong>no es <code>master</code></strong>. Un
+          <code>git clone</code> sin <code>--branch</code> trae <code>quattro</code>, que
+          es Omarchy 4, un producto distinto de la 3.8.5 que documenta <code>master</code>:
+        </p>
+        <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>master (3.8.5)</th><th>quattro (4.x)</th></tr></thead>
+          <tbody>
+            <tr><td>Barra</td><td>waybar</td><td><strong>quickshell</strong></td></tr>
+            <tr><td>Config de Hyprland</td><td>ficheros <code>.conf</code></td><td><strong>Lua</strong></td></tr>
+            <tr><td>Distribución</td><td>scripts en el <code>$HOME</code></td><td><strong>paquete pacman</strong></td></tr>
+          </tbody>
+        </table>
+        </div>
+        <p>
+          Consecuencia práctica: había instalado la lista de paquetes de <code>master</code>
+          —con waybar— en un sistema que corría <code>quattro</code> —que usa quickshell—.
+          La barra sencillamente no existía. Y <code>quickshell 0.3.1</code> <em>sí está</em>
+          en Arch Linux ARM; solo faltaba saber que hacía falta.
+        </p>
+        <p>
+          <strong>Lección:</strong> cuando un proyecto va rápido, comprueba la rama por
+          defecto antes de leer su documentación.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 02 · Distribución</span>
+        <h3>Omarchy 4 es un paquete pacman</h3>
+        <p>
+          La versión 4 se distribuye como paquete, no como scripts en el <code>$HOME</code>.
+          Ese paquete coloca ficheros en rutas fijas del sistema:
+        </p>
+        <ul>
+          <li><code>/usr/share/omarchy</code> — el árbol completo</li>
+          <li><code>/usr/bin/omarchy-*</code> — los binarios en el PATH</li>
+          <li><code>/etc/profile.d/omarchy.sh</code> — el gancho para las shells</li>
+          <li><code>/usr/share/uwsm/env.d/10-omarchy</code> — el gancho para la sesión gráfica</li>
+        </ul>
+        <p>
+          El paquete es x86_64-only. Clonar el repositorio en el <code>$HOME</code> deja
+          <code>OMARCHY_PATH</code> vacío, el <code>.bashrc</code> falla, Hyprland no
+          encuentra su <code>bootstrap.lua</code> y nada del autostart funciona. La solución
+          es replicar a mano lo que haría el paquete:
+        </p>
+<pre><code>sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
+for f in "$OMARCHY_PATH"/bin/*; do
+  sudo ln -sfn "$f" "/usr/local/bin/$(basename "$f")"     <span class="c"># 431 binarios</span>
+done
+sudo install -Dm644 "$OMARCHY_PATH/etc/profile.d/omarchy.sh" /etc/profile.d/omarchy.sh
+sudo install -Dm644 "$OMARCHY_PATH/default/uwsm/env.d/10-omarchy" \
+  /usr/share/uwsm/env.d/10-omarchy</code></pre>
+        <p>
+          <code>/usr/local/bin</code> en vez de <code>/usr/bin</code> para no pisar
+          territorio de pacman. Va antes en el PATH y está dentro del
+          <code>secure_path</code> de sudo, así que lo ven también SDDM y systemd.
+        </p>
+        <div class="note">
+          <p class="eyebrow">Curiosidad</p>
+          <p>
+            Omarchy tiene un mecanismo pensado exactamente para esto,
+            <code>omarchy-dev-link</code>, que escribe <code>/etc/omarchy.conf</code> para
+            apuntar el sistema a un checkout local. Existe para desarrollar Omarchy, pero
+            sirve igual para este caso.
+          </p>
+        </div>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 03 · Teclado</span>
+        <h3>La tecla Super, secuestrada por macOS</h3>
+        <p>
+          Omarchy usa SUPER para todo. En un Mac, SUPER es Cmd, y <strong>macOS intercepta
+          Cmd antes de que UTM lo reciba</strong>: Cmd+Space abre Spotlight, no el menú de
+          Omarchy.
+        </p>
+        <p>
+          Se puede pelear con los permisos de captura de entrada de UTM, o resolverlo dentro
+          del invitado en una línea:
+        </p>
+<pre><code><span class="c">-- ~/.config/hypr/input.lua</span>
+hl.config({
+  input = {
+    kb_layout  = "es",
+    kb_options = "compose:caps,shift:both_capslock_cancel,<span class="o">altwin:swap_lalt_lwin</span>",
+  },
+})</code></pre>
+        <p>
+          <code>altwin:swap_lalt_lwin</code> intercambia Alt y Super. Resultado: la tecla
+          <strong>Option&nbsp;(⌥)</strong> actúa como SUPER, y macOS no intercepta
+          Option+Space.
+        </p>
+        <p>
+          De paso, otro detalle: Hyprland lee la distribución de teclado de
+          <code>XKBLAYOUT</code> en <code>/etc/vconsole.conf</code>, no de
+          <code>KEYMAP</code>. Poner solo <code>KEYMAP=es</code> deja Hyprland en
+          <code>us</code>. Hay que escribir las dos.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 04 · Render</span>
+        <h3>Ventanas que se abren invisibles</h3>
+        <p>
+          El síntoma más desconcertante: el escritorio se veía, el teclado funcionaba, los
+          menús aparecían… pero al abrir un terminal no salía nada. <code>hyprctl</code> lo
+          confirmaba:
+        </p>
+<pre><code>Window aaaad1ec7630 -&gt; Alacritty:
+    <span class="o">mapped: 1</span>
+    size: 1896,1150
+    workspace: 1</code></pre>
+        <p>
+          Ventana mapeada, con tamaño, en el espacio visible. Y en pantalla, solo el fondo.
+          La prueba que lo aisló fue comparar dos terminales:
+        </p>
+<pre><code>foot       <span class="c"># dibuja con buffers de memoria compartida (wl_shm)</span>  <span class="o">→ SE VE</span>
+alacritty  <span class="c"># dibuja con EGL/GPU (dma-buf)</span>                       <span class="o">→ NO SE VE</span></code></pre>
+        <p>
+          Es decir: bajo <code>virtio-gpu</code> con virgl, los clientes que usan GPU
+          producen buffers que Hyprland no puede componer. El compositor renderiza lo suyo
+          —barra, fondo, menús— pero las ventanas de aplicación quedan vacías.
+        </p>
+        <p>Lo que <strong>no</strong> lo arregla, comprobado uno a uno:</p>
+        <ul>
+          <li><code>AQ_NO_MODIFIERS=1</code> — ya estaba activo</li>
+          <li><code>render:explicit_sync</code> — eliminado en Hyprland 0.56</li>
+          <li><code>render:cm_enabled = false</code> — sin efecto</li>
+        </ul>
+        <p>Lo que sí:</p>
+<pre><code><span class="c"># /etc/environment.d/90-vm-graphics.conf</span>
+<span class="o">LIBGL_ALWAYS_SOFTWARE=1</span></code></pre>
+        <p>
+          Mesa pasa a llvmpipe, los clientes entregan buffers <code>wl_shm</code> y todo se
+          dibuja. El coste es real: se pierde la aceleración GL <em>dentro</em> de la VM.
+          Como compensación conviene desactivar el blur y las sombras, que con render por
+          CPU salen caros.
+        </p>
+        <div class="note">
+          <p class="eyebrow">El error de método</p>
+          <p>
+            Al probarlo por SSH parecía no funcionar. <code>/etc/environment.d/</code> lo lee
+            el <strong>gestor de sesión de systemd</strong>, no una shell de login: una app
+            lanzada desde SSH no hereda la variable; una lanzada desde la sesión gráfica sí.
+            El fallo estaba en el método de prueba, no en la corrección.
+          </p>
+        </div>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 05 · Resolución</span>
+        <h3>Cambiar el modo en caliente rompe el render</h3>
+        <p>
+          Al fijar 1920×1200 con <code>hyprctl reload</code>, la pantalla se quedó
+          <strong>en blanco</strong>. Las capas seguían ahí —<code>hyprctl layers</code> las
+          listaba, con alfa 1— pero no se pintaban. Reiniciar el shell no bastó; hizo falta
+          reiniciar la VM entera. Aplicada <em>desde el arranque</em>, la misma resolución
+          funciona perfectamente.
+        </p>
+<pre><code><span class="c">-- ~/.config/hypr/monitors.lua</span>
+hl.env("GDK_SCALE", "1")
+hl.monitor({ output = "Virtual-1", mode = "1920x1200@60", position = "0x0", scale = 1 })</code></pre>
+        <p>
+          Si tocas ese fichero, reinicia la VM en lugar de recargar la configuración. El
+          <code>scale = 1</code> también importa: Omarchy asume pantallas retina y con el
+          valor por defecto todo sale gigante en una VM.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 06 · Actualizaciones</span>
+        <h3><code>omarchy-update</code> reventaba</h3>
+        <p>Al actualizar, la salida terminaba en error. El log de pacman contaba la historia:</p>
+<pre><code>Running 'pacman -Rns --noconfirm dust'      <span class="o">→ eliminado</span>
+Running 'pacman -S --noconfirm tensaku'     <span class="o">→ no existe en ARM → error</span></code></pre>
+        <p>
+          Una <strong>migración</strong> de Omarchy había quitado <code>dust</code> para
+          sustituirlo por <code>tensaku</code>, un paquete propio que en ARM no existe. Y
+          dejó el sistema sin ninguno de los dos. La causa raíz estaba en el build:
+        </p>
+<pre><code>ls ~/.local/state/omarchy/migrations | wc -l   <span class="o">→ 8</span>
+ls /usr/share/omarchy/migrations/*.sh | wc -l  <span class="o">→ 83</span></code></pre>
+        <p>
+          Un instalador normal de Omarchy <strong>sella todas las migraciones al
+          terminar</strong>, porque un sistema recién instalado ya nace con el estado final:
+          las migraciones existen para actualizar instalaciones antiguas. Al clonar el
+          repositorio sin sellarlas, <code>omarchy-update</code> intentó reproducir 75
+          migraciones históricas.
+        </p>
+        <p>Dos correcciones. La primera, sellar:</p>
+<pre><code>mkdir -p ~/.local/state/omarchy/migrations
+for f in /usr/share/omarchy/migrations/*.sh; do
+  : &gt; ~/.local/state/omarchy/migrations/"$(basename "$f")"
+done</code></pre>
+        <p>
+          La segunda es la que importa a largo plazo. <code>omarchy-pkg-add</code> aborta si
+          un paquete no existe, y eso tumba la actualización entera. Un envoltorio en
+          <code>/usr/local/bin</code> lo hace tolerante:
+        </p>
+<pre><code>REAL=/usr/share/omarchy/bin/omarchy-pkg-add
+avail=(); skip=()
+for p in "$@"; do
+  if pacman -Q "$p" &amp;&gt;/dev/null || pacman -Si "$p" &amp;&gt;/dev/null; then
+    avail+=("$p")
+  else
+    skip+=("$p")
+  fi
+done
+((${#skip[@]})) &amp;&amp; printf 'Omitido, no existe en ARM: %s\n' "${skip[*]}" &gt;&amp;2
+((${#avail[@]})) || exit 0
+exec "$REAL" "${avail[@]}"</code></pre>
+        <p>
+          Sin esto, cada paquete nuevo que Omarchy introduzca volvería a romper las
+          actualizaciones.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 07 · Verificación</span>
+        <h3>El escritorio gris: dos fallos que ningún log denunció</h3>
+        <p>
+          La última comprobación antes de empaquetar fue mirar una captura del escritorio
+          ya sanitizado. Arrancaba, la barra estaba, el reloj daba la hora. Pero el fondo
+          era gris liso y las notificaciones, cajas grises sin estilo. Ni un error en
+          <code>journalctl</code>, ni un aviso en pantalla. Dos causas independientes, y
+          las dos con la misma forma: <strong>el sistema seguía funcionando, solo que
+          mal</strong>.
+        </p>
+        <p>
+          <strong><code>grep -r</code> no ve el destino de un enlace simbólico.</strong> Al
+          renombrar el usuario de <code>gabriel</code> a <code>omarchy</code>, yo verificaba
+          el resultado así:
+        </p>
+<pre><code>grep -rl '\bgabriel\b' /etc /home/omarchy/.config   <span class="o">→ 0 coincidencias</span></code></pre>
+        <p>
+          Cero. Limpio. Salvo que el destino de un symlink no es <em>contenido</em> de un
+          fichero: <code>grep</code> no lo lee. Y Omarchy guarda el tema y el fondo activos
+          precisamente como enlaces. La comprobación correcta es otra herramienta:
+        </p>
+<pre><code>find /home/$NEW /etc /usr/local /opt -xdev -type l -lname "*/home/$OLD/*"
+<span class="o">→ 439 enlaces colgando</span></code></pre>
+        <p>
+          Cuatrocientos treinta y nueve, incluidos los <strong>431 comandos
+          <code>omarchy-*</code></strong> de <code>/usr/local/bin</code>, que apuntaban a un
+          home que ya no existía. El escritorio arrancaba porque quickshell lee de
+          <code>/usr/share/omarchy</code>, pero cualquier comando del menú habría fallado.
+        </p>
+        <p>
+          <strong>Instalé cuatro paquetes que Omarchy 4 jubila.</strong> El segundo fallo
+          era mío de raíz: mi lista de paquetes «de infraestructura» venía de leer Omarchy
+          3 y arrastraba <code>mako</code>, <code>swayosd</code>, <code>walker</code> y
+          <code>elephant</code>. Ninguno está en el <code>omarchy-base.packages</code> de
+          <code>quattro</code>, y la documentación del repositorio lo dice sin rodeos, en
+          <code>docs/notifications.md</code>:
+        </p>
+        <blockquote>
+          The shell is the notification daemon […] There is no dunst or mako.
+        </blockquote>
+        <p>
+          <code>mako</code> no es inerte: se activa por D-Bus al primer
+          <code>notify-send</code> y <strong>reclama
+          <code>org.freedesktop.Notifications</code> antes que el shell</strong>. quickshell
+          pierde el nombre del bus y las notificaciones salen con el estilo por defecto de
+          mako. Eso eran las cajas grises. El lanzador tampoco necesitaba
+          <code>walker</code>: en quattro el menú es un panel de quickshell
+          (<code>omarchy-shell shell toggle omarchy.menu</code>), así que mi sustituto
+          basado en <code>fuzzel</code> era código muerto desde el primer día.
+        </p>
+        <p class="note">
+          La lección no es «se me coló un paquete». Es que la lista de paquetes de una
+          distribución es una <strong>afirmación sobre su arquitectura</strong>, no un
+          inventario. La completé con lo que recordaba de la versión anterior y reintroduje
+          un componente que la nueva había sustituido a propósito.
+        </p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<hr>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Error de método</p></div>
+  <div class="col">
+    <section>
+      <h2>«No disponible» no es una categoría</h2>
+      <p>
+        Al cruzar la lista de paquetes de Omarchy con el índice de Arch Linux ARM salían
+        25 ausencias. Las metí todas en un mismo cajón —«no disponibles»— y seguí adelante.
+        Fue un error, y costó descubrirlo tarde.
+      </p>
+      <p>Ese cajón mezclaba dos cosas incomparables:</p>
+      <ul>
+        <li>
+          <strong>Imposible:</strong> 1Password, Spotify, Obsidian, Typora,
+          <code>pinta</code> (.NET). Binarios propietarios compilados solo para x86_64.
+        </li>
+        <li>
+          <strong>Nadie lo ha construido todavía:</strong> casi todo lo demás.
+        </li>
+      </ul>
+      <p>
+        Trabajando de forma reactiva —compilar solo lo que rompe algo visible— acabé
+        resolviendo <code>walker</code> y <code>elephant</code> creyendo que sin ellos no
+        había lanzador (falso: el menú es un panel de quickshell, ver el hallazgo 07),
+        <code>xdg-terminal-exec</code> porque es <code>$TERMINAL</code>, y <code>ttfx</code>
+        únicamente cuando el salvapantallas dio error en pantalla. El resto siguió en el
+        cajón.
+      </p>
+      <p>
+        La auditoría que debí hacer el primer día se resuelve con dos consultas a la API de
+        GitHub y una a la de AUR:
+      </p>
+<pre><code><span class="c"># ¿Existe en AUR?</span>
+curl -s "https://aur.archlinux.org/rpc/v5/info?arg[]=tensaku&amp;arg[]=aether" \
+  | jq -r '.results[] | "\(.Name) \(.Version) \(.URL)"'
+
+<span class="c"># ¿En qué lenguaje está escrito? (decide si es portable)</span>
+curl -s https://api.github.com/repos/omacom-io/omacalc | jq -r '.language'
+
+<span class="c"># ¿Qué dice su PKGBUILD?</span>
+curl -s .../omarchy-pkgs/master/pkgbuilds/omacalc/PKGBUILD | grep -E '^arch='</code></pre>
+      <p>El resultado desmonta el cajón:</p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Paquete</th><th>Origen</th><th>Lenguaje</th><th>Por qué faltaba</th></tr></thead>
+        <tbody>
+          <tr><td><code>omacalc</code> <code>omacut</code> <code>omawrite</code></td><td>omacom-io</td><td>Qt / C++</td><td><strong>su PKGBUILD ya declara <code>aarch64</code></strong></td></tr>
+          <tr><td><code>aether</code> <code>cliamp</code></td><td>AUR</td><td>Go</td><td>portable</td></tr>
+          <tr><td><code>herdr</code> <code>tensaku</code></td><td>AUR / omacom</td><td>Rust</td><td><code>arch=(x86_64)</code> por omisión</td></tr>
+          <tr><td><code>omarchy-nvim</code> <code>tobi-try</code></td><td>omarchy-pkgs</td><td>—</td><td><code>arch=any</code>, ni compilan</td></tr>
+          <tr><td><code>yaru-icon-theme</code> <code>ttf-ia-writer</code></td><td>AUR</td><td>—</td><td>iconos y fuentes</td></tr>
+          <tr><td><code>tzupdate</code> <code>ufw-docker</code> <code>mise-bin</code></td><td>AUR</td><td>Python, shell</td><td>portables</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        <strong>De las 25 ausencias, 16 eran construibles</strong>, y tres de ellas ni
+        siquiera requerían tocar nada: solo que alguien ejecutara <code>makepkg</code> en
+        una máquina ARM.
+      </p>
+
+      <h3>Construirlas</h3>
+      <p>
+        La observación clave es que muchos PKGBUILD declaran <code>arch=(x86_64)</code>
+        porque el mantenedor solo compila para su máquina, no porque el código sea
+        incompatible. Si es Rust, Go o C++ portable, basta con añadir la arquitectura:
+      </p>
+<pre><code>build_omarchy_tool() {                 <span class="c"># &lt;aur|omapkgs&gt; &lt;paquete&gt;</span>
+  local src="$1" pkg="$2"
+  local dir="/tmp/omabuild/$pkg"
+  pacman -Q "$pkg" &gt;/dev/null 2&gt;&amp;1 &amp;&amp; return 0
+
+  case "$src" in
+    aur) git clone --depth 1 -q "https://aur.archlinux.org/$pkg.git" "$dir" ;;
+    omapkgs)
+      git clone --depth 1 --filter=blob:none --sparse -q \
+        https://github.com/omacom-io/omarchy-pkgs.git "$dir/repo"
+      ( cd "$dir/repo" &amp;&amp; git sparse-checkout set "pkgbuilds/$pkg" )
+      cp -a "$dir/repo/pkgbuilds/$pkg/." "$dir/" &amp;&amp; rm -rf "$dir/repo" ;;
+  esac
+
+  <span class="c"># El punto del asunto: declarar aarch64 cuando el codigo es portable</span>
+  grep -qE "^arch=.*(aarch64|'any')" "$dir/PKGBUILD" || \
+    <span class="o">sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" "$dir/PKGBUILD"</span>
+
+  ( cd "$dir" &amp;&amp; makepkg -si --noconfirm --needed )
+}</code></pre>
+      <p>
+        Se construyen en orden de coste creciente —datos, Go, Qt, Rust— y ninguna es fatal:
+        si una falla, el resto continúa.
+      </p>
+<pre><code>for spec in \
+  aur:yaru-icon-theme aur:ttf-ia-writer aur:tzupdate aur:ufw-docker \
+  omapkgs:omarchy-nvim omapkgs:tobi-try aur:mise-bin \
+  aur:aether aur:cliamp \
+  omapkgs:omacalc omapkgs:omacut omapkgs:omawrite \
+  aur:herdr omapkgs:tensaku omapkgs:hyprland-preview-share-picker; do
+  build_omarchy_tool "${spec%%:*}" "${spec#*:}"
+done</code></pre>
+      <p>Y <code>ttfx</code>, que no está en AUR, directamente desde su repositorio:</p>
+<pre><code>git clone https://github.com/omacom-io/ttfx.git &amp;&amp; cd ttfx
+cargo build --release &amp;&amp; sudo install -Dm755 target/release/ttfx /usr/local/bin/ttfx</code></pre>
+
+      <h3>El resultado</h3>
+      <p>
+        De las 25 ausencias, <strong>20 quedaron instaladas</strong>. Solo una resistió, y
+        por un motivo concreto: <code>herdr</code> invoca <code>zig fetch</code> con la
+        semántica de Zig 0.15, y Arch Linux ARM solo empaqueta la 0.16 —falla con
+        <em>«no build.zig file found»</em>—. Construir Zig 0.15 desde fuente son horas, y es
+        una herramienta de desarrollo, no parte del escritorio. El resto de ausencias son
+        las genuinamente imposibles: binarios propietarios solo para x86_64.
+      </p>
+      <p>
+        Cuatro de los cinco tropiezos del camino fueron defectos de mi propio script, no
+        incompatibilidades reales, y los cuatro romperían el build de cualquiera:
+      </p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Síntoma</th><th>Causa</th></tr></thead>
+        <tbody>
+          <tr>
+            <td>Muere en la primera llamada con <code>pkg: unbound variable</code></td>
+            <td>Un único <code>local</code> expande <strong>todos</strong> los valores antes de asignar ninguno</td>
+          </tr>
+          <tr>
+            <td><code>Can not use 'any' architecture with other architectures</code></td>
+            <td>El PKGBUILD trae <code>arch=(any)</code> <strong>sin comillas</strong> y la guarda solo miraba la forma entrecomillada</td>
+          </tr>
+          <tr>
+            <td>El clon de AUR sale vacío</td>
+            <td>Las URL de AUR usan el <strong>PackageBase</strong>, que no siempre es el nombre del paquete: <code>yaru-icon-theme</code> vive en el repo <code>yaru</code></td>
+          </tr>
+          <tr>
+            <td><code>failed to prepare transaction</code> al instalar</td>
+            <td>El PKGBUILD genera <strong>varios subpaquetes</strong> y solo uno tiene una dependencia ausente. Hay que compilar sin instalar e instalar el subpaquete concreto</td>
+          </tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        Y una ironía final: al instalar los iconos de Yaru, <code>pacman</code> se quejó de
+        dos ficheros en conflicto… creados por el propio <code>theme-system.sh</code> de
+        Omarchy, precisamente porque el tema no estaba instalado. Se resuelve con
+        <code>--overwrite '/usr/share/icons/*'</code> y volviendo a aplicar los enlaces
+        después.
+      </p>
+      <div class="note">
+        <p class="eyebrow">Una trampa de bash</p>
+        <p>La función de arriba empezó así:</p>
+        <p><code>local src="$1" pkg="$2" dir="/tmp/omabuild/$pkg"</code></p>
+        <p>
+          Bash <strong>expande todos los valores de un <code>local</code> antes de asignar
+          ninguno</strong>, así que <code>$pkg</code> todavía no existe al construir
+          <code>$dir</code>, y con <code>set -u</code> el script aborta en la primera
+          llamada. Hay que separarlo en dos sentencias.
+        </p>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Actualizaciones</p></div>
+  <div class="col">
+    <section>
+      <h2>¿Y si pulso «Update System»?</h2>
+      <p>
+        Es la pregunta que más importa a largo plazo, y la respuesta inicial era «no».
+        Tres cosas lo impedían, y ninguna es evidente hasta que se lee el código.
+      </p>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 08 · Actualización</span>
+        <h3>El árbol de Omarchy nunca se actualizaba</h3>
+        <p><code>omarchy-update</code> llama a <code>omarchy-update-dev</code>, cuya primera línea es:</p>
+<pre><code>[[ $OMARCHY_PATH != "/usr/share/omarchy" ]] || exit 0</code></pre>
+        <p>
+          Sale inmediatamente si <code>OMARCHY_PATH</code> es la ruta canónica, porque asume
+          que ahí manda el paquete pacman. En una instalación ARM ahí hay un
+          <strong>checkout de git</strong>, y nadie lo actualiza. El sistema recibiría
+          paquetes nuevos mientras los scripts, temas y configuración de Omarchy quedan
+          congelados para siempre. Se ve con dos comandos:
+        </p>
+<pre><code>git -C /usr/share/omarchy log -1 --format=%h    <span class="o">ed7bae4  (20 de agosto)</span>
+git -C /usr/share/omarchy fetch --dry-run       <span class="o">ed7bae4..2c247e3  quattro</span></code></pre>
+        <p>
+          La solución encaja con el propio diseño de Omarchy: un hook en
+          <code>~/.config/omarchy/hooks/post-update.d/</code> que hace el <code>git pull</code>
+          y enlaza los binarios nuevos, respetando los envoltorios propios de ARM.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 09 · Seguridad</span>
+        <h3>Sin red de seguridad</h3>
+        <p>
+          <code>omarchy-snapshot create</code> devuelve 127 si snapper no está instalado, y
+          <code>omarchy-update</code> lo trata como «continúa sin instantánea». Es decir:
+          cada actualización de una rolling release, sin posibilidad de volver atrás.
+        </p>
+<pre><code>sudo pacman -S snapper
+sudo bash -euo pipefail /usr/share/omarchy/install/config/snapper.sh</code></pre>
+        <p>
+          Con systemd-boot no hay selección de snapshot en el menú de arranque —eso lo
+          aporta <code>limine-snapper-sync</code>— pero las instantáneas existen y se
+          recuperan con <code>snapper rollback</code>.
+        </p>
+      </div>
+
+      <div class="finding">
+        <span class="eyebrow">Hallazgo 10 · Symlinks</span>
+        <h3>Un bucle infinito escondido en un symlink</h3>
+        <p>Este lo introduje yo, y es el más instructivo. El envoltorio se creó así:</p>
+<pre><code>sudo tee /usr/local/bin/omarchy-pkg-add &lt;&lt;'WRAP'
+REAL=/usr/share/omarchy/bin/omarchy-pkg-add
+...
+exec "$REAL" "${avail[@]}"
+WRAP</code></pre>
+        <p>
+          Parece correcto. El problema es que <code>/usr/local/bin/omarchy-pkg-add</code>
+          <strong>era un symlink al árbol</strong>, y <code>tee</code> sigue los symlinks:
+          reemplazó el script original de Omarchy por el envoltorio, cuyo <code>REAL</code>
+          pasó a apuntar a sí mismo. Cada llamada se ejecutaba en bucle hasta colgar la
+          actualización entera.
+        </p>
+        <p>
+          No dio la cara antes porque solo se dispara cuando una migración instala un
+          paquete, y todas estaban selladas. Apareció al llegar la primera migración nueva.
+          Lo delató un <code>git status</code> en el árbol:
+        </p>
+<pre><code> M bin/omarchy-pkg-add        <span class="c">← contenido modificado, no debería</span>
+ mode change 100644 =&gt; 100755 bin/omarchy-remove-service-dropbox</code></pre>
+        <p>
+          Dos lecciones: <strong><code>tee</code> sigue symlinks y <code>install</code>
+          no</strong>, y un checkout de git es un buen detector de escrituras accidentales
+          en sitios que deberían ser inmutables. La segunda línea delata un tercer
+          problema: un <code>chmod +x</code> dejaba el checkout sucio y
+          <code>git pull --ff-only</code> se niega a actualizar así. Se resuelve con
+          <code>git config core.fileMode false</code> <em>antes</em> del chmod.
+        </p>
+      </div>
+
+      <h3>Resultado</h3>
+      <p>
+        Con eso, un ciclo completo pasa por prune, instantánea, <code>git pull</code> del
+        árbol, llavero, <code>pacman -Syu</code>, migraciones, hook, AUR y mise:
+      </p>
+<pre><code>árbol Omarchy:      2c247e3  <span class="c">(0 ficheros sucios)</span>
+migraciones:        84 selladas, 0 pendientes
+snapshots:          5
+unidades fallidas:  0</code></pre>
+      <p>Incluyendo una migración nueva que llegó con el pull y se aplicó sola.</p>
+    </section>
+  </div>
+</div>
+
+<hr>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Empaquetado</p></div>
+  <div class="col">
+    <section>
+      <h2>El bundle de UTM, escrito a mano</h2>
+      <p>
+        UTM no permite crear máquinas desde la línea de comandos: <code>utmctl</code> solo
+        gestiona el ciclo de vida. Pero el formato <code>.utm</code> está documentado en el
+        código fuente y un <code>config.plist</code> escrito a mano funciona perfectamente.
+        Tres cosas que hay que saber:
+      </p>
+      <p>
+        <strong>Las diez claves de primer nivel son obligatorias.</strong> Se decodifican con
+        <code>decode()</code>, no con <code>decodeIfPresent()</code>: omitir aunque sea un
+        <code>&lt;array/&gt;</code> vacío hace que UTM rechace el bundle.
+      </p>
+      <p>
+        <strong>La mitad VARS del firmware UEFI aarch64 es <code>edk2-arm-vars.fd</code></strong>,
+        no <code>edk2-aarch64-vars.fd</code>, que no existe. La mitad CODE la aporta UTM en
+        tiempo de ejecución.
+      </p>
+      <p>
+        <strong>UTM no vigila la carpeta de máquinas.</strong> <code>listRefresh()</code> se
+        ejecuta una sola vez, al arrancar la aplicación. Un bundle copiado ahí mientras UTM
+        está abierto es invisible hasta que se cierra y se vuelve a abrir.
+      </p>
+      <p>Las claves que importan para el rendimiento:</p>
+<pre><code>&lt;key&gt;Architecture&lt;/key&gt; &lt;string&gt;aarch64&lt;/string&gt;
+&lt;key&gt;Target&lt;/key&gt;       &lt;string&gt;virt&lt;/string&gt;
+&lt;key&gt;Hypervisor&lt;/key&gt;   &lt;true/&gt;                      <span class="c">&lt;!-- HVF, sin emulación --&gt;</span>
+&lt;key&gt;Hardware&lt;/key&gt;     &lt;string&gt;virtio-gpu-gl-pci&lt;/string&gt;
+&lt;key&gt;UEFIBoot&lt;/key&gt;     &lt;true/&gt;</code></pre>
+
+      <h3>Preparar la imagen para otra persona</h3>
+      <p>
+        Una imagen que va a usar alguien más lleva dentro más de lo que parece: claves SSH,
+        el <code>machine-id</code>, las claves de host del servidor SSH, la identidad de
+        git, historiales de shell, redes wifi guardadas y logs.
+      </p>
+<pre><code><span class="c"># identidad de la máquina (se regeneran solas al arrancar)</span>
+: &gt; /etc/machine-id
+rm -f /etc/ssh/ssh_host_*
+
+<span class="c"># identidad personal</span>
+rm -rf /home/$U/.ssh /home/$U/.gnupg /home/$U/.gitconfig /home/$U/.bash_history
+rm -f  /etc/NetworkManager/system-connections/*
+
+<span class="c"># logs y cachés</span>
+rm -rf /var/log/journal/* /var/cache/pacman/pkg/*
+
+<span class="c"># los respaldos que deja usermod contienen el usuario y el hash antiguos</span>
+rm -f /etc/passwd- /etc/shadow- /etc/group-
+
+<span class="c"># libera espacio no usado para que el qcow2 comprima mejor</span>
+fstrim -av</code></pre>
+      <div class="note">
+        <p class="eyebrow">Trampa</p>
+        <p>
+          Si <code>/usr/share/omarchy</code> es un enlace simbólico al <code>$HOME</code> de
+          un usuario, renombrar ese usuario rompe el sistema. Conviene convertirlo en un
+          directorio real antes de renombrar nada.
+        </p>
+      </div>
+<pre><code><span class="o"># -c comprime los clusters dentro del qcow2: la imagen ocupa la mitad</span>
+<span class="o"># tambien ya descomprimida, a cambio de descomprimir al leer</span>
+qemu-img convert -c -O qcow2 dist.qcow2 slim.qcow2   <span class="o">11,6 GB → 6,6 GB</span>
+qemu-img check slim.qcow2
+zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
+        <p>
+          Y una precaución que solo se aprende rompiéndola: <strong>después de sanitizar, la
+          imagen no debe volver a arrancarse</strong>. El primer arranque regenera
+          <code>/etc/machine-id</code>, la semilla de aleatoriedad y los logs, y eso quedaría
+          idéntico en todas las copias distribuidas. Verificar sin ensuciar se hace con una
+          capa superpuesta:
+        </p>
+<pre><code>qemu-img create -f qcow2 -b slim.qcow2 -F qcow2 prueba.qcow2</code></pre>
+    </section>
+  </div>
+</div>
+
+<hr>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Resultado</p></div>
+  <div class="col">
+    <section>
+      <h2>Qué se obtiene, y qué no</h2>
+      <div class="verdict">
+        <div class="yes">
+          <h4>Funciona</h4>
+          <p>
+            Arch Linux ARM aarch64 nativo con HVF, kernel <code>linux-aarch64</code> 7.2,
+            btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
+            de Omarchy 4 —quickshell como barra, menú, OSD y notificaciones, hyprlock,
+            hypridle, uwsm, SDDM con
+            autologin—, los temas, los ~430 comandos <code>omarchy-*</code>, y
+            <code>omarchy-update</code>.
+          </p>
+        </div>
+        <div class="nope">
+          <h4>No funciona</h4>
+          <p>
+            La aceleración GL dentro de la VM: el render va por software y el blur y las
+            sombras vienen desactivados. Y faltan los paquetes propios de Omarchy y las apps
+            propietarias, que solo existen para x86_64.
+          </p>
+        </div>
+      </div>
+      <p>
+        <strong>Y conviene decirlo claro:</strong> esto no es Omarchy. Es una reconstrucción
+        de su escritorio sobre una base distinta. Omarchy soporta x86_64; cuando publiquen
+        el ISO aarch64 que ya tienen planificado, este trabajo dejará de hacer falta.
+      </p>
+
+      <h3>Auditar el script: 37 defectos donde creía que no había ninguno</h3>
+      <p>
+        La pregunta era simple: «¿tenemos un único script capaz de instalarlo todo de cero
+        evitando todos los problemas conocidos?». Mi impresión era que sí. Podría haber
+        contestado eso.
+      </p>
+      <p>
+        En lugar de fiarme de la impresión, crucé el script contra sus propias fuentes de
+        verdad —los 16 scripts de <code>fixes/</code>, los hallazgos de este artículo, una
+        simulación de ejecución en un Mac limpio— y pasé cada hallazgo por un refutador
+        independiente cuyo encargo era tumbarlo. Sobrevivieron <strong>37</strong>, nueve de
+        ellos bloqueantes. Todos existían desde hacía días. Ninguno había dado la cara.
+      </p>
+      <p>
+        Se agrupan en tres formas, y las tres comparten algo: <strong>el sistema seguía
+        funcionando</strong>.
+      </p>
+
+      <p><strong>1 · Código muerto por permisos.</strong> <code>stage3</code> corre como
+      usuario normal y comprobaba así si debía instalar el instalador de apps opcionales:</p>
+<pre><code>if [ -f /root/prov/omarchy-arm-extras ]; then</code></pre>
+      <p>
+        <code>/root</code> es <code>0750</code>. Un usuario sin privilegios no puede ni hacer
+        <code>stat</code> dentro, así que la condición <strong>da falso sin dar error</strong>.
+        El bloque llevaba días sin ejecutarse jamás, en silencio.
+      </p>
+
+      <p><strong>2 · Orden destructivo dentro del mismo script.</strong> El sanitizador, en
+      el paso 7:</p>
+<pre><code>rm -rf /root/prov /root/.bash_history /root/.cache</code></pre>
+      <p>
+        Y en los pasos 8a y 8b, veinticinco líneas más abajo, lee de <code>/root/prov</code>
+        el hook de actualización y el instalador. Se borraba la entrada a sí mismo antes de
+        usarla. El log decía, mansamente, «no venía en el ISO de reparación», y yo había
+        culpado al nombre del fichero dentro del ISO.
+      </p>
+
+      <p><strong>3 · Fases estructuralmente incapaces de fallar.</strong> El sistémico, y el
+      más interesante. El script usa <code>set -uo pipefail</code> <em>sin</em>
+      <code>-e</code>, y cada fase devuelve el estado de su último comando, que casi siempre
+      es un <code>ok "..."</code>. Cuatro de las ocho fases no podían fallar:</p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Fase</th><th>Cómo se tragaba el error</th></tr></thead>
+        <tbody>
+          <tr><td><code>build</code></td><td><code>su - user -c stage3.sh || warn</code> — un <code>stage3</code> que reventara entero daba disco correcto</td></tr>
+          <tr><td><code>utm</code></td><td><code>make-utm.sh … | tail -4</code> seguido de <code>ok</code> — el pipe descarta el código de salida</td></tr>
+          <tr><td><code>verify</code></td><td>recogía <code>pgrep -c Hyprland</code> y no lo comparaba con nada</td></tr>
+          <tr><td><code>fetch</code></td><td>anunciaba «MD5 verificado» aunque el <code>curl</code> del checksum hubiera fallado</td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        La forma común es reconocible: <strong>un mensaje de éxito que no depende de
+        nada</strong>. Merece la pena buscarla a propósito en cualquier script largo.
+      </p>
+
+      <p><strong>Y uno cometido en el propio arreglo.</strong> Al añadir el modo interactivo
+      escribí un <code>confirm</code> con <code>${ans,,}</code> para pasar la respuesta a
+      minúsculas. <code>bash -n</code> lo dio por bueno. Al probarlo bajo un terminal
+      simulado con <code>expect</code>:</p>
+<pre><code>build-omarchy-arm.sh: line 91: ${ans,,}: bad substitution</code></pre>
+      <p class="note">
+        <code>${var,,}</code> es de bash 4 y <strong>macOS trae bash 3.2</strong>, donde un
+        error de expansión aborta la función entera: <code>confirm</code> no devolvía «no»,
+        devolvía basura, y el script continuaba como si hubieras aceptado. Un fallo de la
+        misma familia que los que estaba arreglando, cometido mientras los arreglaba.
+        <code>bash -n</code> valida sintaxis, no semántica ni versión.
+      </p>
+
+      <p><strong>Y la única prueba que vale: ejecutarlo.</strong> Con los 37 arreglos
+      puestos, todo verificado por lectura y con los payloads sincronizados byte a byte,
+      quedaba la pregunta de siempre. Una construcción completa de cero, ocho fases, sobre
+      un M3 Max. Encontró <strong>tres fallos más que ninguna lectura había visto</strong>:</p>
+      <div class="tablewrap">
+      <table>
+        <thead><tr><th>Fallo</th><th>Cómo se manifestó</th></tr></thead>
+        <tbody>
+          <tr><td><code>VM_FULLNAME=Omarchy ARM</code> sin comillas en <code>config.env</code></td><td>al hacer <code>source</code>, <code>ARM</code> se ejecutaba como comando → chroot muerto con <code>rc=127</code></td></tr>
+          <tr><td>el heredoc de <code>verify</code> sin entrecomillar</td><td>el bash del <em>anfitrión</em> expandía los <code>$(…)</code>, así que las comprobaciones corrían en el Mac: <code>systemctl: command not found</code></td></tr>
+          <tr><td><code>spice-vdagentd</code> es una unidad <code>static</code></td><td><code>systemctl enable</code> sobre ella no hace nada; hay que habilitar el <code>.socket</code></td></tr>
+        </tbody>
+      </table>
+      </div>
+      <p>
+        Los dos primeros los introduje yo al arreglar los otros treinta y siete. El tercero
+        llevaba ahí desde el principio. Y el resultado, ya con todo corregido:
+      </p>
+<pre><code>17/17 herramientas compiladas <span class="o">(solo falla herdr, por la version de Zig)</span>
+extras=si  menu=si  hook=si   <span class="o">← los tres bloqueantes, resueltos</span>
+verify dentro del invitado: H=1 Q=1 BINS=436 → VEREDICTO_OK
+imagen final: 4,1 GB · ~57 min <span class="o">(1 h 50 incluyendo OBS y Pinta)</span></code></pre>
+      <p>
+        Ese <code>extras=si menu=si hook=si</code> es la prueba que importa: son los tres
+        que llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa
+        había denunciado porque el script se declaraba correcto igualmente.
+      </p>
+
+      <h3>Reproducirlo</h3>
+      <p>El proceso completo está en un único script con fases reanudables:</p>
+<pre><code>./build-omarchy-arm.sh              <span class="c"># pregunta lo justo y construye</span>
+./build-omarchy-arm.sh --yes        <span class="c"># desatendido, valores por defecto</span>
+./build-omarchy-arm.sh --from build <span class="c"># reanudar desde una fase</span>
+./build-omarchy-arm.sh --list       <span class="c"># ver las fases</span></code></pre>
+      <p>
+        Fases: <code>deps</code>, <code>fetch</code>, <code>prepare</code>,
+        <code>build</code>, <code>utm</code>, <code>verify</code>, <code>sanitize</code>,
+        <code>package</code>.
+      </p>
+      <p>
+        Con terminal pregunta seis cosas, todas prerrellenadas con lo que detecta del Mac
+        —zona horaria de <code>/etc/localtime</code>, teclado de las preferencias de macOS,
+        núcleos y RAM de <code>sysctl</code>—, de modo que se contestan con Enter. Solo dos
+        cambian el resultado: si compilar las herramientas (~40 min) y si preparar la imagen
+        para repartir. Elegir «VM para ti» recorta las fases a <code>deps…verify</code> y
+        conserva tu usuario. Sin terminal, o con <code>--yes</code>, no pregunta nada.
+      </p>
+      <p>
+        La fase <code>prepare</code> merece un comentario. En lugar de llevar una lista fija
+        de paquetes, la calcula en cada ejecución cruzando la rama viva de Omarchy con el
+        índice de Arch Linux ARM. Así el build no se rompe cuando Omarchy cambie de
+        paquetes —que lo hará—, y de paso informa de qué se ha quedado fuera.
+      </p>
+    </section>
+  </div>
+</div>
+
+<div class="grid">
+  <div class="rail"><p class="eyebrow rail-label">Cierre</p></div>
+  <div class="col">
+    <section>
+      <h2>Lo que enseña el ejercicio</h2>
+      <p>
+        Casi todo el tiempo se fue en cosas que no se pueden anticipar leyendo
+        documentación: una rama por defecto que no es la que documenta el proyecto, un
+        cambio de modelo de distribución a mitad de versión, un problema de composición
+        gráfica que solo se aísla comparando dos terminales distintos, y una máquina de
+        estado —las migraciones— que un instalador inicializa y un clon de git no.
+      </p>
+      <p>
+        El patrón que más rentabilidad dio fue <strong>construir la prueba
+        discriminante</strong>: cuando las ventanas no se veían, comparar <code>foot</code>
+        contra <code>alacritty</code> señaló la causa en un minuto, después de un buen rato
+        dando palos de ciego con variables de entorno. Y el error que más tiempo costó fue
+        confiar en un método de prueba —lanzar aplicaciones por SSH— que no reproducía las
+        condiciones reales.
+      </p>
+    </section>
+
+    <footer>
+      Documento técnico · agosto 2026 · no oficial, sin relación con Basecamp
+      ni con el proyecto Omarchy
+    </footer>
+  </div>
+</div>
+
+</div>

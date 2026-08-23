@@ -1,0 +1,25 @@
+# Imágenes base descargadas (~900 MB) — el script las baja y las verifica
+dl/
+
+# Discos de construcción (decenas de GB)
+vm/
+build-test/
+
+# La imagen distribuible: 6,5 GB, no cabe en un repositorio.
+# Se publica como release. El LEEME y el sha256 sí se versionan.
+dist/*.zip
+dist/*.utm/
+
+# Salidas de ejecución
+logs/
+provision/*.iso
+provision/repair-iso/*.log
+
+# Solo se versionan las dos capturas que la documentacion usa; el resto son
+# instantaneas de depuracion (39 MB) que no aportan nada a quien clone el repo.
+shots/*
+!shots/hires.png
+!shots/dist-final.png
+
+# macOS
+.DS_Store

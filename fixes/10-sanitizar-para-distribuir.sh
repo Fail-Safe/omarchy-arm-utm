@@ -1,0 +1,107 @@
+#!/bin/bash
+# Prepara la imagen para distribuirla a terceros: quita todo lo identificativo
+# y deja un usuario generico. Se ejecuta como ROOT dentro del chroot.
+set -uo pipefail
+OLD=gabriel
+NEW=omarchy
+log() { echo ""; echo "==> $*"; }
+
+log "1/10 desanclando /usr/share/omarchy del home del usuario"
+# Era un symlink a /home/gabriel/.local/share/omarchy, lo que ata el sistema a
+# ese usuario. Se convierte en directorio real (como haria el paquete pacman) y
+# el home pasa a apuntar ahi.
+if [ -L /usr/share/omarchy ]; then
+  TARGET=$(readlink -f /usr/share/omarchy)
+  rm -f /usr/share/omarchy
+  cp -a "$TARGET" /usr/share/omarchy
+  chown -R root:root /usr/share/omarchy
+  rm -rf "$TARGET"
+  echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1))"
+fi
+
+log "2/10 renombrando el usuario $OLD -> $NEW"
+if id -u "$OLD" >/dev/null 2>&1; then
+  pkill -u "$OLD" 2>/dev/null || true
+  usermod -l "$NEW" -d "/home/$NEW" -m "$OLD"
+  groupmod -n "$NEW" "$OLD" 2>/dev/null || true
+  echo "$NEW:$NEW" | chpasswd
+  echo "root:$NEW"  | chpasswd
+fi
+id "$NEW"
+# el home del usuario apunta al arbol del sistema
+install -d -o "$NEW" -g "$NEW" "/home/$NEW/.local/share"
+rm -rf "/home/$NEW/.local/share/omarchy"
+ln -sfn /usr/share/omarchy "/home/$NEW/.local/share/omarchy"
+chown -h "$NEW:$NEW" "/home/$NEW/.local/share/omarchy"
+
+log "3/10 SDDM: autologin al usuario generico"
+cat > /etc/sddm.conf.d/20-autologin.conf <<EOF
+[Autologin]
+User=$NEW
+Session=omarchy
+EOF
+grep -rl "$OLD" /etc/sddm.conf.d/ 2>/dev/null | while read -r f; do sed -i "s/\b$OLD\b/$NEW/g" "$f"; done
+cat /etc/sddm.conf.d/20-autologin.conf
+
+log "4/10 credenciales y claves"
+rm -rf "/home/$NEW/.ssh"
+rm -f /etc/ssh/ssh_host_*        # se regeneran solas en el primer arranque
+systemctl disable sshd.service 2>/dev/null || true
+rm -f /etc/systemd/system/multi-user.target.wants/sshd.service
+rm -f /etc/sudoers.d/99-fix /etc/sudoers.d/99-install
+rm -rf "/home/$NEW/.gnupg" "/home/$NEW/.local/share/keyrings" "/home/$NEW/.password-store"
+echo "  sshd: $(systemctl is-enabled sshd 2>&1)"
+
+log "5/10 identidad de la maquina"
+: > /etc/machine-id
+rm -f /var/lib/dbus/machine-id
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+rm -f /etc/hostname; echo omarchy > /etc/hostname
+cat > /etc/hosts <<'EOF'
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   omarchy.localdomain omarchy
+EOF
+
+log "6/10 identidad personal (git, historiales, cache)"
+rm -f "/home/$NEW/.gitconfig" "/home/$NEW/.config/git/config"
+rm -f "/home/$NEW/.bash_history" "/home/$NEW/.zsh_history" "/home/$NEW/.local/share/fish/fish_history"
+rm -rf "/home/$NEW/.cache" "/home/$NEW/.local/state/omarchy/first-run.log"
+rm -rf "/home/$NEW/.local/share/omarchy-"* 2>/dev/null || true
+rm -rf "/home/$NEW/shots" "/home/$NEW"/*.sh "/home/$NEW/config.env" 2>/dev/null || true
+# NetworkManager: quita redes wifi guardadas
+rm -f /etc/NetworkManager/system-connections/* 2>/dev/null || true
+
+log "7/10 logs y caches del sistema"
+rm -rf /var/log/journal/* /var/log/omarchy* /var/log/pacman.log
+find /var/log -type f -name "*.log" -delete 2>/dev/null || true
+rm -rf /var/cache/pacman/pkg/* /var/tmp/* /tmp/* 2>/dev/null || true
+rm -rf /root/prov /root/.bash_history /root/.cache 2>/dev/null || true
+
+log "8/10 aviso al destinatario"
+cat > /etc/motd <<'EOF'
+
+  Omarchy sobre Arch Linux ARM (aarch64) — imagen para UTM en Apple Silicon
+
+  Usuario: omarchy   Contrasena: omarchy   (tambien para root)
+
+  >> CAMBIA LA CONTRASENA AHORA:  passwd
+
+  Teclas: la tecla Option (⌥) del Mac actua como SUPER.
+          ⌥+Space  menu de Omarchy      ⌥+Return  terminal
+
+EOF
+install -d -o "$NEW" -g "$NEW" "/home/$NEW/Desktop"
+cp /etc/motd "/home/$NEW/Desktop/LEEME.txt"
+chown "$NEW:$NEW" "/home/$NEW/Desktop/LEEME.txt"
+
+log "9/10 comprobando que nada quedo atado a $OLD"
+echo "  referencias en /etc:"; grep -rl "\b$OLD\b" /etc 2>/dev/null | head -5 || echo "    ninguna"
+echo "  home:"; ls -ld "/home/$NEW"; ls /home/
+echo "  propietario de ficheros sueltos:"; find /home/$NEW -maxdepth 2 ! -user "$NEW" 2>/dev/null | head -3 || echo "    todo correcto"
+
+log "10/10 liberando espacio no usado (para que comprima mejor)"
+sync
+fstrim -av 2>&1 | head -3 || true
+echo ""
+echo "==> SANITIZE_OK"

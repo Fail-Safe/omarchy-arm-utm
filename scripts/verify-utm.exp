@@ -1,0 +1,53 @@
+#!/usr/bin/expect -f
+# Verifica la VM arrancada en UTM por su puerto serie (pty).
+# Uso: verify-utm.exp /dev/ttysNNN     (utmctl attach imprime el pty)
+set timeout 120
+log_user 1
+match_max 200000
+set DEV [lindex $argv 0]
+if {$DEV eq ""} { puts "uso: verify-utm.exp /dev/ttysNNN"; exit 1 }
+
+set fd [open $DEV w+]
+fconfigure $fd -mode 115200,n,8,1 -translation binary -buffering none
+spawn -open $fd
+
+proc go {cmd tok {t 90}} {
+    global timeout
+    set timeout $t
+    send "$cmd; echo $tok\$?\r"
+    expect {
+        -re "$tok\[0-9\]+" {}
+        timeout { send_user "\n*** TIMEOUT ***\n" }
+    }
+}
+
+send "\r"
+expect {
+    -re {omarchy login:} {}
+    timeout { puts "\n!! no aparece el login"; exit 2 }
+}
+send "gabriel\r"
+expect -re {[Pp]assword:}
+send "gabriel\r"
+expect {
+    -re {\$ $|\$ } {}
+    timeout { puts "\n!! no hay shell"; exit 3 }
+}
+send "export PS1='V> ' TERM=dumb; stty cols 160; echo TOK_SH_\$?\r"
+expect -re {TOK_SH_[0-9]+}
+
+puts "\n\n============== VERIFICACION =============="
+go "echo; echo '### sistema'; uname -srm; grep PRETTY /etc/os-release" T1_
+go "echo '### almacenamiento'; findmnt -no SOURCE,FSTYPE,OPTIONS / ; findmnt -no SOURCE,FSTYPE /home; findmnt -no SOURCE,FSTYPE /boot; df -h / | tail -1" T2_
+go "echo '### servicios'; systemctl is-active sddm NetworkManager systemd-logind; echo '--- fallidos:'; systemctl --failed --no-pager --no-legend" T3_
+go "echo '### paquetes'; pacman -Q hyprland waybar uwsm sddm mesa walker elephant xdg-terminal-exec 2>&1" T4_
+go "echo '### dotfiles'; ls ~/.config | tr '\\n' ' '; echo; echo -n 'tema: '; readlink -f ~/.config/omarchy/current/theme" T5_
+go "echo '### omarchy bin'; ls ~/.local/share/omarchy/bin | wc -l; command -v omarchy-theme-set omarchy-menu 2>&1" T6_
+go "echo '### red'; ip -4 -br addr show scope global; ping -c2 -W3 mirror.archlinuxarm.org 2>&1 | tail -2" T7_
+go "echo '### sesion grafica'; loginctl list-sessions --no-legend; pgrep -a Hyprland | head -2; pgrep -a sddm | head -2" T8_
+go "echo '### GPU / virgl'; ls /dev/dri/ 2>&1; lspci 2>/dev/null | grep -i -E 'vga|display|gpu'; dmesg 2>/dev/null | grep -i -E 'virtio_gpu|drm' | tail -6" T9_
+go "echo '### errores del arranque'; journalctl -b -p err --no-pager 2>&1 | tail -25" TA_ 150
+puts "\n============== FIN =============="
+send "exit\r"
+sleep 1
+exit 0
