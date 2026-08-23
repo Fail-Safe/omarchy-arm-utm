@@ -1,5 +1,8 @@
 # Cómo ejecutarlo
 
+> También publicada como página:
+> https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70
+
 Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |

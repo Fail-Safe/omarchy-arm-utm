@@ -1242,7 +1242,13 @@ imagen final: 4,1 GB · ~57 min <span class="o">(1 h 50 incluyendo OBS y Pinta)<
       </p>
 
       <h3>Reproducirlo</h3>
-      <p>El proceso completo está en un único script con fases reanudables:</p>
+      <p>
+        El proceso completo está en un único script con fases reanudables. Si lo que
+        quieres es ejecutarlo, la
+        <a href="https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70">guía
+        de construcción</a> lleva los requisitos, lo que pregunta, cuánto tarda cada fase y
+        qué hacer si falla. Aquí va lo esencial:
+      </p>
 <pre><code>./build-omarchy-arm.sh              <span class="c"># pregunta lo justo y construye</span>
 ./build-omarchy-arm.sh --yes        <span class="c"># desatendido, valores por defecto</span>
 ./build-omarchy-arm.sh --from build <span class="c"># reanudar desde una fase</span>

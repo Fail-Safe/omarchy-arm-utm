@@ -7,10 +7,10 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 
 | | |
 |---|---|
-| **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) — requisitos, qué pregunta, cuánto tarda, qué hacer si falla |
+| **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
 | **Imagen lista** | `dist/omarchy-arm-utm.zip` · 6,5 GiB · `sha256` en `.sha256` |
 | **Construir desde cero** | `./build-omarchy-arm.sh` · ~1 h según la red |
-| **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [`articulo.html`](articulo.html) |
+| **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
 ---
 

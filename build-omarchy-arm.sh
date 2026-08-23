@@ -2017,7 +2017,8 @@ cat > "$W/scripts/qemu.sh" <<'__PAYLOAD_SCRIPTS_QEMU_SH__'
 # VM de construcción: aarch64 NATIVO con HVF (sin emulación) sobre Apple Silicon.
 # Live de Alpine por consola serie + ISO de aprovisionamiento con el rootfs de ALARM.
 set -e
-ROOT=/Users/gabriel/Development/2026/omarchy_ai
+# La raiz la fija write_payloads al desplegar este fichero.
+ROOT=@OMARM_ROOT@
 cd "$ROOT"
 : "${VM_SMP:=8}"
 : "${VM_MEM:=8192}"
