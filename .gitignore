@@ -23,3 +23,6 @@ shots/*
 
 # macOS
 .DS_Store
+
+# Borradores de los mensajes para las discusiones de Omarchy
+publicar/
