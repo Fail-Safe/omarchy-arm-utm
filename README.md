@@ -146,6 +146,27 @@ by name (123 once you substitute `nvim`→`neovim` and
 `ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). 17 of the rest are
 built from source; the build prints the list every run.
 
+## Known issue in the published image
+
+The image on the Internet Archive installs the `omarchy-*` commands into
+`/usr/local/bin`. That was my choice — upstream's package uses `/usr/bin` — and
+it turns out the tree hardcodes `/usr/bin/omarchy-*` in thirteen places, five of
+them `.service` files. Two visible symptoms:
+
+- **"Update System" reappears on every login**, even when everything is current.
+  `enable-user-units.sh` fails (those five units point at binaries that aren't
+  where it looks), and `omarchy-provision-first-run` only marks first-run done
+  if *no* step fails — so it repeats forever, re-sending the notification.
+- **"Linux kernel has been updated. Reboot?" on every update.** Unrelated cause:
+  `omarchy-update-restart` looks for a package-owned
+  `/usr/lib/modules/<ver>/vmlinuz`. Arch x86_64's `linux` ships one; Arch Linux
+  ARM's `linux-aarch64` puts the image in `/boot/Image` and ships no `vmlinuz`
+  there, so the check can never be satisfied and rebooting never helps.
+
+Both are fixed in the build. To fix a running VM, run
+[`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
+inside it.
+
 ## What does not work
 
 - **No GL acceleration inside the VM.** Under virtio-gpu, GPU clients map but

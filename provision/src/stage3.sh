@@ -79,14 +79,21 @@ printf 'Alacritty.desktop\n' > ~/.config/xdg-terminals.list
 # arranca en modo emergencia por no encontrar default/hypr/bootstrap.lua.
 log "integrando Omarchy en las rutas de sistema (sustituye al paquete pacman)"
 sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
-sudo mkdir -p /usr/local/bin
+# Los comandos van a /usr/bin, que es donde los pone el package() de upstream.
+# Ponerlos en /usr/local/bin parecia mas limpio (no choca con pacman) pero
+# rompe cosas: el arbol lleva 13 rutas /usr/bin/omarchy-* cableadas, cinco de
+# ellas en ficheros .service. enable-user-units.sh fallaba por eso, y como
+# first-run solo se marca hecho si NINGUN paso falla, se repetia en cada login
+# reenviando el aviso "Update System" para siempre.
+# Comprobado: ninguno de los 433 nombres colisiona con un paquete de ALARM.
+sudo mkdir -p /usr/bin
 n=0
 for f in "$OMARCHY_PATH"/bin/*; do
   [ -f "$f" ] || continue
   chmod +x "$f"
-  sudo ln -sfn "$f" "/usr/local/bin/$(basename "$f")" && n=$((n+1))
+  sudo ln -sfn "$f" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
-echo "  $n binarios en /usr/local/bin"
+echo "  $n binarios en /usr/bin"
 sudo install -Dm644 "$OMARCHY_PATH/etc/profile.d/omarchy.sh" /etc/profile.d/omarchy.sh
 sudo install -Dm644 "$OMARCHY_PATH/default/uwsm/env.d/10-omarchy" /usr/share/uwsm/env.d/10-omarchy
 sudo cp -a "$OMARCHY_PATH/etc/sysctl.d/." /etc/sysctl.d/ 2>/dev/null || true
@@ -296,6 +303,45 @@ sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" >/dev/null 2>&1 || true
 # Arch Linux ARM solo empaqueta 0.16 ("no build.zig file found"). Construir
 # zig0.15 desde fuente son horas y es una herramienta de desarrollo, no del
 # escritorio.
+
+# --- el aviso de reinicio por kernel, que en ARM no se apaga nunca -------
+# omarchy-update-restart decide si el kernel cambio buscando un vmlinuz dentro
+# de /usr/lib/modules/<version>/ que pertenezca a un paquete. En Arch x86_64 el
+# paquete linux lo instala ahi; en Arch Linux ARM, linux-aarch64 deja la imagen
+# en /boot/Image y NO crea ese vmlinuz. El bucle no encuentra nada, la variable
+# se queda en "true" y pide reiniciar en cada actualizacion, para siempre.
+# Este envoltorio compara lo que de verdad toca: uname -r contra el directorio
+# de modulos que posee el paquete del kernel. /usr/local/bin va antes que
+# /usr/bin en el PATH, asi que sustituye al original sin tocar el arbol.
+log "envoltorio de omarchy-update-restart (aviso de kernel en ALARM)"
+sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-update-restart <<'KRN'
+#!/bin/bash
+# En Arch Linux ARM el kernel no deja vmlinuz en /usr/lib/modules/<ver>/, que es
+# lo que busca el original: sin eso pide reiniciar siempre. Se compara uname -r
+# con el directorio de modulos que pertenece al paquete del kernel.
+if [ -z "${OMARCHY_SKIP_KERNEL_CHECK:-}" ]; then
+  # modules.dep lo genera depmod y no pertenece a ningun paquete. modules.builtin
+  # si lo trae linux-aarch64, asi que sirve para saber si el directorio de
+  # modulos del kernel en ejecucion es el del paquete instalado.
+  pkg=$(pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null \
+        || pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.order 2>/dev/null || true)
+  if [ -n "$pkg" ]; then
+    # El directorio de modulos del kernel en ejecucion pertenece al paquete
+    # instalado: no hay kernel nuevo esperando un reinicio.
+    export OMARCHY_KERNEL_CURRENT=1
+  fi
+fi
+REAL=/usr/bin/omarchy-update-restart
+[ -x "$REAL" ] || exit 0
+if [ -n "${OMARCHY_KERNEL_CURRENT:-}" ]; then
+  # Se omite solo el bloque del kernel; el resto (Hyprland, servicios, shell)
+  # se deja intacto ejecutando el original con esa comprobacion ya resuelta.
+  sed 's#^kernel_updated=true$#kernel_updated=false#' "$REAL" | bash -s -- "$@"
+else
+  exec "$REAL" "$@"
+fi
+KRN
+echo "  /usr/local/bin/omarchy-update-restart"
 
 # --- ttfx: efectos de texto del salvapantallas (Rust, ~12 min) -----------
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then

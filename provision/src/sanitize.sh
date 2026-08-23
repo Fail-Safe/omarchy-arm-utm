@@ -90,6 +90,14 @@ for d in /opt/1Password /opt/obsidian /opt/typora; do
   [ -e "$d" ] && { rm -rf "$d"; echo "  retirado $d"; }
 done
 rm -f /usr/local/bin/obsidian /usr/local/share/applications/obsidian.desktop 2>/dev/null || true
+# Retirar /opt/1Password deja sus enlaces de /usr/bin apuntando al vacio. Es el
+# mismo descuido de siempre: un barrido de texto no ve el destino de un enlace.
+for l in $(find /usr/bin /usr/local/bin -maxdepth 1 -xtype l 2>/dev/null); do
+  case "$(readlink "$l")" in
+    /opt/1Password/*|/opt/obsidian/*|/opt/typora/*)
+      rm -f "$l"; echo "  enlace colgado retirado: $l" ;;
+  esac
+done
 # Los rastros que dejan al instalarse: si se retira Chrome hay que retirar
 # tambien el atajo y el lanzador de la webapp de Spotify, que lo invocan. Si no,
 # la imagen sale con un SUPER+SHIFT+M que apunta a un binario inexistente.
@@ -243,6 +251,7 @@ log "barrido final de referencias a $OLD"
 echo "  /etc:"; grep -rl "\b$OLD\b" /etc 2>/dev/null || echo "    ninguna"
 echo "  /home:"; grep -rl "\b$OLD\b" /home/$NEW/.config /home/$NEW/.bashrc 2>/dev/null | head -5 || echo "    ninguna"
 echo "  /usr/local/bin:"; grep -rl "\b$OLD\b" /usr/local/bin 2>/dev/null | head -5 || echo "    ninguna"
+echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)"
 echo "  /usr/share/omarchy (no debe apuntar a /home):"; ls -ld /usr/share/omarchy
 
 log "coherencia del sistema"
@@ -250,7 +259,7 @@ echo "  passwd: $(getent passwd $NEW)"
 echo "  home:   $(ls -ld /home/$NEW | awk '{print $3, $4, $9}')"
 echo "  symlink omarchy: $(readlink /home/$NEW/.local/share/omarchy)"
 echo "  autologin: $(grep -h User= /etc/sddm.conf.d/*.conf 2>/dev/null | tr '\n' ' ')"
-echo "  binarios omarchy: $(ls /usr/local/bin | wc -l)"
+echo "  binarios omarchy: $(ls /usr/bin | grep -c '^omarchy-') en /usr/bin"
 echo "  ttfx: $(command -v ttfx || echo NO)"
 echo "  migraciones selladas: $(ls -1 /home/$NEW/.local/state/omarchy/migrations 2>/dev/null | wc -l)"
 sync

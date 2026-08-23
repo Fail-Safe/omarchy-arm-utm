@@ -30,11 +30,12 @@ echo "  $before → $after"
 n=0
 for f in "$TREE"/bin/*; do
   [ -f "$f" ] || continue
-  b=$(basename "$f"); t="/usr/local/bin/$b"
+  b=$(basename "$f"); t="/usr/bin/$b"
   [ -e "$t" ] && [ ! -L "$t" ] && continue
   [ -L "$t" ] && continue
   sudo ln -sfn "$f" "$t" 2>/dev/null && n=$((n+1))
 done
-[ "$n" -gt 0 ] && echo "  $n binarios nuevos enlazados en /usr/local/bin"
-sudo find /usr/local/bin -xtype l -delete 2>/dev/null || true
+[ "$n" -gt 0 ] && echo "  $n binarios nuevos enlazados en /usr/bin"
+# Enlaces que apuntan a comandos ya retirados del arbol
+sudo find /usr/bin -xtype l -delete 2>/dev/null || true
 exit 0

@@ -97,6 +97,26 @@ Y algo que tardé en ver: **no todo lo que falta hay que compilarlo**. `mako`,
 aún, `mako` se activa por D-Bus y le roba `org.freedesktop.Notifications` al
 shell, dejando las notificaciones sin tema.
 
+## Fallo conocido en la imagen publicada
+
+La imagen que hay en el Internet Archive instala los comandos `omarchy-*` en
+`/usr/local/bin`. Fue decisión mía —el paquete de upstream usa `/usr/bin`— y
+resulta que el árbol lleva trece rutas `/usr/bin/omarchy-*` cableadas, cinco de
+ellas en ficheros `.service`. Se nota en dos sitios:
+
+- **«Update System» reaparece en cada arranque**, aunque todo esté al día.
+  `enable-user-units.sh` falla, y `omarchy-provision-first-run` sólo marca
+  first-run como hecho si *ningún* paso falla: se repite indefinidamente y
+  vuelve a lanzar el aviso.
+- **«Linux kernel has been updated. Reboot?» en cada actualización.** Causa
+  distinta: `omarchy-update-restart` busca un `/usr/lib/modules/<ver>/vmlinuz`
+  que pertenezca a un paquete. En x86_64 lo instala `linux`; en Arch Linux ARM,
+  `linux-aarch64` deja la imagen en `/boot/Image` y no crea ese fichero, así que
+  la condición nunca se cumple y reiniciar no sirve de nada.
+
+Los dos están corregidos en el build. Para arreglar una VM ya instalada, ejecuta
+dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh).
+
 ## Uso
 
 ```bash
