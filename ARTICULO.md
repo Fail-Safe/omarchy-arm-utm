@@ -99,7 +99,10 @@ comm -12 <(sort omarchy.txt) ../alarm.txt | wc -l   # disponibles
 comm -23 <(sort omarchy.txt) ../alarm.txt           # los que faltan
 ```
 
-Resultado: **123 de 148 paquetes existen en ARM**. Los 25 que faltan son apps
+Resultado: **121 de 148 paquetes existen en ARM** por nombre exacto —123 si se
+sustituyen `nvim` por `neovim` y `ttf-jetbrains-mono-nerd-basic` por
+`ttf-jetbrains-mono-nerd`, que es lo que hace la fase `prepare`—. Los que faltan
+son apps
 propietarias (1Password, Spotify, Obsidian, Typora) y paquetes propios de
 Omarchy. Y lo importante: `hyprland`, `hyprlock`, `hypridle`, `waybar`,
 `quickshell`, `uwsm`, `sddm`, `mesa` y `chromium` están todos, con versiones al
@@ -296,9 +299,13 @@ paquete coloca ficheros en rutas fijas del sistema:
 - `/etc/profile.d/omarchy.sh` — el gancho para las shells
 - `/usr/share/uwsm/env.d/10-omarchy` — el gancho para la sesión gráfica
 
-El paquete es x86_64-only. Clonar el repositorio en el `$HOME` deja
-`OMARCHY_PATH` vacío, el `.bashrc` falla, Hyprland no encuentra su
-`bootstrap.lua` y nada del autostart funciona.
+Aquí conviene precisar, porque yo mismo lo escribí mal al principio: **el
+paquete no es x86_64-only**. Su PKGBUILD declara `arch=('any')` —son scripts,
+Lua y QML— e instala los comandos en `/usr/bin`, con enlaces desde
+`/usr/share/omarchy/bin`. Lo x86_64-only es el **repositorio** donde se publica.
+En ARM no hay de dónde instalarlo, y ahí empieza el problema: clonar el
+repositorio en el `$HOME` deja `OMARCHY_PATH` sin definir, el `.bashrc` da
+error, Hyprland no encuentra su `bootstrap.lua` y nada del autostart funciona.
 
 La solución es replicar a mano lo que haría el paquete:
 

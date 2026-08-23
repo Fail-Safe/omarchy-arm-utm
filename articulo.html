@@ -363,7 +363,7 @@ curl -s .../omarchy/quattro/install/omarchy-base.packages \
 comm -12 &lt;(sort omarchy.txt) ../alarm.txt | wc -l   <span class="c"># disponibles</span>
 comm -23 &lt;(sort omarchy.txt) ../alarm.txt           <span class="c"># los que faltan</span></code></pre>
       <p>
-        Resultado: <strong>123 de 148 paquetes existen en ARM</strong>. Los 25 que faltan
+        Resultado: <strong>121 de 148 paquetes existen en ARM</strong> por nombre exacto (123 sustituyendo <code>nvim</code>→<code>neovim</code> y <code>ttf-jetbrains-mono-nerd-basic</code>→<code>ttf-jetbrains-mono-nerd</code>, que es lo que hace la fase <code>prepare</code>). Los que faltan
         son apps propietarias (1Password, Spotify, Obsidian, Typora) y paquetes propios de
         Omarchy. Y lo importante: <code>hyprland</code>, <code>hyprlock</code>,
         <code>hypridle</code>, <code>quickshell</code>, <code>uwsm</code>,
@@ -561,10 +561,14 @@ curl -s .../omarchy/quattro/version   <span class="o">→ 4.0.0.alpha</span></co
           <li><code>/usr/share/uwsm/env.d/10-omarchy</code> — el gancho para la sesión gráfica</li>
         </ul>
         <p>
-          El paquete es x86_64-only. Clonar el repositorio en el <code>$HOME</code> deja
-          <code>OMARCHY_PATH</code> vacío, el <code>.bashrc</code> falla, Hyprland no
-          encuentra su <code>bootstrap.lua</code> y nada del autostart funciona. La solución
-          es replicar a mano lo que haría el paquete:
+          Aquí conviene precisar, porque yo mismo lo escribí mal al principio: <strong>el
+          paquete no es x86_64-only</strong>. Su PKGBUILD declara <code>arch=('any')</code>
+          —son scripts, Lua y QML— e instala los comandos en <code>/usr/bin</code>, con
+          enlaces desde <code>/usr/share/omarchy/bin</code>. Lo x86_64-only es el
+          <strong>repositorio</strong> donde se publica. En ARM no hay de dónde instalarlo,
+          y ahí empieza el problema: clonar el repositorio en el <code>$HOME</code> deja
+          <code>OMARCHY_PATH</code> sin definir, el <code>.bashrc</code> da error, Hyprland
+          no encuentra su <code>bootstrap.lua</code> y nada del autostart funciona.
         </p>
 <pre><code>sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
 for f in "$OMARCHY_PATH"/bin/*; do

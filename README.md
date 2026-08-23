@@ -50,10 +50,15 @@ default branch **`quattro`** (4.x). They are different products:
 | Hyprland config | `.conf` | **Lua** (`hyprland.lua`, `bootstrap.lua`) |
 | Distribution | scripts in `~/.local/share` | **pacman package** in `/usr/share/omarchy` |
 
-Since that pacman package is x86_64-only, copying just the dotfiles leaves
-`OMARCHY_PATH` empty → `bashrc` fails → Hyprland cannot find `bootstrap.lua` →
-**it boots into emergency mode**. `stage3.sh` reproduces by hand what the
-package would have done.
+The package itself is **`arch=('any')`** — pure scripts, Lua and QML. What is
+x86_64-only is the *repository* it is published in, so on ARM you cannot
+`pacman -S omarchy` and the files never land. Copy just the dotfiles and
+`OMARCHY_PATH` goes unset, `bashrc` errors out, Hyprland cannot find
+`bootstrap.lua`, and you get a bare compositor instead of a desktop.
+`stage3.sh` reproduces by hand what that package would have installed —
+with one deliberate difference: upstream installs its commands into
+`/usr/bin`, and this build puts them in `/usr/local/bin` so they never collide
+with anything pacman owns.
 
 Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 4.
 
@@ -122,7 +127,8 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **~435 `omarchy-*` commands**
+- Dotfiles, themes and the **~435 `omarchy-*` commands** (in `/usr/local/bin`
+  here; upstream's package puts them in `/usr/bin`)
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
   `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`, `ttf-ia-writer`,
@@ -134,8 +140,10 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **`omarchy-update` works**, with a post-update hook that keeps the Omarchy
   checkout in sync and snapper snapshots before each update
 
-Of the 148 packages in `omarchy-base.packages`, **123 exist in Arch Linux ARM**;
-17 of the 25 missing are built from source.
+Of the 148 packages in `omarchy-base.packages`, **121 exist in Arch Linux ARM**
+by name (123 once you substitute `nvim`→`neovim` and
+`ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). 17 of the rest are
+built from source; the build prints the list every run.
 
 ## What does not work
 

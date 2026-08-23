@@ -55,10 +55,14 @@ defecto **`quattro`** (4.0.0.alpha). Son dos productos distintos:
 | Config de Hyprland | `.conf` | **Lua** (`hyprland.lua`, `bootstrap.lua`) |
 | Distribución | scripts en `~/.local/share` | **paquete pacman** en `/usr/share/omarchy` |
 
-Como el paquete pacman es x86_64-only, copiar solo los dotfiles deja
-`OMARCHY_PATH` vacío → falla el `bashrc` → Hyprland no encuentra
-`bootstrap.lua` → **arranca en modo emergencia**. `stage3.sh` replica a mano lo
-que haría ese paquete.
+El paquete en sí es **`arch=('any')`** —scripts, Lua y QML—. Lo que es
+x86_64-only es el *repositorio* donde se publica, así que en ARM no puedes
+`pacman -S omarchy` y los ficheros nunca llegan. Copiando solo los dotfiles,
+`OMARCHY_PATH` queda sin definir, el `bashrc` da error, Hyprland no encuentra
+`bootstrap.lua` y te quedas con un compositor pelado en vez de un escritorio.
+`stage3.sh` replica a mano lo que habría instalado ese paquete, con una
+diferencia deliberada: upstream instala sus comandos en `/usr/bin` y aquí van a
+`/usr/local/bin`, para no chocar con nada que gestione pacman.
 
 ## Qué contiene la imagen
 
@@ -67,7 +71,8 @@ que haría ese paquete.
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los ~430 comandos `omarchy-*`**
+- **Dotfiles, temas y los ~435 comandos `omarchy-*`** (aquí en `/usr/local/bin`;
+  el paquete de upstream los pone en `/usr/bin`)
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
   `ttfx`, `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`,
@@ -79,8 +84,10 @@ que haría ese paquete.
 - Integración con el host: `qemu-guest-agent` (habilita `utmctl exec`,
   `ip-address`, `file`) y `spice-vdagent`
 
-De los 148 paquetes de `omarchy-base.packages`, **123 existen en Arch Linux
-ARM**. De las 25 ausencias, **18 se compilan desde fuente**. Quedan fuera las
+De los 148 paquetes de `omarchy-base.packages`, **121 existen en Arch Linux
+ARM** por nombre (123 si sustituyes `nvim`→`neovim` y
+`ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). De los que faltan,
+**17 se compilan desde fuente**. Quedan fuera las
 apps propietarias (1Password, Spotify, Obsidian, Typora) y `herdr`, que necesita
 Zig 0.15 cuando ARM solo empaqueta la 0.16.
 
