@@ -125,7 +125,8 @@ muchas rutas que se arreglaran.
 
 **Los tres están corregidos en `omarchy-arm-utm-v2.zip`** (3,6 GB, un 45% menos
 que la primera). Para arreglar una VM que ya tengas, sin volver a descargar,
-ejecuta dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh).
+ejecuta dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh),
+y para el portapapeles [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh).
 
 ## Uso
 

@@ -178,7 +178,8 @@ the paths were.
 
 **All three are fixed in `omarchy-arm-utm-v2.zip`.** To repair a VM you already
 have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
-inside it — no need to re-download.
+inside it — no need to re-download. For the clipboard, run
+[`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh) the same way.
 
 ## What does not work
 
