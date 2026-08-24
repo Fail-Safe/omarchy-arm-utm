@@ -2532,7 +2532,17 @@ ph_verify() {
   [[ -n $pty ]] || { warn "no se pudo obtener el puerto serie; comprueba a mano"; return 0; }
   # Antes esta fase recogia metricas y no las comparaba con nada, asi que
   # terminaba en "ok" pasara lo que pasara. Ahora el invitado emite un veredicto
-  # y el anfitrion lo comprueba.
+  # y el anfitrion lo comprueba. Seis condiciones, todas necesarias:
+  #   H  Hyprland vivo
+  #   Q  quickshell vivo (si fuera waybar, seria Omarchy 3)
+  #   B  >=400 comandos omarchy-* en /usr/bin (contados por nombre, no por
+  #      total del directorio: /usr/bin tiene ~2900 ficheros del sistema y
+  #      "ls | wc -l" pasaria cualquier umbral aunque no hubiera ni uno)
+  #   R  <=5 enlaces rotos (uno es de qt6-webengine, ajeno a esto)
+  #   U  >=6 unidades de usuario instaladas: sin ellas first-run falla en bucle
+  #   V  la version del arbol empieza por 4
+  # El umbral anterior miraba /usr/local/bin, donde ya no van los comandos: era
+  # un falso positivo garantizado en cuanto se movieron a /usr/bin.
   local vlog="$W/logs/verify.log"
   # El heredoc va ENTRECOMILLADO. Sin comillas, el bash del anfitrion expande
   # los $(...) antes de que expect los vea, y las comprobaciones se ejecutan en
@@ -2554,12 +2564,12 @@ expect {
   -re {❯} {}
   timeout {}
 }
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(ls /usr/local/bin | wc -l); echo \"### H=\$H Q=\$Q BINS=\$B\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 300 ]; then echo VEREDICTO_OK; else echo VEREDICTO_KO; fi\r"
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(ls /usr/bin | grep -c '^omarchy-'); R=\$(find /usr/bin -xtype l | wc -l); U=\$(ls /usr/lib/systemd/user/*.service 2>/dev/null | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ]; then echo VEREDICTO_OK; else echo VEREDICTO_KO; fi\r"
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
   if grep -qa VEREDICTO_OK "$vlog"; then
-    ok "VM '$VM_NAME' arrancada y verificada (Hyprland, quickshell y los comandos omarchy-*)"
+    ok "VM '$VM_NAME' verificada: Omarchy 4, Hyprland + quickshell vivos, comandos y unidades en su sitio"
   elif grep -qa VEREDICTO_KO "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "la VM arranca pero el escritorio no esta completo; log en $vlog"

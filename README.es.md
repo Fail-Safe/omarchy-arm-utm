@@ -60,9 +60,12 @@ x86_64-only es el *repositorio* donde se publica, así que en ARM no puedes
 `pacman -S omarchy` y los ficheros nunca llegan. Copiando solo los dotfiles,
 `OMARCHY_PATH` queda sin definir, el `bashrc` da error, Hyprland no encuentra
 `bootstrap.lua` y te quedas con un compositor pelado en vez de un escritorio.
-`stage3.sh` replica a mano lo que habría instalado ese paquete, con una
-diferencia deliberada: upstream instala sus comandos en `/usr/bin` y aquí van a
-`/usr/local/bin`, para no chocar con nada que gestione pacman.
+`stage3.sh` replica a mano lo que habría instalado ese paquete, en `/usr/bin`
+—el mismo sitio que usa upstream—. Una versión anterior los ponía en
+`/usr/local/bin`, que parecía más limpio pero rompía cosas: el árbol lleva trece
+rutas `/usr/bin/omarchy-*` cableadas, cinco en ficheros `.service`.
+`/usr/local/bin` se sigue usando, pero sólo para los pocos envoltorios propios
+de ARM que necesitan precedencia en el `PATH`.
 
 ## Qué contiene la imagen
 
@@ -71,8 +74,8 @@ diferencia deliberada: upstream instala sus comandos en `/usr/bin` y aquí van a
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los 432 comandos `omarchy-*`** (aquí en `/usr/local/bin`;
-  el paquete de upstream los pone en `/usr/bin`)
+- **Dotfiles, temas y los 432 comandos `omarchy-*`**, en `/usr/bin` como hace
+  el paquete de upstream
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
   `ttfx`, `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`,

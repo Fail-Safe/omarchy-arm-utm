@@ -55,10 +55,12 @@ x86_64-only is the *repository* it is published in, so on ARM you cannot
 `pacman -S omarchy` and the files never land. Copy just the dotfiles and
 `OMARCHY_PATH` goes unset, `bashrc` errors out, Hyprland cannot find
 `bootstrap.lua`, and you get a bare compositor instead of a desktop.
-`stage3.sh` reproduces by hand what that package would have installed —
-with one deliberate difference: upstream installs its commands into
-`/usr/bin`, and this build puts them in `/usr/local/bin` so they never collide
-with anything pacman owns.
+`stage3.sh` reproduces by hand what that package would have installed, into
+`/usr/bin` — the same place upstream uses. An earlier version put them in
+`/usr/local/bin`, which seemed tidier but broke things: the tree hardcodes
+`/usr/bin/omarchy-*` in thirteen places, five of them `.service` files.
+`/usr/local/bin` is still used, but only for the few ARM-specific wrappers that
+need to take precedence in `PATH`.
 
 Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 4.
 
@@ -133,8 +135,8 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **432 `omarchy-*` commands** (in `/usr/local/bin`
-  here; upstream's package puts them in `/usr/bin`)
+- Dotfiles, themes and the **432 `omarchy-*` commands**, in `/usr/bin` as
+  upstream's package does
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
   `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`, `ttf-ia-writer`,
