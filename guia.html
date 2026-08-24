@@ -231,7 +231,8 @@ code {
   <div class="paths">
     <div class="path">
       <h3>Solo quiero la VM</h3>
-      <p>Descárgala del <a href="https://archive.org/details/omarchy-arm-utm">Internet Archive</a> (6,5 GB), doble clic, y arranca sola.</p>
+      <p>Descarga <code>omarchy-arm-utm-v2.zip</code> del
+      <a href="https://archive.org/details/omarchy-arm-utm">Internet Archive</a> (3,6 GB), doble clic, y arranca sola.</p>
       <span class="dur">10 minutos + la descarga</span>
     </div>
     <div class="path pick">
@@ -480,7 +481,30 @@ cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz</pre></
 </section>
 
 <section>
-  <h2><span class="n">7</span> Para deshacerlo</h2>
+  <h2><span class="n">7</span> Si no quieres construirla</h2>
+
+  <p>
+    La imagen que produce todo esto está publicada, sanitizada y lista para importar:
+  </p>
+
+  <div class="term"><pre><span class="c"># https://archive.org/details/omarchy-arm-utm</span>
+<span class="c"># descarga omarchy-arm-utm-v2.zip — 3,6 GB</span>
+<span class="p">$</span> shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+<span class="p">$</span> unzip omarchy-arm-utm-v2.zip
+<span class="p">$</span> open "Omarchy ARM.utm"</pre></div>
+
+  <p>Usuario <code>omarchy</code>, contraseña <code>omarchy</code> (también root).</p>
+
+  <div class="note">
+    En el mismo sitio hay un <code>omarchy-arm-utm.zip</code> de 6,5 GB: es la primera
+    versión, y sigue ahí para que los enlaces antiguos no se rompan. Tiene dos avisos que
+    no se apagan nunca y <strong>se retira el 30 de noviembre de 2026</strong>. Descarga
+    la v2.
+  </div>
+</section>
+
+<section>
+  <h2><span class="n">8</span> Para deshacerlo</h2>
 
   <div class="term"><pre><span class="p">$</span> rm -rf ~/omarchy-arm-build   <span class="c"># el directorio de trabajo entero</span></pre></div>
 
