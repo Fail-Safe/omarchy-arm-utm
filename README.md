@@ -195,11 +195,20 @@ inside it — no need to re-download.
 
 ## Clipboard and shared folder
 
-**UTM's "Share clipboard" does not work under Hyprland.** It relies on
-`spice-vdagent`, whose clipboard is X11-only — `src/vdagent/clipboard.c` delegates
-everything to `vdagent_x11_*` and there is not a single reference to
-`wlr-data-control` in its source. The service starting is not enough; on native
-Wayland it has no way to talk to the compositor.
+**UTM's "Share clipboard" does not work under Hyprland.** There are two
+barriers, and only the second one is fatal:
+
+1. `spice-vdagentd` only routes the clipboard to the agent owning the **active
+   `seat0` session** (`src/vdagentd/systemd-login.c:272`); otherwise it drops
+   the message silently. The `-X` flag works around this.
+2. But even once the message gets through, the destination is X11:
+   `vdagent.c:421` calls `vdagent_clipboards_new(vdagent_display_get_x11(...))`,
+   and there is not a single reference to `wlr-data-control` anywhere in the
+   repo. On native Wayland there is nothing to talk to.
+
+So the service starting is not enough, and neither is `-X`. Third-party patches
+have been in review since 2025 (SPICE MR !57 has gone a year without a
+maintainer review), but nothing you can rely on today.
 
 The image ships two things instead:
 

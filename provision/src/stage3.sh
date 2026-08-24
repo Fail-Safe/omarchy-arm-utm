@@ -432,15 +432,50 @@ DESK
 fi
 
 # --- portapapeles compartido con el anfitrion ---------------------------
-# UTM ofrece "Compartir portapapeles", pero eso depende de spice-vdagent, cuyo
-# portapapeles es X11 puro: src/vdagent/clipboard.c delega todo en
-# vdagent_x11_* y no hay una sola referencia a wlr-data-control en su codigo.
-# Bajo Hyprland no puede funcionar por mucho que el servicio arranque. Este
-# puente usa la carpeta compartida, que si funciona en Wayland.
+# UTM expone el canal correcto:
+#   -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
+# El problema es el agente de referencia: spice-vdagent habla ese canal pero
+# entrega el portapapeles solo a X11 (vdagent.c:421 ->
+# vdagent_clipboards_new(vdagent_display_get_x11(...)), y cero referencias a
+# wlr-data-control en todo su repositorio). Bajo Wayland nativo no tiene con
+# quien hablar, y ni el flag -X lo arregla: esa guarda es anterior, la del
+# enrutado por sesion de seat0.
+# omarchy-arm-vdagent habla el MISMO protocolo por el MISMO puerto, pero al
+# otro lado usa wl-copy/wl-paste. Se activa solo, como servicio de usuario.
+if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
+  log "agente de portapapeles nativo para Wayland"
+  sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
+  # spice-vdagent se queda instalado (aporta redimensionado de pantalla) pero
+  # NO debe competir por el puerto: se le quita el arranque automatico.
+  sudo systemctl disable spice-vdagentd.socket 2>/dev/null || true
+  sudo systemctl disable spice-vdagentd.service 2>/dev/null || true
+  mkdir -p ~/.config/systemd/user
+  cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
+[Unit]
+Description=Portapapeles compartido con el anfitrion (SPICE vdagent sobre Wayland)
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathExists=/dev/virtio-ports/com.redhat.spice.0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/omarchy-arm-vdagent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+UNIT
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable omarchy-arm-vdagent.service 2>/dev/null || true
+  echo "  /usr/local/bin/omarchy-arm-vdagent + servicio de usuario"
+fi
+# Puente por carpeta compartida, como alternativa si el canal SPICE no esta
+# disponible (por ejemplo con el backend de virtualizacion de Apple).
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
-  log "puente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
-  echo "  /usr/local/bin/omarchy-arm-clipboard (actívalo con --install)"
+  echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
 
   # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
   # asi es como se distribuye. Se instalan con el mismo instalador para no

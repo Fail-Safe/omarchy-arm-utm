@@ -158,10 +158,19 @@ la imagen distribuible se renombra a `omarchy` / `omarchy`.
 ## Portapapeles y carpeta compartida
 
 **El «Compartir portapapeles» de UTM no funciona en Hyprland**, y conviene saber
-por qué: depende de `spice-vdagent`, cuyo portapapeles es X11 puro —su
-`src/vdagent/clipboard.c` delega todo en `vdagent_x11_*` y no hay una sola
-referencia a `wlr-data-control` en su código—. Da igual que el servicio arranque:
-bajo Wayland nativo no tiene por dónde hablar con el compositor.
+por qué, porque hay dos barreras y sólo la segunda es insalvable:
+
+1. `spice-vdagentd` sólo enruta el portapapeles al agente de la **sesión activa
+   de `seat0`** (`src/vdagentd/systemd-login.c:272`); si no la encuentra,
+   descarta el mensaje en silencio. Esto se puede sortear con el flag `-X`.
+2. Pero aunque el mensaje pase, el destino final es X11: `vdagent.c:421` hace
+   `vdagent_clipboards_new(vdagent_display_get_x11(...))`, y en todo el
+   repositorio no hay una sola referencia a `wlr-data-control`. Bajo Wayland
+   nativo no hay por dónde hablar con el compositor.
+
+Es decir: da igual que el servicio arranque, y da igual el `-X`. Hay parches de
+terceros en revisión desde 2025 (el MR !57 de SPICE lleva un año sin que ningún
+mantenedor lo revise) pero nada que se pueda dar por bueno hoy.
 
 La imagen trae dos cosas para suplirlo:
 

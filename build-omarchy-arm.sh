@@ -244,7 +244,7 @@ infra = """mesa vulkan-swrast vulkan-icd-loader xorg-xwayland qt6-wayland qt5-wa
 pipewire pipewire-pulse pipewire-alsa pipewire-jack wireplumber xdg-user-dirs xdg-utils polkit
 sddm uwsm hypridle hyprlock hyprpaper hyprshot swaybg wl-clipboard slurp satty
 noto-fonts noto-fonts-cjk noto-fonts-emoji terminus-font woff2-font-awesome
-go nodejs npm openssh htop wget curl unzip zip rsync mesa-utils wayland-utils pacman-contrib
+go nodejs npm python openssh htop wget curl unzip zip rsync mesa-utils wayland-utils pacman-contrib
 networkmanager btrfs-progs efibootmgr spice-vdagent qemu-guest-agent""".split()
 heavy = set("""libreoffice-fresh kdenlive signal-desktop obs-studio moonlight-qt tesseract
 tesseract-data-eng gpu-screen-recorder xournalpp evince system-config-printer cups cups-browsed
@@ -390,6 +390,7 @@ cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" \
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
+[ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent
 cat > /mnt/root/prov/fsinfo.env <<EOF
 ROOTFS=$ROOTFS
 ROOT_MOUNT_OPTS=$MOPT_ROOT
@@ -591,6 +592,16 @@ systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # que asegurar es el socket, no el servicio.
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 
+# El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
+# servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
+# de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
+install -Dm644 /dev/stdin /etc/udev/rules.d/70-omarchy-vdagent.rules <<'UDEV'
+# Puerto del agente SPICE: legible por la sesion grafica, para que
+# omarchy-arm-vdagent pueda hablar el protocolo del portapapeles.
+SUBSYSTEM=="virtio-ports", ATTR{name}=="com.redhat.spice.0", TAG+="uaccess", MODE="0660"
+UDEV
+echo "  regla udev para /dev/virtio-ports/com.redhat.spice.0"
+
 # Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
 # eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
 # "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
@@ -617,7 +628,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov da falso sin dar error. Se le deja una copia legible en su home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard; do
+for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
@@ -1131,15 +1142,50 @@ DESK
 fi
 
 # --- portapapeles compartido con el anfitrion ---------------------------
-# UTM ofrece "Compartir portapapeles", pero eso depende de spice-vdagent, cuyo
-# portapapeles es X11 puro: src/vdagent/clipboard.c delega todo en
-# vdagent_x11_* y no hay una sola referencia a wlr-data-control en su codigo.
-# Bajo Hyprland no puede funcionar por mucho que el servicio arranque. Este
-# puente usa la carpeta compartida, que si funciona en Wayland.
+# UTM expone el canal correcto:
+#   -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
+# El problema es el agente de referencia: spice-vdagent habla ese canal pero
+# entrega el portapapeles solo a X11 (vdagent.c:421 ->
+# vdagent_clipboards_new(vdagent_display_get_x11(...)), y cero referencias a
+# wlr-data-control en todo su repositorio). Bajo Wayland nativo no tiene con
+# quien hablar, y ni el flag -X lo arregla: esa guarda es anterior, la del
+# enrutado por sesion de seat0.
+# omarchy-arm-vdagent habla el MISMO protocolo por el MISMO puerto, pero al
+# otro lado usa wl-copy/wl-paste. Se activa solo, como servicio de usuario.
+if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
+  log "agente de portapapeles nativo para Wayland"
+  sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
+  # spice-vdagent se queda instalado (aporta redimensionado de pantalla) pero
+  # NO debe competir por el puerto: se le quita el arranque automatico.
+  sudo systemctl disable spice-vdagentd.socket 2>/dev/null || true
+  sudo systemctl disable spice-vdagentd.service 2>/dev/null || true
+  mkdir -p ~/.config/systemd/user
+  cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
+[Unit]
+Description=Portapapeles compartido con el anfitrion (SPICE vdagent sobre Wayland)
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+ConditionPathExists=/dev/virtio-ports/com.redhat.spice.0
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/omarchy-arm-vdagent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+UNIT
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable omarchy-arm-vdagent.service 2>/dev/null || true
+  echo "  /usr/local/bin/omarchy-arm-vdagent + servicio de usuario"
+fi
+# Puente por carpeta compartida, como alternativa si el canal SPICE no esta
+# disponible (por ejemplo con el backend de virtualizacion de Apple).
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
-  log "puente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
-  echo "  /usr/local/bin/omarchy-arm-clipboard (actívalo con --install)"
+  echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
 
   # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
   # asi es como se distribuye. Se instalan con el mismo instalador para no
@@ -2148,6 +2194,218 @@ esac
 __PAYLOAD_PROVISION_CLIPBRD_SH__
 chmod +x "$W/provision/clipbrd.sh"
 
+cat > "$W/provision/vdagent.py" <<'__PAYLOAD_PROVISION_VDAGENT_PY__'
+#!/usr/bin/env python3
+"""
+omarchy-arm-vdagent — portapapeles compartido real entre el anfitrión y Hyprland.
+
+POR QUÉ EXISTE
+    UTM ofrece "Compartir portapapeles" y expone el canal correcto:
+        -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
+        -chardev spicevmc,id=vdagent,debug=0,name=vdagent
+    (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1201)
+
+    Lo que no sirve es el agente de referencia. spice-vdagent habla ese canal
+    pero entrega el portapapeles solo a X11: vdagent.c:421 hace
+        vdagent_clipboards_new(vdagent_display_get_x11(agent->display))
+    y en todo su repositorio no hay una sola referencia a wlr-data-control.
+    Bajo Wayland nativo no tiene con quién hablar.
+
+    Este agente habla el mismo protocolo por el mismo puerto, pero al otro lado
+    usa wl-copy/wl-paste, que sí funcionan en Hyprland.
+
+PROTOCOLO (spice-protocol, spice/vd_agent.h)
+    Cada mensaje va precedido de VDIChunkHeader {port:u32, size:u32} y luego
+    VDAgentMessage {protocol:u32=1, type:u32, opaque:u64, size:u32}.
+    Solo texto UTF-8; ni imágenes ni ficheros.
+"""
+import os, sys, struct, subprocess, threading, time, select, signal
+
+PUERTO = os.environ.get("VDAGENT_PORT", "/dev/virtio-ports/com.redhat.spice.0")
+
+VD_AGENT_PROTOCOL = 1
+VDP_CLIENT_PORT = 2                # el puerto del cliente, en VDIChunkHeader
+
+MSG_CLIPBOARD              = 4
+MSG_ANNOUNCE_CAPABILITIES  = 6
+MSG_CLIPBOARD_GRAB         = 7
+MSG_CLIPBOARD_REQUEST      = 8
+MSG_CLIPBOARD_RELEASE      = 9
+
+CAP_CLIPBOARD            = 3
+CAP_CLIPBOARD_BY_DEMAND  = 5
+CAP_CLIPBOARD_SELECTION  = 6
+
+TIPO_UTF8 = 1                      # VD_AGENT_CLIPBOARD_UTF8_TEXT
+SEL_CLIPBOARD = 0                  # VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD
+
+DEBUG = bool(os.environ.get("VDAGENT_DEBUG"))
+
+def log(*a):
+    if DEBUG:
+        print("[vdagent]", *a, file=sys.stderr, flush=True)
+
+
+class Agente:
+    def __init__(self, fd):
+        self.fd = fd
+        self.lock = threading.Lock()
+        self.usa_seleccion = False       # ¿el cliente negoció CAP_CLIPBOARD_SELECTION?
+        self.ultimo_local = None         # lo último que vimos en el portapapeles del invitado
+        self.pendiente = None            # texto que el anfitrión nos anunció y aún no pedimos
+        self.entrante = threading.Event()
+        self.dato_entrante = None
+
+    # ── escritura ────────────────────────────────────────────────────────
+    def enviar(self, tipo, payload=b""):
+        cuerpo = struct.pack("<IIQI", VD_AGENT_PROTOCOL, tipo, 0, len(payload)) + payload
+        marco = struct.pack("<II", VDP_CLIENT_PORT, len(cuerpo)) + cuerpo
+        with self.lock:
+            os.write(self.fd, marco)
+        log("→", tipo, len(payload))
+
+    def _sel(self):
+        """Prefijo de selección: solo si el cliente lo negoció."""
+        return struct.pack("<BBBB", SEL_CLIPBOARD, 0, 0, 0) if self.usa_seleccion else b""
+
+    def anunciar_capacidades(self, solicitar=1):
+        caps = 0
+        for c in (CAP_CLIPBOARD, CAP_CLIPBOARD_BY_DEMAND, CAP_CLIPBOARD_SELECTION):
+            caps |= 1 << c
+        self.enviar(MSG_ANNOUNCE_CAPABILITIES, struct.pack("<II", solicitar, caps))
+
+    def grab(self):
+        """Avisa al anfitrión de que tenemos algo nuevo que ofrecer."""
+        self.enviar(MSG_CLIPBOARD_GRAB, self._sel() + struct.pack("<I", TIPO_UTF8))
+
+    def pedir(self):
+        self.enviar(MSG_CLIPBOARD_REQUEST, self._sel() + struct.pack("<I", TIPO_UTF8))
+
+    def entregar(self, texto):
+        self.enviar(MSG_CLIPBOARD,
+                    self._sel() + struct.pack("<I", TIPO_UTF8) + texto.encode("utf-8"))
+
+    # ── lectura ──────────────────────────────────────────────────────────
+    def _leer_exacto(self, n):
+        buf = b""
+        while len(buf) < n:
+            trozo = os.read(self.fd, n - len(buf))
+            if not trozo:
+                raise EOFError
+            buf += trozo
+        return buf
+
+    def bucle_lectura(self):
+        while True:
+            try:
+                _puerto, tam = struct.unpack("<II", self._leer_exacto(8))
+                cuerpo = self._leer_exacto(tam)
+            except (EOFError, OSError) as e:
+                log("puerto cerrado:", e); return
+            if len(cuerpo) < 20:
+                continue
+            proto, tipo, _opaque, tam_datos = struct.unpack("<IIQI", cuerpo[:20])
+            if proto != VD_AGENT_PROTOCOL:
+                continue
+            datos = cuerpo[20:20 + tam_datos]
+            log("←", tipo, tam_datos)
+            self._despachar(tipo, datos)
+
+    def _despachar(self, tipo, datos):
+        if tipo == MSG_ANNOUNCE_CAPABILITIES:
+            if len(datos) >= 8:
+                solicitar, caps = struct.unpack("<II", datos[:8])
+                self.usa_seleccion = bool(caps & (1 << CAP_CLIPBOARD_SELECTION))
+                log("capacidades del cliente: selección =", self.usa_seleccion)
+                if solicitar:
+                    self.anunciar_capacidades(solicitar=0)
+
+        elif tipo == MSG_CLIPBOARD_GRAB:
+            # El anfitrión copió algo. Se lo pedimos.
+            self.pedir()
+
+        elif tipo == MSG_CLIPBOARD_REQUEST:
+            # El anfitrión quiere lo nuestro.
+            texto = leer_portapapeles()
+            self.entregar(texto if texto is not None else "")
+
+        elif tipo == MSG_CLIPBOARD:
+            d = datos[4:] if self.usa_seleccion else datos
+            if len(d) >= 4:
+                dtipo, = struct.unpack("<I", d[:4])
+                if dtipo == TIPO_UTF8:
+                    texto = d[4:].decode("utf-8", "replace")
+                    escribir_portapapeles(texto)
+                    self.ultimo_local = texto
+                    log("recibido del anfitrión:", len(texto), "bytes")
+
+        elif tipo == MSG_CLIPBOARD_RELEASE:
+            pass
+
+
+def leer_portapapeles():
+    try:
+        r = subprocess.run(["wl-paste", "--no-newline", "--type", "text/plain"],
+                           capture_output=True, timeout=5)
+        if r.returncode != 0:
+            return None
+        return r.stdout.decode("utf-8", "replace")
+    except Exception:
+        return None
+
+
+def escribir_portapapeles(texto):
+    try:
+        subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"],
+                       input=texto.encode("utf-8"), timeout=5)
+    except Exception as e:
+        log("wl-copy falló:", e)
+
+
+def vigilar_invitado(ag):
+    """Cuando el usuario copia dentro de la VM, avisamos al anfitrión."""
+    while True:
+        texto = leer_portapapeles()
+        if texto is not None and texto != ag.ultimo_local:
+            ag.ultimo_local = texto
+            if texto:
+                ag.grab()
+        time.sleep(1)
+
+
+def main():
+    if not os.path.exists(PUERTO):
+        print(f"no existe {PUERTO}.", file=sys.stderr)
+        print("En UTM: Ajustes de la VM → Compartir → activa 'Compartir portapapeles'.",
+              file=sys.stderr)
+        return 1
+    for cmd in ("wl-paste", "wl-copy"):
+        if subprocess.run(["sh", "-c", f"command -v {cmd}"],
+                          capture_output=True).returncode != 0:
+            print(f"falta {cmd} (paquete wl-clipboard)", file=sys.stderr)
+            return 1
+
+    fd = os.open(PUERTO, os.O_RDWR)
+    ag = Agente(fd)
+    ag.anunciar_capacidades(solicitar=1)
+    ag.ultimo_local = leer_portapapeles()
+
+    threading.Thread(target=vigilar_invitado, args=(ag,), daemon=True).start()
+    try:
+        ag.bucle_lectura()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        os.close(fd)
+    return 0
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    sys.exit(main())
+__PAYLOAD_PROVISION_VDAGENT_PY__
+chmod +x "$W/provision/vdagent.py"
+
 mkdir -p "$W/scripts"
 cat > "$W/scripts/build.exp" <<'__PAYLOAD_SCRIPTS_BUILD_EXP__'
 #!/usr/bin/expect -f
@@ -2602,7 +2860,7 @@ ph_build() {
   # el rootfs viaja dentro del ISO de aprovisionamiento
   local d; d=$(mktemp -d)
   cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,packages-core.txt,packages-extra.txt} "$d"/
-  cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh} "$d"/
+  cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
   hdiutil makehybrid -iso -joliet -default-volume-name PROVISION -o "$W/provision/provision.iso" "$d" >/dev/null

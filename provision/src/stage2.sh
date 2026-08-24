@@ -172,6 +172,16 @@ systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # que asegurar es el socket, no el servicio.
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 
+# El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
+# servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
+# de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
+install -Dm644 /dev/stdin /etc/udev/rules.d/70-omarchy-vdagent.rules <<'UDEV'
+# Puerto del agente SPICE: legible por la sesion grafica, para que
+# omarchy-arm-vdagent pueda hablar el protocolo del portapapeles.
+SUBSYSTEM=="virtio-ports", ATTR{name}=="com.redhat.spice.0", TAG+="uaccess", MODE="0660"
+UDEV
+echo "  regla udev para /dev/virtio-ports/com.redhat.spice.0"
+
 # Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
 # eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
 # "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
@@ -198,7 +208,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov da falso sin dar error. Se le deja una copia legible en su home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard; do
+for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
