@@ -193,6 +193,28 @@ inside it — no need to re-download.
   x86_64 packages that any more; both are on 0.16.
 - Single monitor.
 
+## Clipboard and shared folder
+
+**UTM's "Share clipboard" does not work under Hyprland.** It relies on
+`spice-vdagent`, whose clipboard is X11-only — `src/vdagent/clipboard.c` delegates
+everything to `vdagent_x11_*` and there is not a single reference to
+`wlr-data-control` in its source. The service starting is not enough; on native
+Wayland it has no way to talk to the compositor.
+
+The image ships two things instead:
+
+- **`/mnt/share`** — whatever folder you pick in *VM Settings → Sharing* is
+  mounted there automatically. The simple way to move files.
+- **`omarchy-arm-clipboard`** — a clipboard bridge over that same folder:
+
+  ```bash
+  omarchy-arm-clipboard --install   # user service, starts with the session
+  omarchy-arm-clipboard --host      # prints the script to run on the Mac
+  ```
+
+  Run the printed script on the host, pointing at the shared folder. It syncs
+  text both ways once a second. Text only — no images, no files.
+
 ## Keyboard on a Mac
 
 macOS grabs Cmd before UTM sees it, so the VM ships with Alt and Super swapped

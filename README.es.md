@@ -155,6 +155,30 @@ quedado fuera.
 Credenciales durante la construcción: `builder` / `builder` (se preguntan). En
 la imagen distribuible se renombra a `omarchy` / `omarchy`.
 
+## Portapapeles y carpeta compartida
+
+**El «Compartir portapapeles» de UTM no funciona en Hyprland**, y conviene saber
+por qué: depende de `spice-vdagent`, cuyo portapapeles es X11 puro —su
+`src/vdagent/clipboard.c` delega todo en `vdagent_x11_*` y no hay una sola
+referencia a `wlr-data-control` en su código—. Da igual que el servicio arranque:
+bajo Wayland nativo no tiene por dónde hablar con el compositor.
+
+La imagen trae dos cosas para suplirlo:
+
+- **`/mnt/share`** — la carpeta que compartas en *Ajustes de la VM → Compartir*
+  se monta sola ahí. Es la vía sencilla para pasar ficheros.
+- **`omarchy-arm-clipboard`** — un puente de portapapeles que usa esa misma
+  carpeta. Dentro de la VM:
+
+  ```bash
+  omarchy-arm-clipboard --install   # servicio de usuario, arranca con la sesión
+  omarchy-arm-clipboard --host      # imprime el script para el Mac
+  ```
+
+  El script del Mac se ejecuta en el anfitrión apuntando a la carpeta
+  compartida. Sincroniza texto en las dos direcciones, una vez por segundo.
+  Sólo texto: ni imágenes ni ficheros.
+
 ## Actualizaciones
 
 `omarchy-update` funciona, pero necesitó tres arreglos que no son evidentes:

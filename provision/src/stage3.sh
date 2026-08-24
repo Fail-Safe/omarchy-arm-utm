@@ -429,6 +429,18 @@ Type=Application
 Categories=System;PackageManager;
 DESK
   echo "  disponible como comando y en el menu de aplicaciones"
+fi
+
+# --- portapapeles compartido con el anfitrion ---------------------------
+# UTM ofrece "Compartir portapapeles", pero eso depende de spice-vdagent, cuyo
+# portapapeles es X11 puro: src/vdagent/clipboard.c delega todo en
+# vdagent_x11_* y no hay una sola referencia a wlr-data-control en su codigo.
+# Bajo Hyprland no puede funcionar por mucho que el servicio arranque. Este
+# puente usa la carpeta compartida, que si funciona en Wayland.
+if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
+  log "puente de portapapeles para Wayland"
+  sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
+  echo "  /usr/local/bin/omarchy-arm-clipboard (actívalo con --install)"
 
   # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
   # asi es como se distribuye. Se instalan con el mismo instalador para no

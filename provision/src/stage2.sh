@@ -77,8 +77,8 @@ install -m 0440 /dev/stdin /etc/sudoers.d/99-install <<<"$VM_USER ALL=(ALL:ALL) 
 
 # ---------------------------------------------------------------- initramfs
 log "mkinitcpio (modulos virtio + btrfs)"
-sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu btrfs ext4)/' /etc/mkinitcpio.conf
-grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci virtio_blk virtio_gpu btrfs)' >> /etc/mkinitcpio.conf
+sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu 9p 9pnet 9pnet_virtio btrfs ext4)/' /etc/mkinitcpio.conf
+grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci virtio_blk virtio_gpu 9p 9pnet_virtio btrfs)' >> /etc/mkinitcpio.conf
 mkinitcpio -P
 echo "  /boot:"; ls -la /boot
 
@@ -171,6 +171,21 @@ systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # spice-vdagentd.socket cuando el cliente de la sesion se conecta. Lo que hay
 # que asegurar es el socket, no el servicio.
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
+
+# Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
+# eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
+# "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
+# nofail para que un arranque sin carpeta configurada no caiga a emergencia,
+# y x-systemd.automount para no pagar el montaje si no se usa.
+mkdir -p /mnt/share
+if ! grep -q '^share ' /etc/fstab; then
+  cat >> /etc/fstab <<'FSTAB'
+
+# Carpeta compartida de UTM (Ajustes de la VM -> Compartir -> Ruta compartida)
+share  /mnt/share  9p  trans=virtio,version=9p2000.L,rw,nofail,x-systemd.automount,_netdev,msize=512000  0  0
+FSTAB
+fi
+echo "  /mnt/share listo para la carpeta compartida de UTM"
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable docker.service 2>/dev/null || true
 usermod -aG docker "$VM_USER" 2>/dev/null || true
@@ -183,7 +198,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov da falso sin dar error. Se le deja una copia legible en su home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync; do
+for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"

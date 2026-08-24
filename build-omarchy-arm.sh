@@ -389,6 +389,7 @@ cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" \
    "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
+[ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 cat > /mnt/root/prov/fsinfo.env <<EOF
 ROOTFS=$ROOTFS
 ROOT_MOUNT_OPTS=$MOPT_ROOT
@@ -495,8 +496,8 @@ install -m 0440 /dev/stdin /etc/sudoers.d/99-install <<<"$VM_USER ALL=(ALL:ALL) 
 
 # ---------------------------------------------------------------- initramfs
 log "mkinitcpio (modulos virtio + btrfs)"
-sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu btrfs ext4)/' /etc/mkinitcpio.conf
-grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci virtio_blk virtio_gpu btrfs)' >> /etc/mkinitcpio.conf
+sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu 9p 9pnet 9pnet_virtio btrfs ext4)/' /etc/mkinitcpio.conf
+grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci virtio_blk virtio_gpu 9p 9pnet_virtio btrfs)' >> /etc/mkinitcpio.conf
 mkinitcpio -P
 echo "  /boot:"; ls -la /boot
 
@@ -589,6 +590,21 @@ systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # spice-vdagentd.socket cuando el cliente de la sesion se conecta. Lo que hay
 # que asegurar es el socket, no el servicio.
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
+
+# Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
+# eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
+# "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
+# nofail para que un arranque sin carpeta configurada no caiga a emergencia,
+# y x-systemd.automount para no pagar el montaje si no se usa.
+mkdir -p /mnt/share
+if ! grep -q '^share ' /etc/fstab; then
+  cat >> /etc/fstab <<'FSTAB'
+
+# Carpeta compartida de UTM (Ajustes de la VM -> Compartir -> Ruta compartida)
+share  /mnt/share  9p  trans=virtio,version=9p2000.L,rw,nofail,x-systemd.automount,_netdev,msize=512000  0  0
+FSTAB
+fi
+echo "  /mnt/share listo para la carpeta compartida de UTM"
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable docker.service 2>/dev/null || true
 usermod -aG docker "$VM_USER" 2>/dev/null || true
@@ -601,7 +617,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov da falso sin dar error. Se le deja una copia legible en su home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync; do
+for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
@@ -1112,6 +1128,18 @@ Type=Application
 Categories=System;PackageManager;
 DESK
   echo "  disponible como comando y en el menu de aplicaciones"
+fi
+
+# --- portapapeles compartido con el anfitrion ---------------------------
+# UTM ofrece "Compartir portapapeles", pero eso depende de spice-vdagent, cuyo
+# portapapeles es X11 puro: src/vdagent/clipboard.c delega todo en
+# vdagent_x11_* y no hay una sola referencia a wlr-data-control en su codigo.
+# Bajo Hyprland no puede funcionar por mucho que el servicio arranque. Este
+# puente usa la carpeta compartida, que si funciona en Wayland.
+if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
+  log "puente de portapapeles para Wayland"
+  sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
+  echo "  /usr/local/bin/omarchy-arm-clipboard (actívalo con --install)"
 
   # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
   # asi es como se distribuye. Se instalan con el mismo instalador para no
@@ -2002,6 +2030,124 @@ exit 0
 __PAYLOAD_PROVISION_ARMSYNC_SH__
 chmod +x "$W/provision/armsync.sh"
 
+cat > "$W/provision/clipbrd.sh" <<'__PAYLOAD_PROVISION_CLIPBRD_SH__'
+#!/bin/bash
+#
+#  omarchy-arm-clipboard — portapapeles compartido con el Mac, vía la carpeta
+#  compartida de UTM.
+#
+#  POR QUE HACE FALTA
+#  UTM ofrece "Compartir portapapeles", pero eso solo funciona si el invitado
+#  corre spice-vdagent, y el portapapeles de spice-vdagent es X11 puro: su
+#  clipboard.c delega todo en vdagent_x11_* y no hay una sola referencia a
+#  wlr-data-control en su codigo. Bajo Hyprland (Wayland nativo) no puede
+#  funcionar, por mucho que el servicio arranque.
+#
+#  COMO FUNCIONA
+#  Vigila /mnt/share/.clipboard en las dos direcciones: si el fichero cambia,
+#  lo copia al portapapeles del invitado; si el portapapeles del invitado
+#  cambia, lo escribe al fichero. En el Mac, un script equivalente hace lo
+#  mismo con pbcopy/pbpaste. Solo texto.
+#
+#  USO
+#    omarchy-arm-clipboard             vigila (lo lanza el servicio de usuario)
+#    omarchy-arm-clipboard --install   instala el servicio y lo arranca
+#    omarchy-arm-clipboard --host      imprime el script para el Mac
+#
+set -uo pipefail
+
+SHARE="${OMARCHY_CLIPBOARD_DIR:-/mnt/share}"
+FILE="$SHARE/.clipboard"
+INTERVALO="${OMARCHY_CLIPBOARD_INTERVAL:-1}"
+
+uso() { sed -n '3,26p' "$0" | sed 's/^#\{0,2\} \{0,1\}//'; }
+
+instalar() {
+  mkdir -p ~/.config/systemd/user
+  cat > ~/.config/systemd/user/omarchy-arm-clipboard.service <<'UNIT'
+[Unit]
+Description=Portapapeles compartido con el anfitrion (via carpeta compartida de UTM)
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/omarchy-arm-clipboard
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target
+UNIT
+  systemctl --user daemon-reload
+  systemctl --user enable --now omarchy-arm-clipboard.service && echo "servicio activo"
+  systemctl --user --no-pager status omarchy-arm-clipboard.service | head -5
+}
+
+script_anfitrion() {
+  cat <<'MACEOF'
+#!/bin/bash
+# Ejecutar EN EL MAC. Sincroniza el portapapeles con la VM a traves de la
+# carpeta que tengas compartida en los ajustes de la VM en UTM.
+#   ./clipboard-mac.sh ~/ruta/de/la/carpeta/compartida
+set -uo pipefail
+DIR="${1:?uso: $0 <carpeta compartida con la VM>}"
+F="$DIR/.clipboard"
+mkdir -p "$DIR"; touch "$F"
+ultimo_local=""; ultimo_remoto="$(cat "$F" 2>/dev/null || true)"
+while :; do
+  actual="$(pbpaste 2>/dev/null || true)"
+  if [ "$actual" != "$ultimo_local" ] && [ -n "$actual" ]; then
+    printf '%s' "$actual" > "$F"; ultimo_local="$actual"; ultimo_remoto="$actual"
+  fi
+  remoto="$(cat "$F" 2>/dev/null || true)"
+  if [ "$remoto" != "$ultimo_remoto" ] && [ -n "$remoto" ]; then
+    printf '%s' "$remoto" | pbcopy; ultimo_remoto="$remoto"; ultimo_local="$remoto"
+  fi
+  sleep 1
+done
+MACEOF
+}
+
+vigilar() {
+  command -v wl-paste >/dev/null || { echo "falta wl-clipboard" >&2; exit 1; }
+  if [ ! -d "$SHARE" ]; then
+    echo "no hay carpeta compartida en $SHARE." >&2
+    echo "En UTM: Ajustes de la VM -> Compartir -> elige una carpeta, y reinicia." >&2
+    exit 1
+  fi
+  touch "$FILE" 2>/dev/null || { echo "no puedo escribir en $FILE" >&2; exit 1; }
+  local ultimo_local ultimo_remoto actual remoto
+  ultimo_local="$(wl-paste --no-newline 2>/dev/null || true)"
+  ultimo_remoto="$(cat "$FILE" 2>/dev/null || true)"
+  while :; do
+    # invitado -> fichero
+    actual="$(wl-paste --no-newline 2>/dev/null || true)"
+    if [ "$actual" != "$ultimo_local" ] && [ -n "$actual" ]; then
+      printf '%s' "$actual" > "$FILE"
+      ultimo_local="$actual"; ultimo_remoto="$actual"
+    fi
+    # fichero -> invitado
+    remoto="$(cat "$FILE" 2>/dev/null || true)"
+    if [ "$remoto" != "$ultimo_remoto" ] && [ -n "$remoto" ]; then
+      printf '%s' "$remoto" | wl-copy
+      ultimo_remoto="$remoto"; ultimo_local="$remoto"
+    fi
+    sleep "$INTERVALO"
+  done
+}
+
+case "${1:-}" in
+  --install) instalar ;;
+  --host)    script_anfitrion ;;
+  -h|--help) uso ;;
+  "")        vigilar ;;
+  *)         echo "opcion desconocida: $1" >&2; uso >&2; exit 1 ;;
+esac
+__PAYLOAD_PROVISION_CLIPBRD_SH__
+chmod +x "$W/provision/clipbrd.sh"
+
 mkdir -p "$W/scripts"
 cat > "$W/scripts/build.exp" <<'__PAYLOAD_SCRIPTS_BUILD_EXP__'
 #!/usr/bin/expect -f
@@ -2456,7 +2602,7 @@ ph_build() {
   # el rootfs viaja dentro del ISO de aprovisionamiento
   local d; d=$(mktemp -d)
   cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,packages-core.txt,packages-extra.txt} "$d"/
-  cp "$W/provision"/{extras.sh,armsync.sh} "$d"/
+  cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
   hdiutil makehybrid -iso -joliet -default-volume-name PROVISION -o "$W/provision/provision.iso" "$d" >/dev/null
