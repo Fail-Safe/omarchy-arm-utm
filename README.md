@@ -67,7 +67,12 @@ Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 
 The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
-**https://archive.org/details/omarchy-arm-utm** · 6.5 GB · `sha256 9d6afb16843bd868…`
+**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
+`sha256 dde926bceabfcc4b…`
+
+The original 6.5 GB `omarchy-arm-utm.zip` is still there so existing links keep
+working, but it has two bugs v2 fixes (see the known-issue section below) and
+will be removed on **30 November 2026**. Take v2.
 
 ```bash
 shasum -a 256 -c omarchy-arm-utm.zip.sha256
@@ -163,9 +168,15 @@ them `.service` files. Two visible symptoms:
   ARM's `linux-aarch64` puts the image in `/boot/Image` and ships no `vmlinuz`
   there, so the check can never be satisfied and rebooting never helps.
 
-Both are fixed in the build. To fix a running VM, run
-[`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
-inside it.
+There was a third layer underneath both: the six user `.service` files were
+never installed into `/usr/lib/systemd/user/` at all. Upstream ships them in the
+`omarchy-settings` package, which has no ARM build, and the first build did not
+reproduce that step — so `enable-user-units.sh` could not have worked whatever
+the paths were.
+
+**All three are fixed in `omarchy-arm-utm-v2.zip`.** To repair a VM you already
+have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
+inside it — no need to re-download.
 
 ## What does not work
 

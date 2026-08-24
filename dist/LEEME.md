@@ -1,5 +1,7 @@
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
+**v2 · 2026-08-24**
+
 <!-- NOTA DE VERSIÓN: esta es la copia mantenida. La que viaja dentro del .zip
      publicado en archive.org es de una revisión anterior y difiere en dos
      frases (el recuento de comandos y la nota sobre herdr/Zig). No se ha

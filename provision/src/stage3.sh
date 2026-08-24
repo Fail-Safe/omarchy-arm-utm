@@ -87,13 +87,33 @@ sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
 # reenviando el aviso "Update System" para siempre.
 # Comprobado: ninguno de los 433 nombres colisiona con un paquete de ALARM.
 sudo mkdir -p /usr/bin
+# Los enlaces apuntan a /usr/share/omarchy, NO a $OMARCHY_PATH. Aqui son la
+# misma cosa (el primero es un symlink al segundo), pero el sanitizador
+# convierte /usr/share/omarchy en directorio real y renombra al usuario: un
+# enlace a /home/<constructor>/... queda colgado y se lleva por delante los 433
+# comandos. /usr/share/omarchy es la unica ruta estable de las dos.
 n=0
 for f in "$OMARCHY_PATH"/bin/*; do
   [ -f "$f" ] || continue
   chmod +x "$f"
-  sudo ln -sfn "$f" "/usr/bin/$(basename "$f")" && n=$((n+1))
+  sudo ln -sfn "/usr/share/omarchy/bin/$(basename "$f")" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
-echo "  $n binarios en /usr/bin"
+echo "  $n binarios en /usr/bin -> /usr/share/omarchy/bin"
+# Las unidades de usuario van a /usr/lib/systemd/user/, que es donde systemd las
+# busca. Las instala el paquete omarchy-settings, que tampoco existe para ARM.
+# Sin esto, install/user/first-run/enable-user-units.sh falla en cada login, y
+# como omarchy-provision-first-run solo se marca hecho si NINGUN paso falla, el
+# first-run se repite indefinidamente reenviando el aviso "Update System".
+# Fuente: docs/file-layout.md, "systemd/user/*.service → /usr/lib/systemd/user/".
+if [ -d "$OMARCHY_PATH/default/systemd/user" ]; then
+  sudo install -d /usr/lib/systemd/user
+  sudo cp -a "$OMARCHY_PATH/default/systemd/user/." /usr/lib/systemd/user/
+  echo "  $(ls "$OMARCHY_PATH/default/systemd/user"/*.service 2>/dev/null | wc -l) unidades de usuario en /usr/lib/systemd/user"
+fi
+for d in system-sleep zram-generator.conf.d; do
+  [ -d "$OMARCHY_PATH/default/systemd/$d" ] && \
+    sudo cp -a "$OMARCHY_PATH/default/systemd/$d" /usr/lib/systemd/ 2>/dev/null || true
+done
 sudo install -Dm644 "$OMARCHY_PATH/etc/profile.d/omarchy.sh" /etc/profile.d/omarchy.sh
 sudo install -Dm644 "$OMARCHY_PATH/default/uwsm/env.d/10-omarchy" /usr/share/uwsm/env.d/10-omarchy
 sudo cp -a "$OMARCHY_PATH/etc/sysctl.d/." /etc/sysctl.d/ 2>/dev/null || true

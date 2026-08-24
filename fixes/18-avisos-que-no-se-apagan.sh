@@ -5,10 +5,13 @@
 #
 # SÍNTOMA A — "Update System" reaparece en cada arranque aunque todo esté al día.
 #   omarchy-provision-first-run solo marca first-run como hecho si NINGÚN paso
-#   falla. Aquí fallaba siempre enable-user-units.sh, porque cinco ficheros
-#   .service apuntan a /usr/bin/omarchy-* y esta imagen tenía los comandos en
-#   /usr/local/bin. Al no marcarse, first-run se repite en cada login y
-#   install/user/first-run/wifi.sh vuelve a lanzar el aviso.
+#   falla. Aquí fallaba siempre enable-user-units.sh, por DOS motivos:
+#     1. Los seis ficheros .service nunca se instalaron en /usr/lib/systemd/user/.
+#        Upstream los reparte con el paquete omarchy-settings, que no existe para
+#        ARM (docs/file-layout.md: "systemd/user/*.service → /usr/lib/systemd/user/").
+#     2. Esos .service invocan /usr/bin/omarchy-*, y esta imagen tenía los
+#        comandos en /usr/local/bin.
+#   Al no marcarse, first-run se repite en cada login y wifi.sh relanza el aviso.
 #
 # SÍNTOMA B — "Linux kernel has been updated. Reboot?" sale siempre.
 #   omarchy-update-restart busca un vmlinuz dentro de /usr/lib/modules/<ver>/
@@ -25,6 +28,17 @@ for f in /usr/share/omarchy/bin/*; do
   sudo ln -sfn "$f" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
 echo "   $n comandos enlazados en /usr/bin"
+
+echo "==> A2. unidades de usuario donde systemd las busca"
+# Este era el paso que faltaba: sin los .service instalados, enable-user-units.sh
+# no puede funcionar por muchas rutas que se arreglen.
+if [ -d /usr/share/omarchy/default/systemd/user ]; then
+  sudo install -d /usr/lib/systemd/user
+  sudo cp -a /usr/share/omarchy/default/systemd/user/. /usr/lib/systemd/user/
+  echo "   $(ls /usr/lib/systemd/user/*.service 2>/dev/null | wc -l) unidades disponibles"
+else
+  echo "   no encuentro /usr/share/omarchy/default/systemd/user"
+fi
 
 echo "==> B. envoltorio para el aviso de kernel"
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-update-restart <<'KRN'
@@ -54,6 +68,7 @@ bash /usr/share/omarchy/install/user/first-run/enable-user-units.sh \
 omarchy-provision-first-run --force 2>&1 | tail -3
 
 echo "==> comprobación"
+printf "   unidades instaladas: %s\n" "$(ls /usr/lib/systemd/user/*.service 2>/dev/null | wc -l)"
 printf "   first-run marcado:  %s\n" "$(omarchy-done check first-run-user && echo sí || echo NO)"
 printf "   kernel en ejecución: %s\n" "$(uname -r)"
 printf "   lo posee:            %s\n" "$(pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null || echo "(nadie)")"

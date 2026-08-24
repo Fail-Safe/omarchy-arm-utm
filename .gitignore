@@ -26,3 +26,6 @@ shots/*
 
 # Borradores de los mensajes para las discusiones de Omarchy
 publicar/
+
+# Directorio de construcción de la v2
+build-v2/

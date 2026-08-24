@@ -284,7 +284,7 @@ log "symlinks que apuntan al home antiguo"
 # Omarchy guarda el tema y el fondo activos como enlaces
 # (~/.local/state/omarchy/current/{theme,background}), de modo que un enlace
 # colgado deja el escritorio en gris y sin estilo, sin ningun error visible.
-mapfile -t BADLINKS < <(find /home/$NEW /etc /usr/local /opt -xdev -type l \
+mapfile -t BADLINKS < <(find /home/$NEW /etc /usr/bin /usr/local /opt -xdev -type l \
   -lname "*/home/$OLD/*" 2>/dev/null)
 echo "  encontrados: ${#BADLINKS[@]}"
 for l in "${BADLINKS[@]:-}"; do
@@ -298,8 +298,9 @@ chown -h $NEW:$NEW "${BADLINKS[@]:-/home/$NEW}" 2>/dev/null || true
 log "barrido final"
 echo "  /etc:   $(grep -rl "\b$OLD\b" /etc 2>/dev/null | wc -l) coincidencias"
 echo "  /home:  $(grep -rl "\b$OLD\b" /home/$NEW/.config /home/$NEW/.bashrc /home/$NEW/.bash_profile 2>/dev/null | wc -l) coincidencias"
-echo "  enlaces a /home/$OLD: $(find /home/$NEW /etc /usr/local /opt -xdev -type l -lname "*/home/$OLD/*" 2>/dev/null | wc -l)"
+echo "  enlaces a /home/$OLD: $(find /home/$NEW /etc /usr/bin /usr/local /opt -xdev -type l -lname "*/home/$OLD/*" 2>/dev/null | wc -l)"
 echo "  enlaces rotos en el home: $(find /home/$NEW -xdev -type l ! -exec test -e {} \; -print 2>/dev/null | wc -l)"
+echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)"
 echo "  fondo activo: $(readlink -f /home/$NEW/.local/state/omarchy/current/background 2>/dev/null || echo NINGUNO)"
 test -e "/home/$NEW/.local/state/omarchy/current/background" \
   && echo "  fondo resuelve: OK" || echo "  fondo resuelve: ROTO"

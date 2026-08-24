@@ -33,7 +33,9 @@ for f in "$TREE"/bin/*; do
   b=$(basename "$f"); t="/usr/bin/$b"
   [ -e "$t" ] && [ ! -L "$t" ] && continue
   [ -L "$t" ] && continue
-  sudo ln -sfn "$f" "$t" 2>/dev/null && n=$((n+1))
+  # A /usr/share/omarchy, no a $TREE: esa ruta sobrevive al renombrado del
+  # usuario que hace el sanitizador (ver stage3).
+  sudo ln -sfn "/usr/share/omarchy/bin/$b" "$t" 2>/dev/null && n=$((n+1))
 done
 [ "$n" -gt 0 ] && echo "  $n binarios nuevos enlazados en /usr/bin"
 # Enlaces que apuntan a comandos ya retirados del arbol
