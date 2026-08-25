@@ -1,6 +1,9 @@
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
-**2026-08-25**
+**2026-08-25** · describe `omarchy-arm-utm-v2.zip`, la versión recomendada.
+El `omarchy-arm-utm.zip` de 6,5 GB es la primera entrega y conserva el nombre
+original para que los enlaces y checksums ya publicados sigan siendo válidos;
+lleva dentro su propio LEEME. `VERSIONS.md` compara las dos.
 
 Máquina virtual **aarch64 nativa** (acelerada con HVF, sin emulación) con
 Arch Linux ARM + Hyprland y la configuración, temas y herramientas de

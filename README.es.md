@@ -12,7 +12,7 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 | | |
 |---|---|
 | **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
-| **Imagen lista para descargar** | [`omarchy-arm-utm.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
+| **Imagen lista para descargar** | [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
 | **Construir desde cero** | `./build-omarchy-arm.sh` · ~1 h según la red |
 | **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
@@ -123,7 +123,7 @@ paquete `omarchy-settings`, que no tiene build ARM, y el primer build no
 replicaba ese paso — así que `enable-user-units.sh` no podía funcionar por
 muchas rutas que se arreglaran.
 
-**Los tres están corregidos en la imagen publicada** (3,6 GB, un 45% menos
+**Los tres están corregidos en `omarchy-arm-utm-v2.zip`** (3,6 GB, un 45% menos
 que la primera). Para arreglar una VM que ya tengas, sin volver a descargar,
 ejecuta dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh),
 y para el portapapeles [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh).

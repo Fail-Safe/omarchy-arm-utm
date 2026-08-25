@@ -69,16 +69,18 @@ Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 
 The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
-**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm.zip`** · 3.6 GB ·
+**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
 `sha256 b547e9e5d1d0fdf1…`
 
-There is only one file there, and it is the current one. Two earlier uploads
-were removed rather than left alongside it as half-working variants — see
-`VERSIONS.md` on the item for what each of them got wrong.
+The plain `omarchy-arm-utm.zip` next to it is the first release (6.5 GB). It
+keeps the plain name so links and checksums published with it still resolve to
+the exact bytes they were written for — which is the only reason the better file
+is the one with `-v2` in its name. Take the `-v2`: same desktop, 45% smaller,
+and the shared clipboard works. `VERSIONS.md` on the item compares them.
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm.zip.sha256
-unzip omarchy-arm-utm.zip
+shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+unzip omarchy-arm-utm-v2.zip
 open *.utm
 ```
 
@@ -176,7 +178,7 @@ never installed into `/usr/lib/systemd/user/` at all. Upstream ships them in the
 reproduce that step — so `enable-user-units.sh` could not have worked whatever
 the paths were.
 
-**All three are fixed in the published image.** To repair a VM you already
+**All three are fixed in `omarchy-arm-utm-v2.zip`.** To repair a VM you already
 have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
 inside it — no need to re-download. For the clipboard, run
 [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh) the same way.

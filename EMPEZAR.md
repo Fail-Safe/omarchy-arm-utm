@@ -7,7 +7,7 @@ Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |
 |---|---|
-| **Solo quiero la VM** | descarga [`omarchy-arm-utm.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
+| **Solo quiero la VM** | descarga [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
 | **Quiero construirla yo** | `./build-omarchy-arm.sh` → sigue leyendo |
 
 ---
@@ -194,17 +194,19 @@ de tu Mac.
 
 ## Si solo quieres la VM
 
-Descarga **`omarchy-arm-utm.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
+Descarga **`omarchy-arm-utm-v2.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm.zip.sha256
-unzip omarchy-arm-utm.zip
+shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+unzip omarchy-arm-utm-v2.zip
 open *.utm
 ```
 
 Usuario `omarchy`, contraseña `omarchy` (también para root). **Cámbiala nada más
 entrar con `passwd`.** El resto está en el `LEEME.md` que viene dentro del zip.
 
-El `sha256` publicado es `b547e9e5d1d0fdf1…`. En el item de archive.org hay una sola
-imagen, la actual; las dos anteriores se retiraron en lugar de dejarlas al lado
-como variantes a medias. `VERSIONS.md` cuenta qué fallaba en cada una.
+Su `sha256` es `b547e9e5d1d0fdf1…`. Al lado hay un `omarchy-arm-utm.zip` de
+6,5 GB: es la primera entrega, y conserva el nombre corto para que los enlaces y
+checksums publicados con ella sigan apuntando a los bytes exactos para los que
+se escribieron. Esa es la única razón de que la buena lleve `-v2` en el nombre.
+`VERSIONS.md` compara las dos.
