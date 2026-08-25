@@ -25,18 +25,24 @@ if [ -L /usr/share/omarchy ]; then
   # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
   # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
   # copia esta completa.
-  if ! cp -a "$TARGET" /usr/share/omarchy; then
-    warn "no pude copiar $TARGET a /usr/share/omarchy; se deja el original intacto"
+  # El rollback tiene que dejar el sistema EXACTAMENTE como estaba, o el
+  # siguiente intento encuentra /usr/share/omarchy convertido en un directorio
+  # a medias, se salta este bloque entero (la guarda es [ -L ... ]) y da la
+  # imagen por buena. Por eso se borra la copia parcial antes de rehacer el
+  # enlace: 'ln -sfn' sobre un directorio real crea el enlace DENTRO de el.
+  volver_atras() {
+    warn "$1"
+    rm -rf /usr/share/omarchy
     ln -sfn "$TARGET" /usr/share/omarchy
     exit 1
-  fi
+  }
+  cp -a "$TARGET" /usr/share/omarchy \
+    || volver_atras "no pude copiar $TARGET a /usr/share/omarchy"
   chown -R root:root /usr/share/omarchy
   N_ORIG=$(find "$TARGET" -mindepth 1 | wc -l)
   N_COPIA=$(find /usr/share/omarchy -mindepth 1 | wc -l)
-  if [ "$N_COPIA" -lt "$N_ORIG" ]; then
-    warn "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas); NO se borra el original"
-    exit 1
-  fi
+  [ "$N_COPIA" -ge "$N_ORIG" ] \
+    || volver_atras "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas)"
   rm -rf "$TARGET"
   echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1), $N_COPIA entradas)"
 fi
@@ -178,6 +184,9 @@ rm -rf /var/cache/pacman/pkg/* /var/tmp/* /tmp/* 2>/dev/null || true
 # chroot, que es donde corresponde.
 rm -rf /root/.bash_history /root/.cache 2>/dev/null || true
 rm -f /root/STAGE2_OK 2>/dev/null || true
+# Lo escribe stage2 cuando algun paquete no se instala. En una imagen que se
+# reparte, le cuenta al destinatario que le fallo al constructor.
+rm -f /root/failed-packages.txt 2>/dev/null || true
 # La fase verify arranca la VM antes de sanitizar, y ese arranque deja semilla
 # de aleatoriedad y secreto de credenciales: identicos en todas las copias.
 rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret 2>/dev/null || true
@@ -319,8 +328,21 @@ echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)
 echo "  fondo activo: $(readlink -f /home/$NEW/.local/state/omarchy/current/background 2>/dev/null || echo NINGUNO)"
 test -e "/home/$NEW/.local/state/omarchy/current/background" \
   && echo "  fondo resuelve: OK" || echo "  fondo resuelve: ROTO"
-echo "  (nota: /usr/local/bin/ttfx contiene la ruta de compilacion en su info de"
-echo "   depuracion; es inocuo y no expone nada util)"
+# ttfx se compila desde fuente dentro de la VM, y el binario se queda con la
+# ruta de compilacion en su info de depuracion: /home/<constructor>/... Eso es
+# exactamente lo que esta fase existe para borrar, asi que se le quitan los
+# simbolos en vez de declararlo inocuo, que es lo que hacia antes.
+for b in /usr/local/bin/ttfx /usr/local/bin/omarchy-arm-vdagent; do
+  [ -f "$b" ] || continue
+  case "$(file -b "$b" 2>/dev/null)" in
+    *ELF*) strip --strip-unneeded "$b" 2>/dev/null || true ;;
+  esac
+done
+if strings /usr/local/bin/ttfx 2>/dev/null | grep -q "$OLD"; then
+  echo "  ttfx: AUN menciona a '$OLD' tras el strip"
+else
+  echo "  ttfx: sin rastro del constructor"
+fi
 
 log "estado final para distribuir"
 echo "  usuario:    $(getent passwd $NEW | cut -d: -f1,5,6)"
@@ -369,12 +391,20 @@ N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | 
 # su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
 # limpio y viajaba dentro de la imagen.
 if [ "$OLD" != "$NEW" ]; then
-  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null)
+  # OJO: como PALABRA, nunca como subcadena. Con "*$OLD*" y VM_USER=dev, esto
+  # casaba con /etc/udev y el rm -rf dejaba la imagen sin una sola regla udev;
+  # con VM_USER=arch casaba con /home/omarchy entero. El nombre del usuario de
+  # construccion es elegible por entorno, asi que el patron tiene que exigir
+  # que $OLD aparezca delimitado por algo que no sea alfanumerico.
+  RX_OLD=".*/([^/]*[^[:alnum:]])?$OLD([^[:alnum:]][^/]*)?"
+  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
+      -regextype posix-extended -regex "$RX_OLD" 2>/dev/null)
   if [ "${#PORNOMBRE[@]}" -gt 0 ] && [ -n "${PORNOMBRE[0]:-}" ]; then
     echo "  quitando ${#PORNOMBRE[@]} fichero(s) cuyo NOMBRE lleva '$OLD':"
     for f in "${PORNOMBRE[@]}"; do echo "    $f"; rm -rf "$f"; done
   fi
-  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null | wc -l)
+  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
+      -regextype posix-extended -regex "$RX_OLD" 2>/dev/null | wc -l)
   [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
 fi
 
@@ -392,6 +422,26 @@ else
 fi
 
 [ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
+
+# Binarios compilados dentro de la VM: la ruta de compilacion se queda en su
+# info de depuracion. grep -rl no los ve porque mira texto, no simbolos.
+if [ "$OLD" != "$NEW" ]; then
+  # strings puede no estar (viene en binutils); si falta, se dice y no se
+  # inventa un veredicto.
+  if ! command -v strings >/dev/null 2>&1; then
+    echo "  ? binarios de /usr/local/bin: sin 'strings' no se puede comprobar"
+  else
+    SUCIOS=""
+    for b in /usr/local/bin/*; do
+      [ -f "$b" ] || continue
+      strings "$b" 2>/dev/null | grep -q "/home/$OLD" && SUCIOS="$SUCIOS $b"
+    done
+    [ -z "$SUCIOS" ] && bien "ningun binario de /usr/local/bin menciona al constructor" \
+                     || mal "binarios con la ruta del constructor dentro:$SUCIOS (ver RUSTFLAGS/CARGO_HOME en stage3)"
+  fi
+fi
+[ -f /root/failed-packages.txt ] && mal "queda /root/failed-packages.txt" \
+                                 || bien "sin residuos del constructor en /root"
 
 echo ""
 if [ "$FALLOS" -ne 0 ]; then

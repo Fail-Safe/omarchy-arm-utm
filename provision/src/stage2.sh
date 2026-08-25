@@ -234,12 +234,14 @@ echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 # El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
 # servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
 # de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
-install -Dm644 /dev/stdin /etc/udev/rules.d/70-omarchy-vdagent.rules <<'UDEV'
-# Puerto del agente SPICE: legible por la sesion grafica, para que
-# omarchy-arm-vdagent pueda hablar el protocolo del portapapeles.
-SUBSYSTEM=="virtio-ports", ATTR{name}=="com.redhat.spice.0", TAG+="uaccess", MODE="0660"
-UDEV
-echo "  regla udev para /dev/virtio-ports/com.redhat.spice.0"
+# NO se instala regla udev para /dev/virtio-ports/com.redhat.spice.0.
+# La habia, y estaba mal por partida doble: omarchy-arm-vdagent no abre ese
+# puerto nunca —habla por el socket unix /run/spice-vdagentd/spice-vdagent-sock,
+# como explica el propio stage3—, y el puerto lo abre en exclusiva el demonio.
+# Darle ACL al usuario del asiento con TAG+="uaccess" solo servia para que algo
+# se lo pudiera quitar al demonio y dejarlo sin canal ("Device or resource
+# busy"), que es justo el primer callejon sin salida de este problema.
+# El MODE="0660" ademas no hacia nada: sin GROUP= el grupo se queda en root.
 
 # La carpeta compartida de UTM tiene DOS modos y el usuario elige cual:
 #   VirtFS → dispositivo 9p con mount_tag "share"

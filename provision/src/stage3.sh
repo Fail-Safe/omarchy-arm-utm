@@ -68,8 +68,24 @@ exec "$T" -e "$@"
 EOF
 fi
 
-# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64
-printf 'Alacritty.desktop\n' > ~/.config/xdg-terminals.list
+# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64.
+# El respaldo es foot, que SI viene en omarchy-base.packages de quattro (y
+# alacritty NO: no esta ni en esa lista ni en la de infra). Nombrar
+# Alacritty.desktop aqui apuntaba a un .desktop que no existe en la imagen, y
+# xdg-terminal-exec acababa eligiendo por descarte. Se listan por preferencia
+# y solo los que de verdad estan instalados.
+: > ~/.config/xdg-terminals.list
+# Nombres literales, sin ${t^}: eso es bash 4 y aunque aqui dentro haya bash 5,
+# no merece la pena dejar un bash-4-ismo en un payload que tambien se lee en un
+# Mac con bash 3.2.
+for f in com.mitchellh.ghostty.desktop ghostty.desktop \
+         foot.desktop Alacritty.desktop alacritty.desktop xterm.desktop; do
+  for d in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
+    [ -f "$d/$f" ] && { echo "$f" >> ~/.config/xdg-terminals.list; break; }
+  done
+done
+[ -s ~/.config/xdg-terminals.list ] || printf 'foot.desktop\n' > ~/.config/xdg-terminals.list
+echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
 
 # ------------------------------------------------ integracion de sistema
 # Omarchy 4 se distribuye como paquete pacman que coloca el arbol en
@@ -384,14 +400,23 @@ echo "  /usr/local/bin/omarchy-update-restart"
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   log "compilando ttfx desde fuente (no existe para aarch64)"
   rm -rf /tmp/ttfx-src
+  # La ruta de compilacion se queda DENTRO del binario: Rust mete la ruta del
+  # fuente en los mensajes de panic (.rodata), y ahi strip no llega. Si se
+  # compila desde $HOME, la imagen que se reparte acaba diciendo quien la
+  # construyo. Se compila en /tmp, con CARGO_HOME en /tmp para que las rutas de
+  # las dependencias tampoco pasen por el home, y con --remap-path-prefix por si
+  # alguna se cuela igualmente.
   if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
-     && ( cd /tmp/ttfx-src && cargo build --release -q ); then
+     && ( cd /tmp/ttfx-src \
+          && CARGO_HOME=/tmp/cargo-ttfx \
+             RUSTFLAGS="--remap-path-prefix=/tmp/ttfx-src=ttfx --remap-path-prefix=/tmp/cargo-ttfx=cargo --remap-path-prefix=$HOME=." \
+             cargo build --release -q ); then
     sudo install -Dm755 /tmp/ttfx-src/target/release/ttfx /usr/local/bin/ttfx
     echo "  ttfx $(ttfx --version 2>/dev/null | head -1)"
   else
     warn "ttfx no compilo; el salvapantallas mostrara el logo sin efectos"
   fi
-  rm -rf /tmp/ttfx-src
+  rm -rf /tmp/ttfx-src /tmp/cargo-ttfx
 fi
 
 # --- teclado: layout es y Super utilizable desde macOS -------------------

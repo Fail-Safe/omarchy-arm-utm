@@ -13,6 +13,9 @@ MAPA={
  "__PAYLOAD_PROVISION_VDAGENT_PY__":"provision/src/omarchy-arm-vdagent",
  "__PAYLOAD_PROVISION_SHARE_SH__":"provision/src/omarchy-arm-share",
  "__PAYLOAD_LEEME_MD__":"provision/src/LEEME.md",
+ "__PAYLOAD_PROVISION_ARMSYNC_SH__":"provision/src/hooks/10-arm-sync",
+ "__PAYLOAD_SCRIPTS_BUILD_EXP__":"scripts/build.exp",
+ "__PAYLOAD_SCRIPTS_REPAIR_EXP__":"scripts/repair.exp",
  "__PAYLOAD_SCRIPTS_MAKE-UTM_SH__":"scripts/make-utm.sh",
 
 }
@@ -30,3 +33,12 @@ for marca,rel in MAPA.items():
     print(f"  re-incrustado {os.path.basename(rel)} ({len(nuevo)} lineas)")
 open(p,"w").write("\n".join(lineas))
 print(f"  {cambios} payload(s) actualizados" if cambios else "  todo ya estaba sincronizado")
+
+# Un payload sin entrada en MAPA es un fichero que nadie vuelve a sincronizar:
+# se edita la fuente, no pasa nada, y el constructor sigue desplegando lo viejo.
+import re
+todas=set(re.findall(r"<<'(__PAYLOAD_[A-Z0-9_.-]+__)'", "\n".join(lineas)))
+huerfanas=sorted(todas - set(MAPA))
+if huerfanas:
+    print("  sin fuente declarada (su fuente de verdad es el propio payload):")
+    for h in huerfanas: print(f"    {h}")

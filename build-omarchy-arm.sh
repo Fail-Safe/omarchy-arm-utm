@@ -37,6 +37,17 @@
 set -uo pipefail
 
 # ───────────────────────────────── parametros ──────────────────────────────
+# Que variables trae ya el entorno, ANTES de que los ':=' de abajo las rellenen.
+# Sin esto no hay forma de distinguir "el usuario me lo paso" de "es el valor
+# por defecto", y detectar_del_anfitrion pisaba lo que el usuario habia fijado:
+# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` construia con otra cifra.
+FIJADO_POR_ENTORNO=""
+for _v in VM_TIMEZONE VM_KEYMAP VM_XKB UTM_CPUS UTM_MEM; do
+  [ -n "${!_v:-}" ] && FIJADO_POR_ENTORNO="$FIJADO_POR_ENTORNO $_v"
+done
+unset _v
+del_entorno() { case " $FIJADO_POR_ENTORNO " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
+
 : "${W:=$HOME/omarchy-arm-build}"        # directorio de trabajo
 : "${VM_NAME:=Omarchy ARM}"              # nombre de la VM en UTM
 : "${VM_USER:=builder}"                  # usuario durante la construccion
@@ -101,10 +112,21 @@ guardar_respuestas() {
 
 cargar_respuestas() {
   [[ -f "$W/respuestas.env" ]] || return 0
-  . "$W/respuestas.env"
-  # HACER_DIST=no recorta las fases: sin esto, reanudar una VM personal se
-  # ponia a sanitizarla y a empaquetarla para repartir.
-  [[ ${HACER_DIST:-} == no ]] && PHASES=(deps fetch prepare build utm verify)
+  # Lo guardado NO puede pisar lo que el usuario acaba de poner en el entorno:
+  # `UTM_MEM=16384 ./build-omarchy-arm.sh --from utm` tiene que respetar los
+  # 16384. Se carga en una subshell, se leen los valores y solo se asignan los
+  # que no vinieran del entorno.
+  local v val
+  for v in "${RESPUESTAS_VARS[@]}"; do
+    del_entorno "$v" && continue
+    val=$(. "$W/respuestas.env" >/dev/null 2>&1; printf '%s' "${!v-}")
+    printf -v "$v" '%s' "$val"
+  done
+  # OJO: aqui NO se toca PHASES. Recortarlo en este punto rompia cuatro cosas a
+  # la vez -- la peor, que la validacion de nombres de fase corre ANTES, asi que
+  # `--from sanitize` (justo el escape que sugiere el die de ph_verify) se
+  # validaba y luego no ejecutaba nada, saliendo con rc=0. El recorte se decide
+  # al final del main, con la respuesta definitiva ya conocida.
   return 0
 }
 
@@ -129,28 +151,46 @@ confirm() {  # confirm <pregunta> <si|no por defecto>
 
 # Valores por defecto tomados del propio Mac: asi la mayoria de las preguntas se
 # contestan con Enter en vez de obligar a buscar el nombre de una zona horaria.
+# Lo detectado del Mac es un VALOR POR DEFECTO mejor, no una orden: si el
+# usuario fijo la variable en el entorno, manda la suya. Antes se asignaba sin
+# condicion y, como el `return` del modo desatendido va DESPUES de esta llamada,
+# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` acababa construyendo con 8192.
 detectar_del_anfitrion() {
   local tz kb ncpu ram
-  tz=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
-  [[ -n $tz ]] && VM_TIMEZONE="$tz"
-  kb=$(defaults read ~/Library/Preferences/com.apple.HIToolbox.plist AppleSelectedInputSources 2>/dev/null \
-       | sed -n 's/.*"KeyboardLayout Name" = "\([^"]*\)".*/\1/p' | head -1)
-  case "$kb" in
-    Spanish*)  VM_KEYMAP=es; VM_XKB=es ;;
-    U.S.*|ABC*|US*) VM_KEYMAP=us; VM_XKB=us ;;
-    British*)  VM_KEYMAP=uk; VM_XKB=gb ;;
-    German*)   VM_KEYMAP=de; VM_XKB=de ;;
-    French*)   VM_KEYMAP=fr; VM_XKB=fr ;;
-    Portuguese*) VM_KEYMAP=pt; VM_XKB=pt ;;
-    Italian*)  VM_KEYMAP=it; VM_XKB=it ;;
-  esac
+  if ! del_entorno VM_TIMEZONE; then
+    tz=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
+    [[ -n $tz ]] && VM_TIMEZONE="$tz"
+  fi
+  # Las dos son independientes: fijar solo VM_XKB no debe dejar VM_KEYMAP en el
+  # 'es' cableado del principio.
+  if ! del_entorno VM_KEYMAP || ! del_entorno VM_XKB; then
+    kb=$(defaults read ~/Library/Preferences/com.apple.HIToolbox.plist AppleSelectedInputSources 2>/dev/null \
+         | sed -n 's/.*"KeyboardLayout Name" = "\([^"]*\)".*/\1/p' | head -1)
+    local km="" xk=""
+    case "$kb" in
+      Spanish*)  km=es; xk=es ;;
+      U.S.*|ABC*|US*) km=us; xk=us ;;
+      British*)  km=uk; xk=gb ;;
+      German*)   km=de; xk=de ;;
+      French*)   km=fr; xk=fr ;;
+      Portuguese*) km=pt; xk=pt ;;
+      Italian*)  km=it; xk=it ;;
+    esac
+    [[ -n $km ]] && ! del_entorno VM_KEYMAP && VM_KEYMAP="$km"
+    [[ -n $xk ]] && ! del_entorno VM_XKB    && VM_XKB="$xk"
+  fi
   ncpu=$(sysctl -n hw.perflevel0.logicalcpu 2>/dev/null || sysctl -n hw.ncpu)
   ram=$(( $(sysctl -n hw.memsize) / 1024 / 1024 ))
-  (( ncpu > 2 )) && UTM_CPUS=$(( ncpu / 2 ))
-  (( ram >= 16384 )) && UTM_MEM=8192
-  (( ram >= 32768 )) && UTM_MEM=12288
+  del_entorno UTM_CPUS || { (( ncpu > 2 )) && UTM_CPUS=$(( ncpu / 2 )); }
+  if ! del_entorno UTM_MEM; then
+    (( ram >= 16384 )) && UTM_MEM=8192
+    (( ram >= 32768 )) && UTM_MEM=12288
+  fi
+  # BUILD_SMP y BUILD_MEM no estan en la lista: son de la VM de construccion,
+  # no del resultado, y ahi interesa exprimir el Mac.
   BUILD_SMP=$(( ncpu > 8 ? 8 : ncpu ))
   (( ram >= 16384 )) && BUILD_MEM=8192
+  return 0
 }
 
 # ─────────────────────────────── fase: deps ────────────────────────────────
@@ -688,12 +728,14 @@ echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 # El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
 # servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
 # de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
-install -Dm644 /dev/stdin /etc/udev/rules.d/70-omarchy-vdagent.rules <<'UDEV'
-# Puerto del agente SPICE: legible por la sesion grafica, para que
-# omarchy-arm-vdagent pueda hablar el protocolo del portapapeles.
-SUBSYSTEM=="virtio-ports", ATTR{name}=="com.redhat.spice.0", TAG+="uaccess", MODE="0660"
-UDEV
-echo "  regla udev para /dev/virtio-ports/com.redhat.spice.0"
+# NO se instala regla udev para /dev/virtio-ports/com.redhat.spice.0.
+# La habia, y estaba mal por partida doble: omarchy-arm-vdagent no abre ese
+# puerto nunca —habla por el socket unix /run/spice-vdagentd/spice-vdagent-sock,
+# como explica el propio stage3—, y el puerto lo abre en exclusiva el demonio.
+# Darle ACL al usuario del asiento con TAG+="uaccess" solo servia para que algo
+# se lo pudiera quitar al demonio y dejarlo sin canal ("Device or resource
+# busy"), que es justo el primer callejon sin salida de este problema.
+# El MODE="0660" ademas no hacia nada: sin GROUP= el grupo se queda en root.
 
 # La carpeta compartida de UTM tiene DOS modos y el usuario elige cual:
 #   VirtFS → dispositivo 9p con mount_tag "share"
@@ -890,8 +932,24 @@ exec "$T" -e "$@"
 EOF
 fi
 
-# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64
-printf 'Alacritty.desktop\n' > ~/.config/xdg-terminals.list
+# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64.
+# El respaldo es foot, que SI viene en omarchy-base.packages de quattro (y
+# alacritty NO: no esta ni en esa lista ni en la de infra). Nombrar
+# Alacritty.desktop aqui apuntaba a un .desktop que no existe en la imagen, y
+# xdg-terminal-exec acababa eligiendo por descarte. Se listan por preferencia
+# y solo los que de verdad estan instalados.
+: > ~/.config/xdg-terminals.list
+# Nombres literales, sin ${t^}: eso es bash 4 y aunque aqui dentro haya bash 5,
+# no merece la pena dejar un bash-4-ismo en un payload que tambien se lee en un
+# Mac con bash 3.2.
+for f in com.mitchellh.ghostty.desktop ghostty.desktop \
+         foot.desktop Alacritty.desktop alacritty.desktop xterm.desktop; do
+  for d in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
+    [ -f "$d/$f" ] && { echo "$f" >> ~/.config/xdg-terminals.list; break; }
+  done
+done
+[ -s ~/.config/xdg-terminals.list ] || printf 'foot.desktop\n' > ~/.config/xdg-terminals.list
+echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
 
 # ------------------------------------------------ integracion de sistema
 # Omarchy 4 se distribuye como paquete pacman que coloca el arbol en
@@ -1206,14 +1264,23 @@ echo "  /usr/local/bin/omarchy-update-restart"
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   log "compilando ttfx desde fuente (no existe para aarch64)"
   rm -rf /tmp/ttfx-src
+  # La ruta de compilacion se queda DENTRO del binario: Rust mete la ruta del
+  # fuente en los mensajes de panic (.rodata), y ahi strip no llega. Si se
+  # compila desde $HOME, la imagen que se reparte acaba diciendo quien la
+  # construyo. Se compila en /tmp, con CARGO_HOME en /tmp para que las rutas de
+  # las dependencias tampoco pasen por el home, y con --remap-path-prefix por si
+  # alguna se cuela igualmente.
   if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
-     && ( cd /tmp/ttfx-src && cargo build --release -q ); then
+     && ( cd /tmp/ttfx-src \
+          && CARGO_HOME=/tmp/cargo-ttfx \
+             RUSTFLAGS="--remap-path-prefix=/tmp/ttfx-src=ttfx --remap-path-prefix=/tmp/cargo-ttfx=cargo --remap-path-prefix=$HOME=." \
+             cargo build --release -q ); then
     sudo install -Dm755 /tmp/ttfx-src/target/release/ttfx /usr/local/bin/ttfx
     echo "  ttfx $(ttfx --version 2>/dev/null | head -1)"
   else
     warn "ttfx no compilo; el salvapantallas mostrara el logo sin efectos"
   fi
-  rm -rf /tmp/ttfx-src
+  rm -rf /tmp/ttfx-src /tmp/cargo-ttfx
 fi
 
 # --- teclado: layout es y Super utilizable desde macOS -------------------
@@ -1488,18 +1555,24 @@ if [ -L /usr/share/omarchy ]; then
   # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
   # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
   # copia esta completa.
-  if ! cp -a "$TARGET" /usr/share/omarchy; then
-    warn "no pude copiar $TARGET a /usr/share/omarchy; se deja el original intacto"
+  # El rollback tiene que dejar el sistema EXACTAMENTE como estaba, o el
+  # siguiente intento encuentra /usr/share/omarchy convertido en un directorio
+  # a medias, se salta este bloque entero (la guarda es [ -L ... ]) y da la
+  # imagen por buena. Por eso se borra la copia parcial antes de rehacer el
+  # enlace: 'ln -sfn' sobre un directorio real crea el enlace DENTRO de el.
+  volver_atras() {
+    warn "$1"
+    rm -rf /usr/share/omarchy
     ln -sfn "$TARGET" /usr/share/omarchy
     exit 1
-  fi
+  }
+  cp -a "$TARGET" /usr/share/omarchy \
+    || volver_atras "no pude copiar $TARGET a /usr/share/omarchy"
   chown -R root:root /usr/share/omarchy
   N_ORIG=$(find "$TARGET" -mindepth 1 | wc -l)
   N_COPIA=$(find /usr/share/omarchy -mindepth 1 | wc -l)
-  if [ "$N_COPIA" -lt "$N_ORIG" ]; then
-    warn "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas); NO se borra el original"
-    exit 1
-  fi
+  [ "$N_COPIA" -ge "$N_ORIG" ] \
+    || volver_atras "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas)"
   rm -rf "$TARGET"
   echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1), $N_COPIA entradas)"
 fi
@@ -1641,6 +1714,9 @@ rm -rf /var/cache/pacman/pkg/* /var/tmp/* /tmp/* 2>/dev/null || true
 # chroot, que es donde corresponde.
 rm -rf /root/.bash_history /root/.cache 2>/dev/null || true
 rm -f /root/STAGE2_OK 2>/dev/null || true
+# Lo escribe stage2 cuando algun paquete no se instala. En una imagen que se
+# reparte, le cuenta al destinatario que le fallo al constructor.
+rm -f /root/failed-packages.txt 2>/dev/null || true
 # La fase verify arranca la VM antes de sanitizar, y ese arranque deja semilla
 # de aleatoriedad y secreto de credenciales: identicos en todas las copias.
 rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret 2>/dev/null || true
@@ -1782,8 +1858,21 @@ echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)
 echo "  fondo activo: $(readlink -f /home/$NEW/.local/state/omarchy/current/background 2>/dev/null || echo NINGUNO)"
 test -e "/home/$NEW/.local/state/omarchy/current/background" \
   && echo "  fondo resuelve: OK" || echo "  fondo resuelve: ROTO"
-echo "  (nota: /usr/local/bin/ttfx contiene la ruta de compilacion en su info de"
-echo "   depuracion; es inocuo y no expone nada util)"
+# ttfx se compila desde fuente dentro de la VM, y el binario se queda con la
+# ruta de compilacion en su info de depuracion: /home/<constructor>/... Eso es
+# exactamente lo que esta fase existe para borrar, asi que se le quitan los
+# simbolos en vez de declararlo inocuo, que es lo que hacia antes.
+for b in /usr/local/bin/ttfx /usr/local/bin/omarchy-arm-vdagent; do
+  [ -f "$b" ] || continue
+  case "$(file -b "$b" 2>/dev/null)" in
+    *ELF*) strip --strip-unneeded "$b" 2>/dev/null || true ;;
+  esac
+done
+if strings /usr/local/bin/ttfx 2>/dev/null | grep -q "$OLD"; then
+  echo "  ttfx: AUN menciona a '$OLD' tras el strip"
+else
+  echo "  ttfx: sin rastro del constructor"
+fi
 
 log "estado final para distribuir"
 echo "  usuario:    $(getent passwd $NEW | cut -d: -f1,5,6)"
@@ -1832,12 +1921,20 @@ N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | 
 # su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
 # limpio y viajaba dentro de la imagen.
 if [ "$OLD" != "$NEW" ]; then
-  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null)
+  # OJO: como PALABRA, nunca como subcadena. Con "*$OLD*" y VM_USER=dev, esto
+  # casaba con /etc/udev y el rm -rf dejaba la imagen sin una sola regla udev;
+  # con VM_USER=arch casaba con /home/omarchy entero. El nombre del usuario de
+  # construccion es elegible por entorno, asi que el patron tiene que exigir
+  # que $OLD aparezca delimitado por algo que no sea alfanumerico.
+  RX_OLD=".*/([^/]*[^[:alnum:]])?$OLD([^[:alnum:]][^/]*)?"
+  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
+      -regextype posix-extended -regex "$RX_OLD" 2>/dev/null)
   if [ "${#PORNOMBRE[@]}" -gt 0 ] && [ -n "${PORNOMBRE[0]:-}" ]; then
     echo "  quitando ${#PORNOMBRE[@]} fichero(s) cuyo NOMBRE lleva '$OLD':"
     for f in "${PORNOMBRE[@]}"; do echo "    $f"; rm -rf "$f"; done
   fi
-  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null | wc -l)
+  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
+      -regextype posix-extended -regex "$RX_OLD" 2>/dev/null | wc -l)
   [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
 fi
 
@@ -1855,6 +1952,26 @@ else
 fi
 
 [ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
+
+# Binarios compilados dentro de la VM: la ruta de compilacion se queda en su
+# info de depuracion. grep -rl no los ve porque mira texto, no simbolos.
+if [ "$OLD" != "$NEW" ]; then
+  # strings puede no estar (viene en binutils); si falta, se dice y no se
+  # inventa un veredicto.
+  if ! command -v strings >/dev/null 2>&1; then
+    echo "  ? binarios de /usr/local/bin: sin 'strings' no se puede comprobar"
+  else
+    SUCIOS=""
+    for b in /usr/local/bin/*; do
+      [ -f "$b" ] || continue
+      strings "$b" 2>/dev/null | grep -q "/home/$OLD" && SUCIOS="$SUCIOS $b"
+    done
+    [ -z "$SUCIOS" ] && bien "ningun binario de /usr/local/bin menciona al constructor" \
+                     || mal "binarios con la ruta del constructor dentro:$SUCIOS (ver RUSTFLAGS/CARGO_HOME en stage3)"
+  fi
+fi
+[ -f /root/failed-packages.txt ] && mal "queda /root/failed-packages.txt" \
+                                 || bien "sin residuos del constructor en /root"
 
 echo ""
 if [ "$FALLOS" -ne 0 ]; then
@@ -3530,7 +3647,9 @@ cuestionario() {
   if (( ! INTERACTIVO )); then
     # Sin terminal: el comportamiento historico, todo automatico. Se guardan
     # igualmente, para que un --from posterior no arranque con otros valores.
-    guardar_respuestas
+    # Pero si ya habia respuestas de una tanda anterior, no se pisan: un
+    # `--yes` de rebote destruia lo que el usuario habia contestado a mano.
+    [[ -f "$W/respuestas.env" ]] || guardar_respuestas
     return
   fi
   phase "configuracion"
@@ -3580,7 +3699,6 @@ cuestionario() {
     ask VM_USER     "Usuario de la VM"     "$VM_USER"
     ask VM_PASSWORD "Contrasena"           "$VM_PASSWORD"
     ask VM_FULLNAME "Nombre completo"      "$VM_FULLNAME"
-    PHASES=(deps fetch prepare build utm verify)
   fi
   echo
   info "resumen: $VM_KEYMAP/$VM_XKB · $VM_TIMEZONE · ${UTM_CPUS} nucleos · ${UTM_MEM} MiB · disco $DISK_SIZE"
@@ -3590,19 +3708,29 @@ cuestionario() {
 }
 
 # ──────────────────────────────────── main ─────────────────────────────────
-usage() { sed -n '2,30p' "$0" | sed 's/^#\{0,2\} \{0,1\}//'; }
+# Imprime la cabecera entera, sea cual sea su longitud: fijar '2,30p' hacia que
+# --help se quedara sin la lista de fases en cuanto el banner crecia.
+usage() { awk 'NR>1 && /^#/{print; next} NR>1{exit}' "$0" | sed 's/^#\{0,2\} \{0,1\}//'; }
 
 run_from=""; run_only=""
 while (($#)); do
   case "$1" in
-    --from) run_from="$2"; shift 2 ;;
-    --only) run_only="$2"; shift 2 ;;
+    # ${2:-} y no $2: con `set -u` un argumento ausente aborta con "unbound
+    # variable" y un numero de linea, en vez del mensaje util que hay abajo.
+    --from) run_from="${2:-}"; [[ -n $run_from ]] || { usage; die "--from necesita una fase (${PHASES[*]})"; }; shift 2 ;;
+    --only) run_only="${2:-}"; [[ -n $run_only ]] || { usage; die "--only necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
     --yes|-y|--sin-preguntas) ASSUME_YES=1; INTERACTIVO=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "opcion desconocida: $1" ;;
   esac
 done
+
+# Combinar los dos no ejecuta nada: si la fase de --only va ANTES que la de
+# --from en el array, el bucle nunca llega a poner started=1 y el script
+# terminaba anunciando "Completado en 0 min." con rc=0 sin hacer absolutamente
+# nada. Son excluyentes, asi que se dice y punto.
+[[ -n $run_from && -n $run_only ]] && die "--from y --only son excluyentes: elige uno"
 
 # Un nombre de fase mal escrito no debe salir con exito sin hacer nada.
 for sel in "$run_from" "$run_only"; do
@@ -3623,6 +3751,16 @@ else
   else
     warn "no hay $W/respuestas.env: se usaran los valores por defecto, que pueden no ser los que elegiste"
   fi
+fi
+
+# El recorte de fases se decide AQUI: despues del cuestionario y de cargar las
+# respuestas, con el valor definitivo de HACER_DIST, y nunca cuando el usuario
+# ha nombrado sanitize o package a mano -- eso seria no hacer nada y salir con
+# exito, que es exactamente lo que se acaba de quitar en otros dos sitios.
+if [[ ${HACER_DIST:-si} == no \
+      && $run_from != sanitize && $run_from != package \
+      && $run_only != sanitize && $run_only != package ]]; then
+  PHASES=(deps fetch prepare build utm verify)
 fi
 
 started=0
