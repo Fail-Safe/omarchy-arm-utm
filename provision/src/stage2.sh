@@ -16,13 +16,45 @@ log "inicializando el llavero de Arch Linux ARM"
 pacman-key --init
 pacman-key --populate archlinuxarm
 
+# Una construccion de una hora no puede morir porque el mirror se atasque diez
+# segundos. Paso real: "failed retrieving file noto-fonts-...: Operation too
+# slow. Less than 1 bytes/sec transferred the last 10 seconds" -> la instalacion
+# en bloque cayo, el reintento uno a uno dejo pipewire-jack fuera y la etapa
+# aborto por su trap ERR, con 40 minutos ya invertidos.
+#
+# --disable-download-timeout quita ese limite de velocidad minima, que es lo que
+# aborto. Y se anade un segundo Server: el mirrorlist de ALARM trae solo el
+# geo-balanceador, asi que si el nodo que te toca va mal no hay a donde caer.
+# Un mirror extra no es un riesgo: pacman verifica la firma de cada paquete
+# contra el llavero de archlinuxarm.
+if ! grep -q 'de.mirror.archlinuxarm.org' /etc/pacman.d/mirrorlist 2>/dev/null; then
+  echo 'Server = http://de.mirror.archlinuxarm.org/$arch/$repo' >> /etc/pacman.d/mirrorlist
+fi
+# DisableDownloadTimeout en pacman.conf, no como flag suelto: asi lo heredan
+# TODAS las invocaciones, incluida la que hace makepkg -s por dentro para
+# resolver dependencias de compilacion.
+grep -q '^DisableDownloadTimeout' /etc/pacman.conf \
+  || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout\nParallelDownloads = 5/' /etc/pacman.conf
+
+# Envoltorio con reintentos: el mirror falla por rachas, no de forma estable.
+pac() {
+  local intento
+  for intento in 1 2 3; do
+    if pacman -S --noconfirm --needed --disable-download-timeout "$@"; then return 0; fi
+    warn "pacman fallo (intento $intento/3); reintentando en ${intento}0 s"
+    sleep "${intento}0"
+    pacman -Sy --noconfirm --disable-download-timeout >/dev/null 2>&1 || true
+  done
+  return 1
+}
+
 log "actualizando el sistema (el tarball es de agosto, los repos van al dia)"
-pacman -Syu --noconfirm --needed
+pacman -Syu --noconfirm --needed --disable-download-timeout \
+  || pacman -Syu --noconfirm --needed --disable-download-timeout
 
 log "sistema base"
 # linux-firmware se omite a proposito: ~800 MB inutiles en una VM
-pacman -S --noconfirm --needed \
-  base base-devel linux-aarch64 \
+pac base base-devel linux-aarch64 \
   sudo git vim networkmanager openssh which man-db man-pages less \
   btrfs-progs dosfstools e2fsprogs efibootmgr \
   rsync wget curl unzip zip
@@ -93,7 +125,7 @@ bootctl --esp-path=/boot --no-variables install
 # con la del repositorio, asi que se fuerza la reinstalacion del paquete.
 if [ ! -f /boot/Image ] && [ ! -f /boot/vmlinuz-linux-aarch64 ]; then
   echo "  /boot vacio: reinstalando linux-aarch64 para repoblarlo"
-  pacman -S --noconfirm linux-aarch64 || warn "no se pudo reinstalar el kernel"
+  pacman -S --noconfirm --disable-download-timeout linux-aarch64 || warn "no se pudo reinstalar el kernel"
   mkinitcpio -P || warn "mkinitcpio fallo tras reinstalar"
 fi
 
@@ -145,11 +177,14 @@ install_list() {
   local file="$1" label="$2" fatal="$3"
   mapfile -t PKGS < <(grep -vE '^\s*#|^\s*$' "$file")
   echo "  $label: ${#PKGS[@]} paquetes"
-  if pacman -S --noconfirm --needed "${PKGS[@]}"; then return 0; fi
-  warn "$label: instalacion en bloque fallida; reintentando uno a uno"
+  if pac "${PKGS[@]}"; then return 0; fi
+  warn "$label: instalacion en bloque fallida tras 3 intentos; probando uno a uno"
   local FAILED=()
   for p in "${PKGS[@]}"; do
-    pacman -S --noconfirm --needed "$p" >/dev/null 2>&1 || FAILED+=("$p")
+    pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 && continue
+    # Segunda pasada al que falle: casi siempre es el mirror, no el paquete.
+    sleep 3
+    pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 || FAILED+=("$p")
   done
   if [ ${#FAILED[@]} -gt 0 ]; then
     warn "$label no instalados: ${FAILED[*]}"

@@ -280,6 +280,11 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
   # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
   # decia "no compilaron: X" y no habia forma de averiguar nada mas.
+  # El limite de velocidad lo quita DisableDownloadTimeout en /etc/pacman.conf
+  # (lo pone stage2): asi lo hereda tambien el pacman que lanza makepkg -s para
+  # sus dependencias. Pasarlo por la variable PACMAN no vale, porque makepkg la
+  # invoca entrecomillada y una cadena con argumentos se busca como si fuera el
+  # nombre del ejecutable.
   if ( cd "$dir" && makepkg -s --noconfirm --needed --noprogressbar --nocheck ) >"$dir/build.log" 2>&1; then
     local built
     built=$(ls "$dir/$pkg"-*.pkg.tar.* 2>/dev/null | head -1)
@@ -301,7 +306,7 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
 # Algunos PKGBUILD invocan zig por ruta fija y versionada (/opt/zig0.15/zig).
 # En ARM solo hay una version de zig, asi que se enlaza donde la buscan.
 if pacman -Si zig >/dev/null 2>&1; then
-  sudo pacman -S --noconfirm --needed zig >/dev/null 2>&1 || true
+  sudo pacman -S --noconfirm --needed --disable-download-timeout zig >/dev/null 2>&1 || true
   for v in zig0.15 zig0.14; do
     sudo mkdir -p "/opt/$v" && sudo ln -sfn "$(command -v zig)" "/opt/$v/zig" 2>/dev/null || true
   done
@@ -522,7 +527,7 @@ fi
 #    Sin el hook, el sistema recibe paquetes pero el arbol de Omarchy (scripts,
 #    temas, configuracion) se queda congelado en la version clonada.
 log "actualizaciones: snapper + hook post-update"
-sudo pacman -S --noconfirm --needed snapper >/dev/null 2>&1 || warn "snapper no disponible"
+sudo pacman -S --noconfirm --needed --disable-download-timeout snapper >/dev/null 2>&1 || warn "snapper no disponible"
 if command -v snapper >/dev/null 2>&1; then
   sudo bash -euo pipefail "$OMARCHY_PATH/install/config/snapper.sh" >/dev/null 2>&1 \
     && echo "  snapper configurado: instantanea antes de cada actualizacion" \
