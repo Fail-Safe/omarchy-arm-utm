@@ -277,6 +277,9 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   # -s instala las dependencias de compilacion. Sin el, la mayoria de estos
   # PKGBUILD fallan en el primer paso por makedepends ausentes. No se usa -i
   # porque la instalacion se hace despues, subpaquete a subpaquete.
+  # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
+  # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
+  # decia "no compilaron: X" y no habia forma de averiguar nada mas.
   if ( cd "$dir" && makepkg -s --noconfirm --needed --noprogressbar --nocheck ) >"$dir/build.log" 2>&1; then
     local built
     built=$(ls "$dir/$pkg"-*.pkg.tar.* 2>/dev/null | head -1)
@@ -286,6 +289,11 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
   else
+    mkdir -p "$HOME/.omarchy-arm-prov/fallos"
+    cp "$dir/build.log" "$HOME/.omarchy-arm-prov/fallos/$pkg.log" 2>/dev/null || true
+    echo "  --- $pkg fallo; ultimas lineas de makepkg ---"
+    tail -20 "$dir/build.log" 2>/dev/null | sed 's/^/      /'
+    echo "  --- (log completo en ~/.omarchy-arm-prov/fallos/$pkg.log) ---"
     return 1
   fi
 }

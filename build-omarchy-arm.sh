@@ -6,8 +6,12 @@
 #  Arch Linux ARM (aarch64 nativo, acelerado con HVF) + Hyprland + la
 #  configuracion de Omarchy 4, y la empaqueta para distribuir.
 #
-#  Omarchy 4 NO se puede instalar en ARM64: su guard aborta si uname -m no es
-#  x86_64, su mirror no sirve aarch64 y su paquete pacman es x86_64-only. Esto
+#  Omarchy 4 no se puede instalar en ARM64, pero no por lo que suele decirse.
+#  El guard de uname -m vive en install/preflight/guard.sh, que existe en master
+#  (3.x) y NO en quattro, donde uname -m no aparece ni una vez. Y su paquete
+#  pacman es arch=('any'): lo que es x86_64-only es el repo donde se publica.
+#  Lo que falta es el mirror: stable-mirror.omarchy.org/core/os/aarch64/ da 404
+#  mientras x86_64 da 200, y post-install/pacman.sh apunta pacman ahi. Esto
 #  reconstruye el equivalente sobre Arch Linux ARM y le aplica el contenido real
 #  del repositorio de Omarchy.
 #
@@ -1060,6 +1064,9 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   # -s instala las dependencias de compilacion. Sin el, la mayoria de estos
   # PKGBUILD fallan en el primer paso por makedepends ausentes. No se usa -i
   # porque la instalacion se hace despues, subpaquete a subpaquete.
+  # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
+  # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
+  # decia "no compilaron: X" y no habia forma de averiguar nada mas.
   if ( cd "$dir" && makepkg -s --noconfirm --needed --noprogressbar --nocheck ) >"$dir/build.log" 2>&1; then
     local built
     built=$(ls "$dir/$pkg"-*.pkg.tar.* 2>/dev/null | head -1)
@@ -1069,6 +1076,11 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
   else
+    mkdir -p "$HOME/.omarchy-arm-prov/fallos"
+    cp "$dir/build.log" "$HOME/.omarchy-arm-prov/fallos/$pkg.log" 2>/dev/null || true
+    echo "  --- $pkg fallo; ultimas lineas de makepkg ---"
+    tail -20 "$dir/build.log" 2>/dev/null | sed 's/^/      /'
+    echo "  --- (log completo en ~/.omarchy-arm-prov/fallos/$pkg.log) ---"
     return 1
   fi
 }
@@ -2686,7 +2698,7 @@ expect {
 
 # --- verificación del disco resultante
 set timeout 600
-send "mount -o subvol=@ /dev/vda2 /mnt 2>/dev/null || mount /dev/vda2 /mnt; mount /dev/vda1 /mnt/boot 2>/dev/null; echo '==== VERIFICACION ===='; echo '-- ESP --'; find /mnt/boot -maxdepth 3 | head -40; echo '-- kernel --'; ls -la /mnt/boot/Image* /mnt/boot/initramfs* 2>/dev/null; echo '-- usuario --'; ls -la /mnt/home/; echo '-- dotfiles --'; ls /mnt/home/gabriel/.config 2>/dev/null | tr '\\n' ' '; echo; echo '-- hyprland --'; ls -la /mnt/usr/bin/Hyprland 2>/dev/null; echo TOK_VERIFY_\$?\r"
+send "mount -o subvol=@ /dev/vda2 /mnt 2>/dev/null || mount /dev/vda2 /mnt; mount /dev/vda1 /mnt/boot 2>/dev/null; echo '==== VERIFICACION ===='; echo '-- ESP --'; find /mnt/boot -maxdepth 3 | head -40; echo '-- kernel --'; ls -la /mnt/boot/Image* /mnt/boot/initramfs* 2>/dev/null; echo '-- usuario --'; ls -la /mnt/home/; echo '-- dotfiles --'; for h in /mnt/home/*/; do echo \"  \$h:\"; ls \"\$h/.config\" 2>/dev/null | tr '\\n' ' '; echo; done; echo; echo '-- hyprland --'; ls -la /mnt/usr/bin/Hyprland 2>/dev/null; echo TOK_VERIFY_\$?\r"
 catch { wait_for "TOK_VERIFY_" 17 "verificación" 600 }
 
 send "sync; umount -R /mnt 2>/dev/null; poweroff -f\r"
@@ -3297,7 +3309,6 @@ ph_package() {
     die "el nombre de distribucion '$DNAME' lleva caracteres raros; usa algo neutro"
   fi
   write_readme "$W/dist/LEEME.md"
-  grep -q "$DNAME" "$W/dist/LEEME.md" || info "nota: el LEEME no menciona '$DNAME.utm'"
 
   info "comprimiendo..."
   ( cd "$W/dist" && rm -f omarchy-arm-utm.zip \
@@ -3468,14 +3479,18 @@ __PAYLOAD_LEEME_MD__
 # Todo lo demas (version de Alpine, URL del rootfs, rama de Omarchy, tamano del
 # disco, locales) se queda como variable de entorno: son detalles de
 # implementacion, no decisiones.
-HACER_TOOLS=si
-HACER_LIBRES=si
-HACER_DIST=si
+# Con ':=' para que se puedan fijar desde el entorno, igual que el resto:
+#   HACER_LIBRES=no ./build-omarchy-arm.sh --yes
+: "${HACER_TOOLS:=si}"
+: "${HACER_LIBRES:=si}"
+: "${HACER_DIST:=si}"
 
 cuestionario() {
   detectar_del_anfitrion
   if (( ! INTERACTIVO )); then
-    # Sin terminal: el comportamiento historico, todo automatico.
+    # Sin terminal: el comportamiento historico, todo automatico. Se guardan
+    # igualmente, para que un --from posterior no arranque con otros valores.
+    guardar_respuestas
     return
   fi
   phase "configuracion"
