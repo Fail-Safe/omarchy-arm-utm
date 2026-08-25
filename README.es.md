@@ -13,7 +13,7 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 |---|---|
 | **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
 | **Imagen lista para descargar** | [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
-| **Construir desde cero** | `./build-omarchy-arm.sh` · ~1 h según la red |
+| **Construir desde cero** | `./build-omarchy-arm.sh` · 76–83 min medidos, con todo |
 | **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
 ---
@@ -142,19 +142,28 @@ Fases: `deps`, `fetch`, `prepare`, `build`, `utm`, `verify`, `sanitize`,
 
 Con terminal pregunta seis cosas, todas prerrellenadas con lo que detecta del
 Mac —zona horaria de `/etc/localtime`, teclado de las preferencias de macOS,
-núcleos y RAM de `sysctl`—, así que se contestan con Enter. Las dos que
-realmente cambian el resultado son si compilar las herramientas (~40 min) y si
-preparar la imagen para repartir; si eliges «VM para ti», se salta `sanitize` y
-`package` y conserva tu usuario. Sin terminal, o con `--yes`, no pregunta nada:
-el modo desatendido de siempre sigue intacto.
+núcleos y RAM de `sysctl`—, así que se contestan con Enter. Las tres que
+realmente cambian el resultado son si compilar las herramientas (~40 min), si
+incluir OBS Studio y Pinta (~45 min, y es lo más caro de toda la construcción) y
+si preparar la imagen para repartir; si eliges «VM para ti», se salta `sanitize`
+y `package` y conserva tu usuario. Lo contestado se guarda en
+`$W/respuestas.env` y se recupera al reanudar con `--from`, así que no hay que
+volver a teclearlo. Sin terminal, o con `--yes`, no pregunta nada: el modo
+desatendido de siempre sigue intacto.
 
 La fase `prepare` calcula la lista de paquetes en cada ejecución, cruzando la
 rama viva de Omarchy con el índice de Arch Linux ARM. Así el build no se rompe
 cuando Omarchy cambie de paquetes —que lo hará— y de paso informa de qué se ha
 quedado fuera.
 
-Credenciales durante la construcción: `builder` / `builder` (se preguntan). En
-la imagen distribuible se renombra a `omarchy` / `omarchy`.
+Credenciales durante la construcción: `builder` / `builder`. Solo se preguntan
+si eliges «VM para ti»; en la ruta de repartir se quedan como están y el usuario
+se renombra a `omarchy` / `omarchy`. El nombre del usuario de construcción se
+valida: minúsculas, dígitos, `-` y `_`, entre 3 y 32 caracteres, y no puede ser
+parte del usuario de la imagen distribuible.
+
+`sshd` viene deshabilitado, también en la ruta «VM para ti». Si lo quieres:
+`sudo systemctl enable --now sshd`.
 
 ## Portapapeles y carpeta compartida
 
@@ -237,7 +246,7 @@ EMPEZAR.md             guía para ejecutarlo: requisitos y resolución de proble
 ARTICULO.md            explicación paso a paso de cómo se llegó hasta aquí
 articulo.html          la misma, como página
 dist/                  omarchy-arm-utm.zip + sha256 + LEEME para el destinatario
-dl/                    Alpine virt ISO + rootfs de ALARM (MD5 verificado)
+dl/                    Alpine virt ISO (sha256) + rootfs de ALARM (MD5)
 provision/src/         stage1..3.sh repair.sh sanitize.sh omarchy-arm-extras hooks/
 scripts/               qemu-build.sh build.exp repair.exp make-utm.sh qemu-shot.sh omssh
 fixes/                 correcciones aplicadas post-build (ya en stage2/3)
@@ -314,6 +323,32 @@ logs/
 - **Muchos PKGBUILD declaran `arch=(x86_64)` por omisión**, no por
   incompatibilidad. Si es Rust, Go o C++ portable, basta con añadir la
   arquitectura.
+
+## Estado
+
+Validado con una construcción completa desde cero el 25-08-2026: **8 de 8 fases,
+76 minutos, `rc=0`**, partiendo de un directorio de trabajo vacío y con `--yes`.
+
+El veredicto que emite el invitado por la consola serie:
+
+```
+### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+VEREDICTO_OK
+```
+
+**Compilan 16 de las 17 herramientas.** `herdr` no, y no lo hará mientras los
+repositorios no vuelvan a la semántica de Zig 0.15; también falla en x86_64.
+
+Después se arrancó la **imagen ya empaquetada** —no la VM intermedia— en modo
+solo lectura (`qemu -snapshot`) y se comprobó desde fuera: usuario genérico y la
+cuenta de construcción borrada, 439 comandos `omarchy-*`, Hyprland y quickshell
+vivos, `spice-vdagentd` con `-X` y el agente del portapapeles activo, `sshd`
+deshabilitado, cero claves SSH de host y ninguna ruta de compilación dentro de
+los binarios.
+
+Dos salvedades: ese aviso no es cero, y el portapapeles queda certificado como
+**maquinaria en su sitio**; un copiar-pegar real necesita un cliente SPICE, es
+decir, la VM abierta como ventana en UTM.
 
 ## Nota
 

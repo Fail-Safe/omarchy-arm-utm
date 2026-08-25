@@ -37,12 +37,13 @@ dependencias de Homebrew se instalan con tu usuario.
 
 ## 2 · Qué contexto necesita el script
 
-**Ninguno: es un solo fichero.** `build-omarchy-arm.sh` lleva embebidos los doce
-ficheros que necesita —las tres etapas de instalación, el sanitizador, el
-reparador, el instalador de apps opcionales, el hook de actualización, la
-configuración de la VM, los dos arneses de `expect`, el lanzador de QEMU y el
-generador del bundle `.utm`—, más el LEEME que viaja dentro del zip, y los
-escribe en disco al arrancar. Puedes copiarlo solo a él a otro Mac y funcionará
+**Ninguno: es un solo fichero.** `build-omarchy-arm.sh` lleva embebidos los
+quince ficheros que necesita —las tres etapas de instalación, el sanitizador, el
+reparador, el instalador de apps opcionales, el hook de actualización, el agente
+del portapapeles y su puente, el montador de la carpeta compartida, la
+configuración de la VM, los dos arneses de `expect`, el lanzador de QEMU, el
+generador del bundle `.utm` y el LEEME que viaja dentro del zip—, y los escribe
+en disco al arrancar. Puedes copiarlo solo a él a otro Mac y funcionará
 igual.
 
 Lo único que sí puedes darle de antemano, para ahorrar ~900 MB de descarga, son
@@ -84,19 +85,22 @@ Y luego las tres que **sí cambian el resultado**:
 - **¿Compilar las 17 herramientas de Omarchy que no existen para ARM?**
   Son ~40 minutos. Si dices que no, el escritorio funciona igual pero faltarán
   `ttfx` (el salvapantallas), `tensaku` (anotar capturas), `omacalc`, `omacut`,
-  `omawrite`, `aether`, `cliamp` y `omarchy-nvim`. Se pueden añadir después con
-  `yay -S <paquete>`.
+  `omawrite`, `aether`, `cliamp` y `omarchy-nvim`. `aether` y `cliamp` se pueden
+  añadir luego con `yay -S`; el resto no está en AUR para aarch64 y habría que
+  volver a compilarlos a mano, así que aquí decir que sí sale barato.
 
 - **¿Incluir OBS Studio y Pinta?**
   Son software libre, así que sí pueden viajar dentro de la imagen, y la que se
-  distribuye los lleva. Cuestan ~50 minutos: OBS se compila desde fuente (sin
+  distribuye los lleva. Cuestan ~45 minutos: OBS se compila desde fuente (sin
   el plugin de navegador, cuyo CEF es x86-only) y Pinta necesita el .NET arm64
   oficial de Microsoft. Si dices que no, se añaden luego desde dentro con
   `omarchy-arm-extras pinta obs`.
 
 - **¿Preparar la imagen para repartir?**
-  - **No** (por defecto): la VM se queda con tu usuario y tu configuración. Se
-    salta las fases `sanitize` y `package`, y ahorras ~30 minutos.
+  - **No** (lo que propone la pregunta: basta con Enter): la VM se queda con tu
+    usuario y tu configuración. Se salta `sanitize` y `package`, y ahorras ~15
+    minutos. Aun así `sshd` queda deshabilitado, para que no se quede una VM
+    escuchando con una contraseña trivial.
   - **Sí**: renombra el usuario a `omarchy`, borra claves SSH, identidad de git
     e historiales, y genera un `.zip` de ~3,6 GB con su `sha256`.
 
@@ -120,16 +124,18 @@ compiladas y sin OBS ni Pinta:
 | `prepare` | calcula la lista de paquetes cruzando la rama viva de Omarchy con el índice de ARM | ~10 s |
 | `build` | arranca Alpine headless, particiona, despliega el rootfs y corre las tres etapas en chroot | **~40 min** |
 | `utm` | escribe el bundle `.utm` y lo registra en UTM | ~1 min |
-| `verify` | arranca la VM y comprueba dentro que Hyprland, quickshell y los 439 comandos están | ~4 min |
+| `verify` | arranca la VM y le exige dentro siete condiciones: Hyprland y quickshell vivos, ≥400 comandos, ≤5 enlaces rotos, ≥6 unidades `omarchy-*`, versión 4 y el portapapeles completo. Si alguna falla, la construcción se detiene aquí | ~4 min |
 | `sanitize` | copia el disco y lo limpia para distribuir | ~10 min |
 | `package` | compacta el qcow2, crea el bundle y lo comprime | ~3 min |
 
-**Total: unos 57 minutos**, y el resultado son 4,1 GB de `.zip`. Si aceptas
-incluir OBS Studio y Pinta —que es lo que lleva la imagen que se distribuye—
-añade **unos 50 minutos más** a la fase `build`: OBS se compila entero desde
-fuente y es, con diferencia, lo más caro de todo el proceso.
+**Total: entre 76 y 83 minutos**, medido en dos tandas completas sobre un M3
+Max con los valores por defecto —con las 17 herramientas, con OBS y con Pinta,
+que es exactamente lo que lleva la imagen que se distribuye—, y el resultado son
+**3,6 GB** de `.zip`. Decir que no a OBS y Pinta ahorra unos 45 minutos: OBS se
+compila entero desde fuente y es, con diferencia, lo más caro del proceso.
 
-El directorio de trabajo llega a ocupar **21 GB** durante el proceso.
+El directorio de trabajo llega a unos **24 GB** en el pico. El script exige 40
+GB libres porque los clones de APFS pueden empujarlo más arriba.
 
 La fase `build` no imprime casi nada mientras trabaja. Para verla por dentro:
 
@@ -147,7 +153,12 @@ Cada fase es reanudable, así que **no hay que empezar de cero**:
 ./build-omarchy-arm.sh --list         # ver los nombres válidos
 ```
 
-Reanudar **no vuelve a preguntar**: reutiliza lo que ya decidiste.
+Reanudar **no vuelve a preguntar**: lo contestado se guarda en
+`~/omarchy-arm-build/respuestas.env` y se recupera solo. Manda, por este orden,
+lo que pongas en el entorno, lo guardado, lo detectado de tu Mac y el valor por
+defecto — así `UTM_MEM=16384 ./build-omarchy-arm.sh --from utm` respeta tus
+16384. `--from` y `--only` son excluyentes y los dos exigen el nombre de una
+fase.
 
 Los logs quedan en `~/omarchy-arm-build/logs/`, uno por fase. El de `build` es
 el que importa: lleva la salida completa de las tres etapas dentro del invitado,

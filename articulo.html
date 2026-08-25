@@ -245,7 +245,7 @@ footer {
           <span>Anfitrión<b>MacBook M3 Max · macOS 26</b></span>
           <span>Invitado<b>Arch Linux ARM aarch64</b></span>
           <span>Aceleración<b>HVF, sin emulación</b></span>
-          <span>Resultado<b>4,2 GB distribuibles</b></span>
+          <span>Resultado<b>3,6 GB distribuibles</b></span>
         </div>
       </div>
     </div>
@@ -572,15 +572,18 @@ curl -s .../omarchy/quattro/version   <span class="o">→ 4.0.0.alpha</span></co
         </p>
 <pre><code>sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
 for f in "$OMARCHY_PATH"/bin/*; do
-  sudo ln -sfn "$f" "/usr/local/bin/$(basename "$f")"     <span class="c"># 431 binarios</span>
+  sudo ln -sfn "$f" "/usr/bin/$(basename "$f")"           <span class="c"># 439 binarios</span>
 done
 sudo install -Dm644 "$OMARCHY_PATH/etc/profile.d/omarchy.sh" /etc/profile.d/omarchy.sh
 sudo install -Dm644 "$OMARCHY_PATH/default/uwsm/env.d/10-omarchy" \
   /usr/share/uwsm/env.d/10-omarchy</code></pre>
         <p>
-          <code>/usr/local/bin</code> en vez de <code>/usr/bin</code> para no pisar
-          territorio de pacman. Va antes en el PATH y está dentro del
-          <code>secure_path</code> de sudo, así que lo ven también SDDM y systemd.
+          Esto acabó en <code>/usr/bin</code>, no en <code>/usr/local/bin</code>. Empecé
+          por <code>/usr/local/bin</code> para no pisar territorio de pacman, que parecía
+          lo limpio, y rompía cosas: el árbol de Omarchy lleva
+          <code>/usr/bin/omarchy-*</code> cableado en trece sitios, cinco de ellos ficheros
+          <code>.service</code>. <code>/usr/local/bin</code> se sigue usando, pero solo para
+          los envoltorios propios de ARM que necesitan ganar en el PATH.
         </p>
         <div class="note">
           <p class="eyebrow">Curiosidad</p>
@@ -1167,8 +1170,10 @@ zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
           <h4>No funciona</h4>
           <p>
             La aceleración GL dentro de la VM: el render va por software y el blur y las
-            sombras vienen desactivados. Y faltan los paquetes propios de Omarchy y las apps
-            propietarias, que solo existen para x86_64.
+            sombras vienen desactivados. Y falta <code>herdr</code>, que exige la semántica
+            de Zig 0.15 cuando los repositorios van ya por la 0.16, en ARM y en x86_64 por
+            igual. Las apps propietarias no viajan dentro por licencia, pero todas tienen
+            build ARM64 oficial y <code>omarchy-arm-extras</code> las trae de su origen.
           </p>
         </div>
       </div>
@@ -1266,10 +1271,10 @@ zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
         Los dos primeros los introduje yo al arreglar los otros treinta y siete. El tercero
         llevaba ahí desde el principio. Y el resultado, ya con todo corregido:
       </p>
-<pre><code>17/17 herramientas compiladas <span class="o">(solo falla herdr, por la version de Zig)</span>
+<pre><code>16/17 herramientas compiladas <span class="o">(solo falla herdr, por la version de Zig)</span>
 extras=si  menu=si  hook=si   <span class="o">← los tres bloqueantes, resueltos</span>
-verify dentro del invitado: H=1 Q=1 BINS=436 → VEREDICTO_OK
-imagen final: 4,1 GB · ~57 min <span class="o">(1 h 50 incluyendo OBS y Pinta)</span></code></pre>
+verify dentro del invitado: H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 → VEREDICTO_OK
+imagen final: 3,6 GB · 76 min <span class="o">(de deps a package, con todo incluido)</span></code></pre>
       <p>
         Ese <code>extras=si menu=si hook=si</code> es la prueba que importa: son los tres
         que llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa
@@ -1296,10 +1301,12 @@ imagen final: 4,1 GB · ~57 min <span class="o">(1 h 50 incluyendo OBS y Pinta)<
       <p>
         Con terminal pregunta seis cosas, todas prerrellenadas con lo que detecta del Mac
         —zona horaria de <code>/etc/localtime</code>, teclado de las preferencias de macOS,
-        núcleos y RAM de <code>sysctl</code>—, de modo que se contestan con Enter. Solo dos
-        cambian el resultado: si compilar las herramientas (~40 min) y si preparar la imagen
-        para repartir. Elegir «VM para ti» recorta las fases a <code>deps…verify</code> y
-        conserva tu usuario. Sin terminal, o con <code>--yes</code>, no pregunta nada.
+        núcleos y RAM de <code>sysctl</code>—, de modo que se contestan con Enter. Tres
+        cambian el resultado: si compilar las herramientas (~40 min), si incluir OBS Studio y
+        Pinta (~45 min, lo más caro de todo) y si preparar la imagen para repartir. Elegir
+        «VM para ti» recorta las fases a <code>deps…verify</code> y conserva tu usuario. Sin
+        terminal, o con <code>--yes</code>, no pregunta nada y construye la imagen completa,
+        lista para repartir.
       </p>
       <p>
         La fase <code>prepare</code> merece un comentario. En lugar de llevar una lista fija

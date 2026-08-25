@@ -95,8 +95,11 @@ cd omarchy-arm-utm
 ```
 
 Requirements: **Apple Silicon Mac**, Homebrew, **UTM 4.7+**, Xcode Command Line
-Tools (for `git` and `python3`), **~40 GB free**. No `sudo` needed — the script
-touches nothing outside its own working directory.
+Tools (for `git` and `python3`), **~40 GB free**. No `sudo` needed. Outside its
+working directory (`~/omarchy-arm-build`) it installs the Homebrew formulas you
+are missing (`qemu`, `expect`, `aria2`), writes the `.utm` bundle into UTM's own
+`Documents/`, and restarts UTM so it rescans that folder — asking first if you
+have VMs running, or if a VM of that name is already registered.
 
 It asks six values that it pre-fills from your Mac — timezone from
 `/etc/localtime`, keyboard from macOS preferences, cores and RAM from `sysctl` —
@@ -104,10 +107,12 @@ so Enter accepts them, then three decisions (compile the tools? include OBS and
 Pinta? prepare the image for distribution?) and a couple of follow-ups depending
 on the last one. Add `--yes` to skip all of it; with no tty it never asks.
 
-**The script is a single self-contained file.** It embeds the twelve files it
+**The script is a single self-contained file.** It embeds the fifteen files it
 needs — three install stages, the sanitiser, the repair harness, the optional-app
-installer, the post-update hook, the VM config, two `expect` harnesses, the QEMU
-launcher and the `.utm` bundle writer — and writes them out at startup. You can
+installer, the post-update hook, the clipboard agent, the shared-folder mounter,
+the VM config, two `expect` harnesses, the QEMU launcher, the `.utm` bundle
+writer and the README that ships inside the image — and writes them out at
+startup. You can
 copy just that file to another Mac.
 
 ### How long
@@ -125,8 +130,11 @@ Measured on an M3 Max, tools compiled, without OBS/Pinta:
 | `sanitize` | copies the disk and strips identity, for distribution | 10 min |
 | `package` | compacts the qcow2, builds the bundle, zips it | 3 min |
 
-**~57 minutes total** → a 4.1 GB `.zip`; peak 21 GB on disk. Including OBS
-Studio and Pinta adds ~50 minutes (OBS compiles from source).
+**76–83 minutes** end to end with the defaults — tools, OBS Studio and Pinta,
+which is what the published image carries — measured across two full runs on the
+same M3 Max. The result is a **3.6 GB `.zip`**, and the working directory peaks
+at about 24 GB; the script asks for 40 GB free because APFS clones can push that
+higher. Saying no to OBS and Pinta cuts roughly 45 minutes.
 
 Every phase is resumable: `--from build`, `--only package`, `--list`.
 
@@ -269,7 +277,7 @@ which ships inside Google Chrome arm64 (`omarchy-arm-extras chrome spotify-web`)
 - **`bootctl install --no-variables`.** The build VM's NVRAM does not travel to
   UTM, so booting relies on the fallback path `\EFI\BOOT\BOOTAA64.EFI`.
 - **The `.utm` bundle is written by hand.** `utmctl` cannot create VMs and UTM
-  only scans `Documents/` at app launch. `config.plist` needs all **ten**
+  only scans `Documents/` at app launch. `config.plist` needs all **twelve**
   top-level keys — they are decoded with `decode()`, not `decodeIfPresent()`.
 - **The VARS half of aarch64 UEFI is `edk2-arm-vars.fd`**, not
   `edk2-aarch64-vars.fd` (which does not exist).
@@ -322,14 +330,34 @@ EMPEZAR.md             how to run it (ES) — requirements, timings, troubleshoo
 ARTICULO.md            how it was figured out (ES)
 provision/src/         stage1..3.sh, repair.sh, sanitize.sh, omarchy-arm-extras, hooks/
 scripts/               qemu, expect harnesses, .utm bundle writer
-fixes/                 the 17 corrections found along the way, as a record
+fixes/                 the 19 corrections found along the way, as a record
 dist/LEEME.md          the README that ships inside the image (ES)
 ```
 
 ## Status
 
-Validated by a full from-scratch run: 8/8 phases, 17/17 tools built, guest-side
-verification returning a verdict, resulting image booting to a themed desktop.
+Validated by a full from-scratch run on 2026-08-25: **8/8 phases, 76 minutes,
+`rc=0`**, from an empty working directory with `--yes`.
+
+The guest-side verdict, read back over the serial console:
+
+```
+### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+VEREDICTO_OK
+```
+
+**16 of the 17 tools build.** `herdr` does not, and won't until the repos ship
+Zig 0.15 semantics again — it fails on x86_64 too.
+
+The *packaged* image — not the intermediate VM — was then booted read-only
+(`qemu -snapshot`) and checked from outside: generic user with the build account
+gone, 439 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
+running with `-X` and the clipboard agent alive, `sshd` disabled, no SSH host
+keys, no build-time paths inside the compiled binaries.
+
+Two caveats worth stating: that one warning is not zero, and the clipboard is
+certified as *machinery in place* — an actual copy-paste needs a SPICE client,
+i.e. the VM open as a window in UTM.
 
 ## Licence
 

@@ -312,16 +312,18 @@ La solución es replicar a mano lo que haría el paquete:
 ```bash
 sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
 for f in "$OMARCHY_PATH"/bin/*; do
-  sudo ln -sfn "$f" "/usr/local/bin/$(basename "$f")"     # 431 binarios
+  sudo ln -sfn "$f" "/usr/bin/$(basename "$f")"           # 439 binarios
 done
 sudo install -Dm644 "$OMARCHY_PATH/etc/profile.d/omarchy.sh" /etc/profile.d/omarchy.sh
 sudo install -Dm644 "$OMARCHY_PATH/default/uwsm/env.d/10-omarchy" \
   /usr/share/uwsm/env.d/10-omarchy
 ```
 
-`/usr/local/bin` en vez de `/usr/bin` para no pisar territorio de pacman. Va
-antes en el PATH y está dentro del `secure_path` de sudo, así que lo ven también
-SDDM y systemd.
+Esto acabó en `/usr/bin`, no en `/usr/local/bin`. Empecé por `/usr/local/bin`
+para no pisar territorio de pacman, que parecía lo limpio, y rompía cosas: el
+árbol de Omarchy lleva `/usr/bin/omarchy-*` cableado en trece sitios, cinco de
+ellos ficheros `.service`. `/usr/local/bin` se sigue usando, pero solo para los
+envoltorios propios de ARM que necesitan ganar en el PATH.
 
 Curiosidad: Omarchy tiene un mecanismo pensado exactamente para esto,
 `omarchy-dev-link`, que escribe `/etc/omarchy.conf` para apuntar el sistema a un
@@ -557,9 +559,14 @@ adelante. Fue un error, y costó descubrirlo tarde.
 
 Ese cajón mezclaba dos cosas incomparables:
 
-- **Imposible**: 1Password, Spotify, Obsidian, Typora, `pinta` (.NET). Binarios
-  propietarios compilados solo para x86_64. No hay nada que hacer.
+- **Imposible**: 1Password, Spotify, Obsidian, Typora. Binarios propietarios
+  compilados solo para x86_64. No hay nada que hacer.
 - **Nadie lo ha construido todavía**: casi todo lo demás.
+
+Y metí `pinta` en el primer cajón, que es el error dentro del error: Pinta es
+software libre y Microsoft publica .NET para linux-arm64. Hoy se compila en el
+build y viaja dentro de la imagen. Clasificar mal una sola línea costó no tener
+editor de imágenes durante semanas.
 
 Trabajando de forma reactiva —compilar solo lo que rompe algo visible— acabé
 resolviendo `walker` y `elephant` creyendo que sin ellos no había lanzador
@@ -720,12 +727,12 @@ binarios nuevos.
 ```bash
 git -C "$TREE" pull --ff-only
 for f in "$TREE"/bin/*; do
-  t="/usr/local/bin/$(basename "$f")"
+  t="/usr/bin/$(basename "$f")"
   [ -e "$t" ] && [ ! -L "$t" ] && continue   # respeta los envoltorios propios
   [ -L "$t" ] && continue
   sudo ln -sfn "$f" "$t"
 done
-sudo find /usr/local/bin -xtype l -delete
+sudo find /usr/bin -xtype l -delete
 ```
 
 ### Sin red de seguridad
@@ -892,9 +899,11 @@ btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack complet
 de Omarchy 4 —quickshell como barra, menú, OSD y demonio de notificaciones,
 hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 439 comandos `omarchy-*`, y `omarchy-update`.
 
-**No funciona:** la aceleración GL dentro de la VM (render por software), y los
-paquetes propios de Omarchy y las apps propietarias que solo existen para
-x86_64.
+**No funciona:** la aceleración GL dentro de la VM (render por software), y
+`herdr`, que exige la semántica de Zig 0.15 cuando los repositorios ya van por la
+0.16 —en ARM y en x86_64 por igual—. Las apps propietarias (1Password, Obsidian,
+Typora, LocalSend, Chrome) no viajan dentro por licencia, pero todas tienen build
+ARM64 oficial y `omarchy-arm-extras` las trae de su origen.
 
 **Y conviene decirlo claro:** esto no es Omarchy. Es una reconstrucción del
 escritorio de Omarchy sobre una base distinta. Omarchy soporta x86_64; cuando
@@ -1000,11 +1009,22 @@ tercero llevaba ahí desde el principio.
 Y el resultado, ya con todo corregido:
 
 ```
-17/17 herramientas compiladas (solo falla herdr, por la version de Zig)
+16/17 herramientas compiladas (solo falla herdr, por la version de Zig)
 extras=si  menu=si  hook=si          ← los tres bloqueantes, resueltos
-verify dentro del invitado: H=1 Q=1 BINS=436 → VEREDICTO_OK
-imagen final: 4,1 GB · ~57 min (1 h 50 incluyendo OBS y Pinta)
+verify dentro del invitado:
+  ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+  VEREDICTO_OK
+imagen final: 3,6 GB · 76 min de deps a package
 ```
+
+Ese veredicto es de la tanda de certificación, con el constructor ya corregido.
+Conviene mirarlo dos veces, porque durante meses no significó nada: el anfitrión
+lo comprobaba con `grep -qa VEREDICTO_OK` sobre el log, y el log contiene el
+**eco** del propio comando, que lleva dentro `then echo VEREDICTO_OK`. La fase
+no podía fallar. Lo demuestra el log de la imagen que llegué a publicar: la
+línea 6 es el eco, la línea 8 dice `VEREDICTO_KO`, y el constructor cantó éxito.
+Ahora el token viaja partido —`VERED"ICTO_OK"`—, que es algo que el eco no puede
+contener.
 
 Ese `extras=si menu=si hook=si` es la prueba que importa: son los tres que
 llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa
@@ -1028,10 +1048,12 @@ Fases: `deps`, `fetch`, `prepare`, `build`, `utm`, `verify`, `sanitize`,
 
 Con terminal pregunta seis cosas, todas prerrellenadas con lo que detecta del
 Mac —zona horaria de `/etc/localtime`, teclado de las preferencias de macOS,
-núcleos y RAM de `sysctl`—, de modo que se contestan con Enter. Solo dos cambian
-el resultado: si compilar las herramientas (~40 min) y si preparar la imagen
-para repartir. Elegir «VM para ti» recorta las fases a `deps…verify` y conserva
-tu usuario. Sin terminal, o con `--yes`, no pregunta nada.
+núcleos y RAM de `sysctl`—, de modo que se contestan con Enter. Tres cambian el
+resultado: si compilar las herramientas (~40 min), si incluir OBS Studio y Pinta
+(~45 min, lo más caro de todo) y si preparar la imagen para repartir. Elegir «VM
+para ti» recorta las fases a `deps…verify` y conserva tu usuario. Sin terminal, o
+con `--yes`, no pregunta nada y construye la imagen completa, lista para
+repartir.
 
 Preguntar solo eso es deliberado. Los otros quince parámetros —versión de
 Alpine, URL del rootfs, rama de Omarchy, locales— son detalles de
