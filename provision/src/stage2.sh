@@ -167,10 +167,27 @@ log "servicios de sistema"
 systemctl enable sddm.service 2>/dev/null || warn "sddm no disponible"
 # Integracion con UTM: utmctl ip-address/exec/file necesitan el guest agent
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
-# spice-vdagentd es una unidad "static": no se habilita, la activa el socket
-# spice-vdagentd.socket cuando el cliente de la sesion se conecta. Lo que hay
-# que asegurar es el socket, no el servicio.
+# El portapapeles de SPICE tiene TRES piezas, no dos:
+#   cliente SPICE (UTM) <-puerto virtio-> spice-vdagentd <-socket unix-> agente
+# El demonio es quien habla con el anfitrion; el agente de sesion solo habla
+# con el demonio. Por eso hay que dejar vivo spice-vdagentd aunque su agente
+# oficial (X11) no sirva en Hyprland: lo que se sustituye es el agente, no el
+# demonio.
+#
+# Y hace falta -X: la comprobacion de "sesion activa de seat0"
+# (vdagentd.c:746, systemd-login.c:272) falla con Hyprland lanzado por SDDM, y
+# entonces el demonio descarta el portapapeles en silencio.
+mkdir -p /etc/systemd/system/spice-vdagentd.service.d
+cat > /etc/systemd/system/spice-vdagentd.service.d/override.conf <<'OVR'
+[Service]
+# -X: sin integracion con logind. Sin esto el demonio no encuentra "la sesion
+# activa de seat0" bajo Hyprland y descarta el portapapeles sin avisar.
+ExecStart=
+ExecStart=/usr/bin/spice-vdagentd -X -x -f
+OVR
+systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
+echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 
 # El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
 # servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
@@ -182,20 +199,33 @@ SUBSYSTEM=="virtio-ports", ATTR{name}=="com.redhat.spice.0", TAG+="uaccess", MOD
 UDEV
 echo "  regla udev para /dev/virtio-ports/com.redhat.spice.0"
 
+# La carpeta compartida de UTM tiene DOS modos y el usuario elige cual:
+#   VirtFS → dispositivo 9p con mount_tag "share"
+#   SPICE WebDAV → puerto virtio org.spice-space.webdav.0, servido por
+#     spice-webdavd (paquete phodav) en http://localhost:9843/
+# Se preparan los dos: cada uno se activa solo si su dispositivo existe.
+systemctl enable spice-webdavd.service 2>/dev/null || true
+echo "  spice-webdavd habilitado (modo SPICE WebDAV de UTM)"
+
 # Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
 # eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
 # "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
 # nofail para que un arranque sin carpeta configurada no caiga a emergencia,
 # y x-systemd.automount para no pagar el montaje si no se usa.
 mkdir -p /mnt/share
+# La entrada de fstab solo vale para VirtFS, y el usuario puede haber elegido
+# SPICE WebDAV. En vez de fijar un modo, se instala omarchy-arm-share, que
+# detecta cual esta activo. La entrada de fstab se deja igualmente con nofail:
+# si el dispositivo 9p existe, se monta solo en el arranque.
 if ! grep -q '^share ' /etc/fstab; then
   cat >> /etc/fstab <<'FSTAB'
 
-# Carpeta compartida de UTM (Ajustes de la VM -> Compartir -> Ruta compartida)
+# Carpeta compartida de UTM en modo VirtFS. Si elegiste SPICE WebDAV, esta
+# linea no hace nada (nofail) y la monta omarchy-arm-share.
 share  /mnt/share  9p  trans=virtio,version=9p2000.L,rw,nofail,x-systemd.automount,_netdev,msize=512000  0  0
 FSTAB
 fi
-echo "  /mnt/share listo para la carpeta compartida de UTM"
+echo "  /mnt/share preparado (VirtFS por fstab, WebDAV con omarchy-arm-share)"
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable docker.service 2>/dev/null || true
 usermod -aG docker "$VM_USER" 2>/dev/null || true
@@ -208,7 +238,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov da falso sin dar error. Se le deja una copia legible en su home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent; do
+for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"

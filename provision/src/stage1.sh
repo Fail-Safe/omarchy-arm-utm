@@ -109,6 +109,7 @@ cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" \
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 [ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent
+[ -f "$PROV/share.sh" ] && cp "$PROV/share.sh" /mnt/root/prov/omarchy-arm-share
 cat > /mnt/root/prov/fsinfo.env <<EOF
 ROOTFS=$ROOTFS
 ROOT_MOUNT_OPTS=$MOPT_ROOT

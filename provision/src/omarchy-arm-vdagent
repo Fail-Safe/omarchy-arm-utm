@@ -1,158 +1,110 @@
 #!/usr/bin/env python3
 """
-omarchy-arm-vdagent — portapapeles compartido real entre el anfitrión y Hyprland.
+omarchy-arm-vdagent — portapapeles compartido entre el anfitrión y Hyprland.
 
-POR QUÉ EXISTE
-    UTM ofrece "Compartir portapapeles" y expone el canal correcto:
-        -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
-        -chardev spicevmc,id=vdagent,debug=0,name=vdagent
-    (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1201)
+CÓMO FUNCIONA EL PORTAPAPELES DE SPICE, Y POR QUÉ ESTO EXISTE
 
-    Lo que no sirve es el agente de referencia. spice-vdagent habla ese canal
-    pero entrega el portapapeles solo a X11: vdagent.c:421 hace
-        vdagent_clipboards_new(vdagent_display_get_x11(agent->display))
-    y en todo su repositorio no hay una sola referencia a wlr-data-control.
-    Bajo Wayland nativo no tiene con quién hablar.
+    El cliente SPICE del anfitrión NO habla con el agente de sesión: habla con
+    el demonio spice-vdagentd por el puerto virtio. El demonio, a su vez,
+    multiplexa hacia los agentes de sesión por un socket Unix
+    (/run/spice-vdagentd/spice-vdagent-sock). Eso es lo que hace que funcione
+    en cualquier otra VM.
 
-    Este agente habla el mismo protocolo por el mismo puerto, pero al otro lado
-    usa wl-copy/wl-paste, que sí funcionan en Hyprland.
+    El agente oficial (spice-vdagent) implementa ese lado, pero entrega el
+    portapapeles a X11: vdagent.c:421 llama a
+    vdagent_clipboards_new(vdagent_display_get_x11(...)) y no hay una sola
+    referencia a wlr-data-control en su repositorio. Bajo Hyprland arranca y
+    muere con "cannot open display".
 
-PROTOCOLO (spice-protocol, spice/vd_agent.h)
-    Cada mensaje va precedido de VDIChunkHeader {port:u32, size:u32} y luego
-    VDAgentMessage {protocol:u32=1, type:u32, opaque:u64, size:u32}.
-    Solo texto UTF-8; ni imágenes ni ficheros.
+    Este programa ocupa exactamente ese hueco: habla el protocolo udscs con
+    spice-vdagentd igual que el agente oficial, y al otro lado usa
+    wl-copy/wl-paste. El demonio sigue siendo quien habla con el anfitrión.
+
+    Un detalle que importa: vdagentd solo atiende al agente de la sesión
+    ACTIVA de seat0 (vdagentd.c:746). En una VM con Hyprland lanzado por SDDM
+    esa comprobación suele fallar, así que el demonio debe arrancarse con -X
+    (disable-session-integration, vdagentd.c:1258).
+
+    Solo texto. Ni imágenes ni ficheros.
 """
-import os, sys, struct, subprocess, threading, time, select, signal
+import os, sys, socket, struct, subprocess, threading, time, signal
 
-PUERTO = os.environ.get("VDAGENT_PORT", "/dev/virtio-ports/com.redhat.spice.0")
+SOCK = os.environ.get("VDAGENTD_SOCK", "/run/spice-vdagentd/spice-vdagent-sock")
 
-VD_AGENT_PROTOCOL = 1
-VDP_CLIENT_PORT = 2                # el puerto del cliente, en VDIChunkHeader
+# vdagentd-proto.h
+GUEST_XORG_RESOLUTION = 0
+MONITORS_CONFIG       = 1
+CLIPBOARD_GRAB        = 2
+CLIPBOARD_REQUEST     = 3
+CLIPBOARD_DATA        = 4
+CLIPBOARD_RELEASE     = 5
+VERSION               = 6
+CLIENT_DISCONNECTED   = 12
 
-MSG_CLIPBOARD              = 4
-MSG_ANNOUNCE_CAPABILITIES  = 6
-MSG_CLIPBOARD_GRAB         = 7
-MSG_CLIPBOARD_REQUEST      = 8
-MSG_CLIPBOARD_RELEASE      = 9
-
-CAP_CLIPBOARD            = 3
-CAP_CLIPBOARD_BY_DEMAND  = 5
-CAP_CLIPBOARD_SELECTION  = 6
-
-TIPO_UTF8 = 1                      # VD_AGENT_CLIPBOARD_UTF8_TEXT
-SEL_CLIPBOARD = 0                  # VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD
+SEL_CLIPBOARD = 0          # VD_AGENT_CLIPBOARD_SELECTION_CLIPBOARD
+TIPO_UTF8     = 1          # VD_AGENT_CLIPBOARD_UTF8_TEXT
 
 DEBUG = bool(os.environ.get("VDAGENT_DEBUG"))
-
 def log(*a):
-    if DEBUG:
-        print("[vdagent]", *a, file=sys.stderr, flush=True)
+    if DEBUG: print("[vdagent]", *a, file=sys.stderr, flush=True)
 
 
 class Agente:
-    def __init__(self, fd):
-        self.fd = fd
+    def __init__(self, sock):
+        self.s = sock
         self.lock = threading.Lock()
-        self.usa_seleccion = False       # ¿el cliente negoció CAP_CLIPBOARD_SELECTION?
-        self.ultimo_local = None         # lo último que vimos en el portapapeles del invitado
-        self.pendiente = None            # texto que el anfitrión nos anunció y aún no pedimos
-        self.entrante = threading.Event()
-        self.dato_entrante = None
+        self.ultimo_local = None
+        self.esperando = threading.Event()
+        self.recibido = None
 
-    # ── escritura ────────────────────────────────────────────────────────
-    def enviar(self, tipo, payload=b""):
-        cuerpo = struct.pack("<IIQI", VD_AGENT_PROTOCOL, tipo, 0, len(payload)) + payload
-        marco = struct.pack("<II", VDP_CLIENT_PORT, len(cuerpo)) + cuerpo
+    def enviar(self, tipo, arg1=0, arg2=0, datos=b""):
+        cab = struct.pack("<IIII", tipo, arg1, arg2, len(datos))
         with self.lock:
-            os.write(self.fd, marco)
-        log("→", tipo, len(payload))
+            self.s.sendall(cab + datos)
+        log("→", tipo, arg1, arg2, len(datos))
 
-    def _sel(self):
-        """Prefijo de selección: solo si el cliente lo negoció."""
-        return struct.pack("<BBBB", SEL_CLIPBOARD, 0, 0, 0) if self.usa_seleccion else b""
+    def _leer(self, n):
+        b = b""
+        while len(b) < n:
+            t = self.s.recv(n - len(b))
+            if not t: raise EOFError
+            b += t
+        return b
 
-    def anunciar_capacidades(self, solicitar=1):
-        caps = 0
-        for c in (CAP_CLIPBOARD, CAP_CLIPBOARD_BY_DEMAND, CAP_CLIPBOARD_SELECTION):
-            caps |= 1 << c
-        self.enviar(MSG_ANNOUNCE_CAPABILITIES, struct.pack("<II", solicitar, caps))
-
-    def grab(self):
-        """Avisa al anfitrión de que tenemos algo nuevo que ofrecer."""
-        self.enviar(MSG_CLIPBOARD_GRAB, self._sel() + struct.pack("<I", TIPO_UTF8))
-
-    def pedir(self):
-        self.enviar(MSG_CLIPBOARD_REQUEST, self._sel() + struct.pack("<I", TIPO_UTF8))
-
-    def entregar(self, texto):
-        self.enviar(MSG_CLIPBOARD,
-                    self._sel() + struct.pack("<I", TIPO_UTF8) + texto.encode("utf-8"))
-
-    # ── lectura ──────────────────────────────────────────────────────────
-    def _leer_exacto(self, n):
-        buf = b""
-        while len(buf) < n:
-            trozo = os.read(self.fd, n - len(buf))
-            if not trozo:
-                raise EOFError
-            buf += trozo
-        return buf
-
-    def bucle_lectura(self):
+    def bucle(self):
         while True:
             try:
-                _puerto, tam = struct.unpack("<II", self._leer_exacto(8))
-                cuerpo = self._leer_exacto(tam)
+                tipo, a1, a2, size = struct.unpack("<IIII", self._leer(16))
+                datos = self._leer(size) if size else b""
             except (EOFError, OSError) as e:
-                log("puerto cerrado:", e); return
-            if len(cuerpo) < 20:
-                continue
-            proto, tipo, _opaque, tam_datos = struct.unpack("<IIQI", cuerpo[:20])
-            if proto != VD_AGENT_PROTOCOL:
-                continue
-            datos = cuerpo[20:20 + tam_datos]
-            log("←", tipo, tam_datos)
-            self._despachar(tipo, datos)
+                log("socket cerrado:", e); return
+            log("←", tipo, a1, a2, size)
 
-    def _despachar(self, tipo, datos):
-        if tipo == MSG_ANNOUNCE_CAPABILITIES:
-            if len(datos) >= 8:
-                solicitar, caps = struct.unpack("<II", datos[:8])
-                self.usa_seleccion = bool(caps & (1 << CAP_CLIPBOARD_SELECTION))
-                log("capacidades del cliente: selección =", self.usa_seleccion)
-                if solicitar:
-                    self.anunciar_capacidades(solicitar=0)
+            if tipo == CLIPBOARD_GRAB:
+                # el anfitrión ofrece algo: lo pedimos
+                self.enviar(CLIPBOARD_REQUEST, SEL_CLIPBOARD, TIPO_UTF8)
 
-        elif tipo == MSG_CLIPBOARD_GRAB:
-            # El anfitrión copió algo. Se lo pedimos.
-            self.pedir()
+            elif tipo == CLIPBOARD_REQUEST:
+                texto = leer_portapapeles() or ""
+                self.enviar(CLIPBOARD_DATA, SEL_CLIPBOARD, TIPO_UTF8,
+                            texto.encode("utf-8"))
 
-        elif tipo == MSG_CLIPBOARD_REQUEST:
-            # El anfitrión quiere lo nuestro.
-            texto = leer_portapapeles()
-            self.entregar(texto if texto is not None else "")
-
-        elif tipo == MSG_CLIPBOARD:
-            d = datos[4:] if self.usa_seleccion else datos
-            if len(d) >= 4:
-                dtipo, = struct.unpack("<I", d[:4])
-                if dtipo == TIPO_UTF8:
-                    texto = d[4:].decode("utf-8", "replace")
+            elif tipo == CLIPBOARD_DATA:
+                if a2 == TIPO_UTF8:
+                    texto = datos.decode("utf-8", "replace")
                     escribir_portapapeles(texto)
                     self.ultimo_local = texto
-                    log("recibido del anfitrión:", len(texto), "bytes")
+                    log("  recibido del anfitrion:", len(texto), "bytes")
 
-        elif tipo == MSG_CLIPBOARD_RELEASE:
-            pass
+            elif tipo == VERSION:
+                log("  vdagentd version:", datos.decode("utf8", "replace").strip())
 
 
 def leer_portapapeles():
     try:
         r = subprocess.run(["wl-paste", "--no-newline", "--type", "text/plain"],
                            capture_output=True, timeout=5)
-        if r.returncode != 0:
-            return None
-        return r.stdout.decode("utf-8", "replace")
+        return r.stdout.decode("utf-8", "replace") if r.returncode == 0 else None
     except Exception:
         return None
 
@@ -162,44 +114,66 @@ def escribir_portapapeles(texto):
         subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"],
                        input=texto.encode("utf-8"), timeout=5)
     except Exception as e:
-        log("wl-copy falló:", e)
+        log("wl-copy fallo:", e)
 
 
-def vigilar_invitado(ag):
-    """Cuando el usuario copia dentro de la VM, avisamos al anfitrión."""
+def resolucion():
+    """La resolución real, si hyprctl está disponible; si no, un valor sensato."""
+    try:
+        r = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, timeout=4)
+        if r.returncode == 0:
+            import json
+            m = json.loads(r.stdout)[0]
+            return int(m["width"]), int(m["height"])
+    except Exception:
+        pass
+    return 1920, 1200
+
+
+def vigilar(ag):
+    """Si el usuario copia dentro de la VM, se lo ofrecemos al anfitrión."""
     while True:
-        texto = leer_portapapeles()
-        if texto is not None and texto != ag.ultimo_local:
-            ag.ultimo_local = texto
-            if texto:
-                ag.grab()
+        t = leer_portapapeles()
+        if t is not None and t != ag.ultimo_local:
+            ag.ultimo_local = t
+            if t:
+                ag.enviar(CLIPBOARD_GRAB, SEL_CLIPBOARD, 0,
+                          struct.pack("<I", TIPO_UTF8))
         time.sleep(1)
 
 
 def main():
-    if not os.path.exists(PUERTO):
-        print(f"no existe {PUERTO}.", file=sys.stderr)
-        print("En UTM: Ajustes de la VM → Compartir → activa 'Compartir portapapeles'.",
+    for c in ("wl-paste", "wl-copy"):
+        if subprocess.run(["sh", "-c", f"command -v {c}"],
+                          capture_output=True).returncode != 0:
+            print(f"falta {c} (paquete wl-clipboard)", file=sys.stderr); return 1
+    if not os.path.exists(SOCK):
+        print(f"no existe {SOCK}.", file=sys.stderr)
+        print("Arranca el demonio:  sudo systemctl start spice-vdagentd",
               file=sys.stderr)
         return 1
-    for cmd in ("wl-paste", "wl-copy"):
-        if subprocess.run(["sh", "-c", f"command -v {cmd}"],
-                          capture_output=True).returncode != 0:
-            print(f"falta {cmd} (paquete wl-clipboard)", file=sys.stderr)
-            return 1
 
-    fd = os.open(PUERTO, os.O_RDWR)
-    ag = Agente(fd)
-    ag.anunciar_capacidades(solicitar=1)
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.connect(SOCK)
+    ag = Agente(s)
+
+    # El agente oficial anuncia su resolución nada más conectar; vdagentd lo
+    # usa para saber que hay una sesión gráfica viva detrás.
+    # struct vdagentd_guest_xorg_resolution = 5 ints: width, height, x, y,
+    # display_id (vdagentd-proto.h:51). Si el tamaño no cuadra exactamente,
+    # vdagentd desconecta al agente sin más (vdagentd.c:1088).
+    ancho, alto = resolucion()
+    ag.enviar(GUEST_XORG_RESOLUTION, ancho, alto,
+              struct.pack("<iiiii", ancho, alto, 0, 0, 0))
+
     ag.ultimo_local = leer_portapapeles()
-
-    threading.Thread(target=vigilar_invitado, args=(ag,), daemon=True).start()
+    threading.Thread(target=vigilar, args=(ag,), daemon=True).start()
     try:
-        ag.bucle_lectura()
+        ag.bucle()
     except KeyboardInterrupt:
         pass
     finally:
-        os.close(fd)
+        s.close()
     return 0
 
 

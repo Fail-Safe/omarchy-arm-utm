@@ -196,34 +196,40 @@ inside it — no need to re-download. For the clipboard, run
 
 ## Clipboard and shared folder
 
-**UTM's "Share clipboard" does not work under Hyprland.** There are two
-barriers, and only the second one is fatal:
+Clipboard sharing **works**. Why it did not work with the stock agent is worth
+knowing: the SPICE chain has three hops, not two:
 
-1. `spice-vdagentd` only routes the clipboard to the agent owning the **active
-   `seat0` session** (`src/vdagentd/systemd-login.c:272`); otherwise it drops
-   the message silently. The `-X` flag works around this.
-2. But even once the message gets through, the destination is X11:
-   `vdagent.c:421` calls `vdagent_clipboards_new(vdagent_display_get_x11(...))`,
-   and there is not a single reference to `wlr-data-control` anywhere in the
-   repo. On native Wayland there is nothing to talk to.
+```
+SPICE client (UTM) ←virtio→ spice-vdagentd ←unix socket→ session agent
+```
 
-So the service starting is not enough, and neither is `-X`. Third-party patches
-have been in review since 2025 (SPICE MR !57 has gone a year without a
-maintainer review), but nothing you can rely on today.
+The daemon talks to the host; the session agent only talks to the daemon. The
+**stock** agent hands the clipboard to X11 — `vdagent.c:421` calls
+`vdagent_clipboards_new(vdagent_display_get_x11(...))`, and there is not a
+single reference to `wlr-data-control` in its repo — so under Hyprland it dies
+with *"cannot open display"* and the daemon has nobody to deliver to.
 
-The image ships two things instead:
+This image replaces **the agent, not the daemon**: `omarchy-arm-vdagent` speaks
+the same protocol to `vdagentd` and uses `wl-copy`/`wl-paste`. It starts with
+the session. Text only — no images, no files.
 
-- **`/mnt/share`** — whatever folder you pick in *VM Settings → Sharing* is
-  mounted there automatically. The simple way to move files.
-- **`omarchy-arm-clipboard`** — a clipboard bridge over that same folder:
+Two things that took a while to find:
 
-  ```bash
-  omarchy-arm-clipboard --install   # user service, starts with the session
-  omarchy-arm-clipboard --host      # prints the script to run on the Mac
-  ```
+- `spice-vdagentd` needs **`-X`**. Its "active seat0 session" check
+  (`vdagentd.c:746`) fails with Hyprland launched from SDDM, and it then drops
+  the clipboard silently.
+- **One agent per session.** If the stock one also starts, `vdagentd` drops
+  both: *"multiple agents in one session"*.
 
-  Run the printed script on the host, pointing at the shared folder. It syncs
-  text both ways once a second. Text only — no images, no files.
+And the non-obvious requirement: the VM must be **open as a window** in UTM.
+Started via `utmctl` there is no SPICE client attached, so the channel exists
+but carries nothing.
+
+### The shared folder
+
+Mount it with `omarchy-arm-share`, which detects whichever mode you picked in
+*VM Settings → Sharing*: VirtFS (9p, at `/mnt/share`) or SPICE WebDAV (via
+`spice-webdavd`, already in the image). `--status` reports which one is live.
 
 ## Keyboard on a Mac
 

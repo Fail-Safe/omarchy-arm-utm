@@ -158,36 +158,40 @@ la imagen distribuible se renombra a `omarchy` / `omarchy`.
 
 ## Portapapeles y carpeta compartida
 
-**El «Compartir portapapeles» de UTM no funciona en Hyprland**, y conviene saber
-por qué, porque hay dos barreras y sólo la segunda es insalvable:
+El portapapeles compartido **funciona**, y cuesta entender por qué no funcionaba
+con el agente oficial. La cadena de SPICE tiene tres saltos, no dos:
 
-1. `spice-vdagentd` sólo enruta el portapapeles al agente de la **sesión activa
-   de `seat0`** (`src/vdagentd/systemd-login.c:272`); si no la encuentra,
-   descarta el mensaje en silencio. Esto se puede sortear con el flag `-X`.
-2. Pero aunque el mensaje pase, el destino final es X11: `vdagent.c:421` hace
-   `vdagent_clipboards_new(vdagent_display_get_x11(...))`, y en todo el
-   repositorio no hay una sola referencia a `wlr-data-control`. Bajo Wayland
-   nativo no hay por dónde hablar con el compositor.
+```
+cliente SPICE (UTM) ←virtio→ spice-vdagentd ←socket unix→ agente de sesión
+```
 
-Es decir: da igual que el servicio arranque, y da igual el `-X`. Hay parches de
-terceros en revisión desde 2025 (el MR !57 de SPICE lleva un año sin que ningún
-mantenedor lo revise) pero nada que se pueda dar por bueno hoy.
+El demonio habla con el anfitrión; el agente de sesión solo habla con el
+demonio. El agente **oficial** entrega el portapapeles a X11 —`vdagent.c:421`
+llama a `vdagent_clipboards_new(vdagent_display_get_x11(...))` y no hay una sola
+referencia a `wlr-data-control` en su repositorio—, así que bajo Hyprland muere
+con *«cannot open display»* y el demonio se queda sin nadie a quien entregar.
 
-La imagen trae dos cosas para suplirlo:
+La imagen sustituye **el agente, no el demonio**: `omarchy-arm-vdagent` habla el
+mismo protocolo con `vdagentd` y usa `wl-copy`/`wl-paste`. Arranca solo con la
+sesión. Solo texto: ni imágenes ni ficheros.
 
-- **`/mnt/share`** — la carpeta que compartas en *Ajustes de la VM → Compartir*
-  se monta sola ahí. Es la vía sencilla para pasar ficheros.
-- **`omarchy-arm-clipboard`** — un puente de portapapeles que usa esa misma
-  carpeta. Dentro de la VM:
+Dos detalles que costaron encontrar:
 
-  ```bash
-  omarchy-arm-clipboard --install   # servicio de usuario, arranca con la sesión
-  omarchy-arm-clipboard --host      # imprime el script para el Mac
-  ```
+- `spice-vdagentd` necesita **`-X`**. Su comprobación de «sesión activa de
+  seat0» (`vdagentd.c:746`) falla con Hyprland lanzado por SDDM, y entonces
+  descarta el portapapeles sin dar ningún error.
+- **Un solo agente por sesión.** Si el oficial también arranca, `vdagentd`
+  desconecta a los dos: *«multiple agents in one session»*.
 
-  El script del Mac se ejecuta en el anfitrión apuntando a la carpeta
-  compartida. Sincroniza texto en las dos direcciones, una vez por segundo.
-  Sólo texto: ni imágenes ni ficheros.
+Y el requisito que no es obvio: la VM tiene que estar **abierta como ventana**
+en UTM. Arrancada con `utmctl` no hay cliente SPICE conectado, y el canal existe
+pero no transporta nada.
+
+### La carpeta compartida
+
+Se monta con `omarchy-arm-share`, que detecta el modo que hayas elegido en
+*Ajustes de la VM → Compartir*: VirtFS (9p, en `/mnt/share`) o SPICE WebDAV
+(vía `spice-webdavd`, que la imagen ya trae). `--status` dice cuál está activo.
 
 ## Actualizaciones
 

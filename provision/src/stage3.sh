@@ -190,7 +190,11 @@ rm -f ~/.config/hypr/monitors.conf ~/.config/hypr/autostart.conf
 cat > ~/.config/hypr/autostart.lua <<'LUA'
 -- Procesos extra al iniciar la sesion.
 hl.on("hyprland.start", function()
-  hl.exec_cmd("uwsm-app -- spice-vdagent")
+  -- spice-vdagent NO se lanza: su portapapeles es X11 y bajo Hyprland muere
+  -- con "cannot open display". Peor aun, si arranca, vdagentd ve dos agentes
+  -- en la misma sesion y desconecta a los dos ("multiple agents in one
+  -- session"). El portapapeles lo lleva omarchy-arm-vdagent, como servicio
+  -- de usuario.
 end)
 LUA
 
@@ -432,34 +436,36 @@ DESK
 fi
 
 # --- portapapeles compartido con el anfitrion ---------------------------
-# UTM expone el canal correcto:
-#   -device virtserialport,chardev=vdagent,name=com.redhat.spice.0
-# El problema es el agente de referencia: spice-vdagent habla ese canal pero
-# entrega el portapapeles solo a X11 (vdagent.c:421 ->
-# vdagent_clipboards_new(vdagent_display_get_x11(...)), y cero referencias a
-# wlr-data-control en todo su repositorio). Bajo Wayland nativo no tiene con
-# quien hablar, y ni el flag -X lo arregla: esa guarda es anterior, la del
-# enrutado por sesion de seat0.
-# omarchy-arm-vdagent habla el MISMO protocolo por el MISMO puerto, pero al
-# otro lado usa wl-copy/wl-paste. Se activa solo, como servicio de usuario.
+# El portapapeles de SPICE va en tres saltos:
+#   cliente SPICE (UTM) <-virtio-> spice-vdagentd <-socket unix-> agente
+# El demonio habla con el anfitrion; el agente de sesion solo habla con el
+# demonio. El agente OFICIAL entrega el portapapeles a X11 (vdagent.c:421 ->
+# vdagent_clipboards_new(vdagent_display_get_x11(...)), cero referencias a
+# wlr-data-control) y bajo Hyprland muere con "cannot open display".
+#
+# omarchy-arm-vdagent ocupa ese hueco: mismo protocolo udscs con el demonio,
+# pero al otro lado wl-copy/wl-paste. El demonio se queda como esta (con -X,
+# ver stage2): sustituimos el agente, NO el demonio. Intentar hablar por el
+# puerto virtio directamente deja al demonio sin canal ("Device or resource
+# busy") y el anfitrion ignora todo.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
-  log "agente de portapapeles nativo para Wayland"
+  log "agente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
-  # spice-vdagent se queda instalado (aporta redimensionado de pantalla) pero
-  # NO debe competir por el puerto: se le quita el arranque automatico.
-  sudo systemctl disable spice-vdagentd.socket 2>/dev/null || true
-  sudo systemctl disable spice-vdagentd.service 2>/dev/null || true
+  # El agente oficial no debe arrancar: vdagentd desconecta a los dos si ve
+  # dos agentes en la misma sesion ("multiple agents in one session").
+  sudo systemctl --global mask spice-vdagent.service 2>/dev/null || true
   mkdir -p ~/.config/systemd/user
   cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
 [Unit]
-Description=Portapapeles compartido con el anfitrion (SPICE vdagent sobre Wayland)
+Description=Portapapeles compartido con el anfitrion (SPICE sobre Wayland)
 After=graphical-session.target
 PartOf=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
-ConditionPathExists=/dev/virtio-ports/com.redhat.spice.0
 
 [Service]
 Type=simple
+# El socket lo crea spice-vdagentd al arrancar; si aun no esta, se reintenta.
+ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/spice-vdagentd/spice-vdagent-sock ] && exit 0; sleep 2; done; exit 1'
 ExecStart=/usr/local/bin/omarchy-arm-vdagent
 Restart=on-failure
 RestartSec=5
@@ -476,6 +482,10 @@ fi
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
   echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
+fi
+if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
+  sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-share" /usr/local/bin/omarchy-arm-share
+  echo "  /usr/local/bin/omarchy-arm-share (monta la carpeta, sea VirtFS o WebDAV)"
 
   # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
   # asi es como se distribuye. Se instalan con el mismo instalador para no
