@@ -1,12 +1,6 @@
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
-**v2 · 2026-08-24**
-
-<!-- NOTA DE VERSIÓN: esta es la copia mantenida. La que viaja dentro del .zip
-     publicado en archive.org es de una revisión anterior y difiere en dos
-     frases (el recuento de comandos y la nota sobre herdr/Zig). No se ha
-     rehecho el zip para no invalidar el sha256 ya publicado por un cambio
-     cosmético; la versión al día está suelta en el propio item. -->
+**2026-08-25**
 
 Máquina virtual **aarch64 nativa** (acelerada con HVF, sin emulación) con
 Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
@@ -16,13 +10,13 @@ Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
 
 - Mac con Apple Silicon (M1 o superior)
 - [UTM](https://mac.getutm.app) 4.7 o posterior
-- ~15 GB de disco libre: el `.zip` ocupa 7 GB y la imagen descomprimida otros
-  7 GB, más lo que crezca al usarla
+- ~11 GB de disco libre: el `.zip` ocupa 3,6 GB y la imagen descomprimida
+  otros 7,2 GB, más lo que crezca al usarla
 
 ## Instalación
 
 1. Descomprime el `.zip`.
-2. Doble clic en `Omarchy ARM.utm` (o **Archivo → Importar** en UTM).
+2. Doble clic en el `.utm` que aparece (o **Archivo → Importar** en UTM).
 3. Arranca la VM.
 
 Entra solo, sin pedir contraseña.
@@ -57,7 +51,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los 432 comandos `omarchy-*`.
+menú, terminal, navegador, y los 439 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -81,6 +75,23 @@ Limitaciones propias de correr Omarchy en ARM:
 - **El disco viene comprimido** dentro del `.qcow2`. Ocupa la mitad y se
   descomprime al vuelo; si prefieres velocidad de lectura sobre espacio,
   `qemu-img convert -O qcow2 disco.qcow2 sin-comprimir.qcow2`.
+
+## Portapapeles y carpeta compartida
+
+**El portapapeles funciona en los dos sentidos**: copias en el Mac y pegas en
+la VM, y al revés. Solo texto. Dos condiciones:
+
+- **«Share clipboard» activado** en UTM (*Preferencias de la VM → Sharing*).
+- **La VM abierta como ventana.** Arrancada sin ventana (`utmctl start`) no hay
+  ningún cliente SPICE conectado, así que el canal existe pero no lleva nada.
+
+Si no va, `omarchy-arm-vdagent --status` dice en cuál de los tres saltos se
+corta: cliente SPICE → `spice-vdagentd` → sesión de Hyprland.
+
+**Carpeta compartida**: elige una en *Preferencias de la VM → Sharing* y dentro
+ejecuta `omarchy-arm-share`. Detecta solo si UTM está en modo VirtFS o en modo
+SPICE WebDAV y la monta en `/mnt/share` de la forma que corresponda.
+`omarchy-arm-share --status` para ver cómo quedó, `--umount` para soltarla.
 
 ## Las apps que no vienen dentro
 

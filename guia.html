@@ -231,7 +231,7 @@ code {
   <div class="paths">
     <div class="path">
       <h3>Solo quiero la VM</h3>
-      <p>Descarga <code>omarchy-arm-utm-v2.zip</code> del
+      <p>Descarga <code>omarchy-arm-utm.zip</code> del
       <a href="https://archive.org/details/omarchy-arm-utm">Internet Archive</a> (3,6 GB), doble clic, y arranca sola.</p>
       <span class="dur">10 minutos + la descarga</span>
     </div>
@@ -404,7 +404,7 @@ cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz</pre></
     <div class="ph"><span class="name">utm</span><span class="track"><span class="bar" style="width:1.8%"></span></span><span class="t">1 min</span>
       <span class="desc">escribe el bundle <code>.utm</code> y lo registra en UTM</span></div>
     <div class="ph"><span class="name">verify</span><span class="track"><span class="bar" style="width:7%"></span></span><span class="t">4 min</span>
-      <span class="desc">arranca y comprueba dentro que Hyprland, quickshell y los ~435 comandos están</span></div>
+      <span class="desc">arranca y comprueba dentro que Hyprland, quickshell y los 439 comandos están</span></div>
     <div class="ph"><span class="name">sanitize</span><span class="track"><span class="bar" style="width:17.5%"></span></span><span class="t">10 min</span>
       <span class="desc">copia el disco y lo limpia para distribuir</span></div>
     <div class="ph"><span class="name">package</span><span class="track"><span class="bar" style="width:5.3%"></span></span><span class="t">3 min</span>
@@ -488,18 +488,20 @@ cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz</pre></
   </p>
 
   <div class="term"><pre><span class="c"># https://archive.org/details/omarchy-arm-utm</span>
-<span class="c"># descarga omarchy-arm-utm-v2.zip — 3,6 GB</span>
-<span class="p">$</span> shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-<span class="p">$</span> unzip omarchy-arm-utm-v2.zip
+<span class="c"># descarga omarchy-arm-utm.zip — 3,6 GB</span>
+<span class="p">$</span> shasum -a 256 -c omarchy-arm-utm.zip.sha256
+<span class="p">$</span> unzip omarchy-arm-utm.zip
 <span class="p">$</span> open "Omarchy ARM.utm"</pre></div>
 
   <p>Usuario <code>omarchy</code>, contraseña <code>omarchy</code> (también root).</p>
 
   <div class="note">
-    En el mismo sitio hay un <code>omarchy-arm-utm.zip</code> de 6,5 GB: es la primera
-    versión, y sigue ahí para que los enlaces antiguos no se rompan. Tiene dos avisos que
-    no se apagan nunca y <strong>se retira el 30 de noviembre de 2026</strong>. Descarga
-    la v2.
+    Hay una sola imagen en el item, y es la actual. Se publicaron dos anteriores —una de
+    6,5&nbsp;GB y otra de 3,6&nbsp;GB— y se retiraron en lugar de dejarlas al lado como
+    variantes a medias: ninguna de las dos tenía el portapapeles funcionando.
+    <code>VERSIONS.md</code> cuenta qué fallaba en cada una. Si ya te descargaste alguna,
+    no necesitas volver a bajar 3,6&nbsp;GB: los dos scripts de <code>fixes/</code> la
+    ponen al día desde dentro.
   </div>
 </section>
 

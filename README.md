@@ -69,17 +69,17 @@ Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 
 The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
-**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
-`sha256 dde926bceabfcc4b…`
+**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm.zip`** · 3.6 GB ·
+`sha256 b547e9e5d1d0fdf1…`
 
-The original 6.5 GB `omarchy-arm-utm.zip` is still there so existing links keep
-working, but it has two bugs v2 fixes (see the known-issue section below) and
-will be removed on **30 November 2026**. Take v2.
+There is only one file there, and it is the current one. Two earlier uploads
+were removed rather than left alongside it as half-working variants — see
+`VERSIONS.md` on the item for what each of them got wrong.
 
 ```bash
 shasum -a 256 -c omarchy-arm-utm.zip.sha256
 unzip omarchy-arm-utm.zip
-open "Omarchy ARM.utm"
+open *.utm
 ```
 
 User `omarchy`, password `omarchy` (also root) — **change it with `passwd`**.
@@ -135,7 +135,7 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **432 `omarchy-*` commands**, in `/usr/bin` as
+- Dotfiles, themes and the **439 `omarchy-*` commands**, in `/usr/bin` as
   upstream's package does
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
@@ -176,7 +176,7 @@ never installed into `/usr/lib/systemd/user/` at all. Upstream ships them in the
 reproduce that step — so `enable-user-units.sh` could not have worked whatever
 the paths were.
 
-**All three are fixed in `omarchy-arm-utm-v2.zip`.** To repair a VM you already
+**All three are fixed in the published image.** To repair a VM you already
 have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
 inside it — no need to re-download. For the clipboard, run
 [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh) the same way.

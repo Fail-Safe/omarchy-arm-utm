@@ -890,7 +890,7 @@ qemu-img create -f qcow2 -b slim.qcow2 -F qcow2 prueba.qcow2
 **Funciona:** Arch Linux ARM aarch64 nativo con HVF, kernel `linux-aarch64` 7.2,
 btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
 de Omarchy 4 —quickshell como barra, menú, OSD y demonio de notificaciones,
-hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 432 comandos `omarchy-*`, y `omarchy-update`.
+hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 439 comandos `omarchy-*`, y `omarchy-update`.
 
 **No funciona:** la aceleración GL dentro de la VM (render por software), y los
 paquetes propios de Omarchy y las apps propietarias que solo existen para

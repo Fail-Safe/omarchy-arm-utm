@@ -7,7 +7,7 @@ Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |
 |---|---|
-| **Solo quiero la VM** | descarga [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
+| **Solo quiero la VM** | descarga [`omarchy-arm-utm.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
 | **Quiero construirla yo** | `./build-omarchy-arm.sh` → sigue leyendo |
 
 ---
@@ -98,7 +98,7 @@ Y luego las tres que **sí cambian el resultado**:
   - **No** (por defecto): la VM se queda con tu usuario y tu configuración. Se
     salta las fases `sanitize` y `package`, y ahorras ~30 minutos.
   - **Sí**: renombra el usuario a `omarchy`, borra claves SSH, identidad de git
-    e historiales, y genera un `.zip` de ~6,5 GB con su `sha256`.
+    e historiales, y genera un `.zip` de ~3,6 GB con su `sha256`.
 
 Para no responder nada:
 
@@ -120,7 +120,7 @@ compiladas y sin OBS ni Pinta:
 | `prepare` | calcula la lista de paquetes cruzando la rama viva de Omarchy con el índice de ARM | ~10 s |
 | `build` | arranca Alpine headless, particiona, despliega el rootfs y corre las tres etapas en chroot | **~40 min** |
 | `utm` | escribe el bundle `.utm` y lo registra en UTM | ~1 min |
-| `verify` | arranca la VM y comprueba dentro que Hyprland, quickshell y los ~435 comandos están | ~4 min |
+| `verify` | arranca la VM y comprueba dentro que Hyprland, quickshell y los 439 comandos están | ~4 min |
 | `sanitize` | copia el disco y lo limpia para distribuir | ~10 min |
 | `package` | compacta el qcow2, crea el bundle y lo comprime | ~3 min |
 
@@ -194,19 +194,17 @@ de tu Mac.
 
 ## Si solo quieres la VM
 
-Descarga **`omarchy-arm-utm-v2.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
+Descarga **`omarchy-arm-utm.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-unzip omarchy-arm-utm-v2.zip
-open "Omarchy ARM.utm"
+shasum -a 256 -c omarchy-arm-utm.zip.sha256
+unzip omarchy-arm-utm.zip
+open *.utm
 ```
 
 Usuario `omarchy`, contraseña `omarchy` (también para root). **Cámbiala nada más
 entrar con `passwd`.** El resto está en el `LEEME.md` que viene dentro del zip.
 
-Comprueba antes que la descarga está íntegra:
-
-```bash
-shasum -a 256 -c omarchy-arm-utm.zip.sha256
-```
+El `sha256` publicado es `b547e9e5d1d0fdf1…`. En el item de archive.org hay una sola
+imagen, la actual; las dos anteriores se retiraron en lugar de dejarlas al lado
+como variantes a medias. `VERSIONS.md` cuenta qué fallaba en cada una.

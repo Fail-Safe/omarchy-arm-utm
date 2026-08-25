@@ -1629,7 +1629,7 @@ echo "  passwd: $(getent passwd $NEW)"
 echo "  home:   $(ls -ld /home/$NEW | awk '{print $3, $4, $9}')"
 echo "  symlink omarchy: $(readlink /home/$NEW/.local/share/omarchy)"
 echo "  autologin: $(grep -h User= /etc/sddm.conf.d/*.conf 2>/dev/null | tr '\n' ' ')"
-echo "  binarios omarchy: $(ls /usr/bin | grep -c '^omarchy-') en /usr/bin"
+echo "  binarios omarchy: $(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l) en /usr/bin"
 echo "  ttfx: $(command -v ttfx || echo NO)"
 echo "  migraciones selladas: $(ls -1 /home/$NEW/.local/state/omarchy/migrations 2>/dev/null | wc -l)"
 sync
@@ -3067,7 +3067,12 @@ expect {
   -re {❯} {}
   timeout {}
 }
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(ls /usr/bin | grep -c '^omarchy-'); R=\$(find /usr/bin -xtype l | wc -l); U=\$(ls /usr/lib/systemd/user/*.service 2>/dev/null | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ]; then echo VEREDICTO_OK; else echo VEREDICTO_KO; fi\r"
+# OJO: nada de `ls` aqui. Omarchy aliasa ls a eza en formato largo, y el alias
+# esta vivo porque esto corre en una shell interactiva por la consola serie. Con
+# formato largo la linea empieza por los permisos, asi que `grep '^omarchy-'`
+# cuenta cero y el verify declara KO una imagen perfectamente buena. find no se
+# aliasa y ademas no depende del formato de salida.
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name '*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ]; then echo VEREDICTO_OK; else echo VEREDICTO_KO; fi\r"
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1

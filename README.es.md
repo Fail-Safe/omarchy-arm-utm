@@ -12,7 +12,7 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 | | |
 |---|---|
 | **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
-| **Imagen lista para descargar** | [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
+| **Imagen lista para descargar** | [`omarchy-arm-utm.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
 | **Construir desde cero** | `./build-omarchy-arm.sh` · ~1 h según la red |
 | **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
@@ -74,7 +74,7 @@ de ARM que necesitan precedencia en el `PATH`.
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los 432 comandos `omarchy-*`**, en `/usr/bin` como hace
+- **Dotfiles, temas y los 439 comandos `omarchy-*`**, en `/usr/bin` como hace
   el paquete de upstream
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
@@ -123,7 +123,7 @@ paquete `omarchy-settings`, que no tiene build ARM, y el primer build no
 replicaba ese paso — así que `enable-user-units.sh` no podía funcionar por
 muchas rutas que se arreglaran.
 
-**Los tres están corregidos en `omarchy-arm-utm-v2.zip`** (3,6 GB, un 45% menos
+**Los tres están corregidos en la imagen publicada** (3,6 GB, un 45% menos
 que la primera). Para arreglar una VM que ya tengas, sin volver a descargar,
 ejecuta dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh),
 y para el portapapeles [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh).
