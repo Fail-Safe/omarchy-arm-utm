@@ -72,11 +72,46 @@ echo "==> un solo agente"
 sudo systemctl --global mask spice-vdagent.service 2>/dev/null || true
 pkill -x spice-vdagent 2>/dev/null || true
 pkill -f omarchy-arm-vdagent 2>/dev/null || true
+
+# El agente oficial NO viene solo de systemd. Las imágenes de la primera entrega
+# lo lanzan desde el autostart de Hyprland:
+#     hl.exec_cmd("uwsm-app -- spice-vdagent")
+# uwsm-app arranca el BINARIO en un scope transitorio, así que la máscara de
+# spice-vdagent.service no lo tapa y el pkill de arriba solo lo mata en la sesión
+# de ahora. Sin tocar esto, el portapapeles funciona hasta que reinicias: al
+# volver hay dos agentes y vdagentd corta a los dos, sin un solo error visible.
+AUTO="$HOME/.config/hypr/autostart.lua"
+if [ -f "$AUTO" ] && grep -q 'spice-vdagent' "$AUTO"; then
+  cp -a "$AUTO" "$AUTO.bak.$(date +%Y%m%d%H%M%S)"
+  sed -i 's|^\([[:space:]]*\)\(hl\.exec_cmd(.*spice-vdagent.*\)$|\1-- \2  -- lo lleva omarchy-arm-vdagent|' "$AUTO"
+  if grep -q '^[[:space:]]*hl\.exec_cmd(.*spice-vdagent' "$AUTO"; then
+    echo "  ✗ no pude desactivarlo en $AUTO; coméntalo a mano:"
+    grep -n 'spice-vdagent' "$AUTO"
+    exit 1
+  fi
+  hyprctl reload >/dev/null 2>&1 || true
+  echo "  autostart.lua: agente oficial desactivado (copia en $AUTO.bak.*)"
+else
+  echo "  autostart.lua: no lanza el agente oficial"
+fi
+
 sleep 1
+# El servicio es "static": lo que sobrevive al reinicio es el socket, que es
+# quien lo activa. Sin esto el arreglo dura hasta que apagas la VM.
+sudo systemctl unmask spice-vdagentd.socket spice-vdagentd.service 2>/dev/null || true
+sudo systemctl enable spice-vdagentd.socket 2>/dev/null || true
+sudo systemctl enable spice-vdagentd.service 2>/dev/null || true
 sudo systemctl restart spice-vdagentd
 sleep 3
 echo "  spice-vdagentd: $(systemctl is-active spice-vdagentd)"
 [ -S "$SOCK" ] && echo "  socket listo" || { echo "  ✗ no hay socket en $SOCK"; exit 1; }
+if [ "$(systemctl is-enabled spice-vdagentd.socket 2>/dev/null)" = enabled ] \
+   || [ "$(systemctl is-enabled spice-vdagentd.service 2>/dev/null)" = enabled ]; then
+  echo "  habilitado: sobrevive al reinicio"
+else
+  echo "  ✗ el demonio NO quedó habilitado; el portapapeles se perderá al reiniciar:"
+  echo "      sudo systemctl enable spice-vdagentd.socket"
+fi
 
 echo
 echo "==> servicio de usuario"
