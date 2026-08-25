@@ -725,9 +725,6 @@ systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 
-# El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
-# servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
-# de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
 # NO se instala regla udev para /dev/virtio-ports/com.redhat.spice.0.
 # La habia, y estaba mal por partida doble: omarchy-arm-vdagent no abre ese
 # puerto nunca —habla por el socket unix /run/spice-vdagentd/spice-vdagent-sock,
@@ -3725,6 +3722,15 @@ while (($#)); do
     *) die "opcion desconocida: $1" ;;
   esac
 done
+
+# El nombre del usuario de construccion acaba en un `find ... -regex` del
+# sanitizado y en rutas de todo el invitado. Un nombre raro o demasiado corto
+# convierte ese barrido en una escopeta: se exige que sea un nombre de usuario
+# de verdad y que no sea subcadena del usuario de la imagen distribuible.
+[[ $VM_USER =~ ^[a-z_][a-z0-9_-]{2,31}$ ]] \
+  || die "VM_USER='$VM_USER' no vale: minusculas, digitos, '-' y '_', empezando por letra, 3-32 caracteres"
+[[ $DIST_NEW_USER == *"$VM_USER"* ]] \
+  && die "VM_USER='$VM_USER' es parte de DIST_NEW_USER='$DIST_NEW_USER'; elige otro"
 
 # Combinar los dos no ejecuta nada: si la fase de --only va ANTES que la de
 # --from en el array, el bucle nunca llega a poner started=1 y el script

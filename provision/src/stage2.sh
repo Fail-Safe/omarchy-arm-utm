@@ -231,9 +231,6 @@ systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 
-# El puerto virtio del portapapeles pertenece a root:root 0600, asi que un
-# servicio de usuario no puede abrirlo. La regla se lo da al grupo del usuario
-# de la sesion, igual que hace el paquete spice-vdagent con su propia regla.
 # NO se instala regla udev para /dev/virtio-ports/com.redhat.spice.0.
 # La habia, y estaba mal por partida doble: omarchy-arm-vdagent no abre ese
 # puerto nunca —habla por el socket unix /run/spice-vdagentd/spice-vdagent-sock,
