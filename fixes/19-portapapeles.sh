@@ -96,22 +96,21 @@ else
 fi
 
 sleep 1
-# El servicio es "static": lo que sobrevive al reinicio es el socket, que es
-# quien lo activa. Sin esto el arreglo dura hasta que apagas la VM.
+# En Arch las dos unidades son "static" (sin seccion [Install]): `enable` no
+# hace nada y `is-enabled` nunca dira "enabled". Quien las levanta en cada
+# arranque es la activacion por socket. Asi que aqui solo hay que asegurarse de
+# que no esten enmascaradas y de que el socket este vivo.
 sudo systemctl unmask spice-vdagentd.socket spice-vdagentd.service 2>/dev/null || true
-sudo systemctl enable spice-vdagentd.socket 2>/dev/null || true
-sudo systemctl enable spice-vdagentd.service 2>/dev/null || true
+sudo systemctl start spice-vdagentd.socket 2>/dev/null || true
 sudo systemctl restart spice-vdagentd
 sleep 3
 echo "  spice-vdagentd: $(systemctl is-active spice-vdagentd)"
 [ -S "$SOCK" ] && echo "  socket listo" || { echo "  ✗ no hay socket en $SOCK"; exit 1; }
-if [ "$(systemctl is-enabled spice-vdagentd.socket 2>/dev/null)" = enabled ] \
-   || [ "$(systemctl is-enabled spice-vdagentd.service 2>/dev/null)" = enabled ]; then
-  echo "  habilitado: sobrevive al reinicio"
-else
-  echo "  ✗ el demonio NO quedó habilitado; el portapapeles se perderá al reiniciar:"
-  echo "      sudo systemctl enable spice-vdagentd.socket"
-fi
+case "$(systemctl is-enabled spice-vdagentd.socket 2>/dev/null)" in
+  masked) echo "  ✗ spice-vdagentd.socket está enmascarado; el portapapeles no volverá tras reiniciar:"
+          echo "      sudo systemctl unmask spice-vdagentd.socket" ;;
+  *)      echo "  socket no enmascarado (unidad static: la activa systemd en cada arranque)" ;;
+esac
 
 echo
 echo "==> servicio de usuario"

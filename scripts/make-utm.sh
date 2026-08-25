@@ -28,6 +28,13 @@ VM_UUID=$(uuidgen)
 # decir las credenciales reales, no las del que lo construyo.
 NOTES_USER="${NOTES_USER:-omarchy}"
 NOTES_PASS="${NOTES_PASS:-$NOTES_USER}"
+# Estos dos van dentro de XML. Un '&' o un '<' en la contrasena rompia el
+# config.plist, y como el `plutil -lint` esta al final, el fallo llegaba DESPUES
+# de copiar el disco entero: nueve gigas gastados para morir con un mensaje que
+# no mencionaba la contrasena por ningun lado.
+xmlq() { printf "%s" "${1-}" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+NOTES_USER=$(xmlq "$NOTES_USER")
+NOTES_PASS=$(xmlq "$NOTES_PASS")
 
 DISK_UUID=$(uuidgen)
 MAC=$(printf '02:%02X:%02X:%02X:%02X:%02X' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))

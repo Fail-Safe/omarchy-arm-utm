@@ -167,6 +167,13 @@ log "servicios de sistema"
 systemctl enable sddm.service 2>/dev/null || warn "sddm no disponible"
 # Integracion con UTM: utmctl ip-address/exec/file necesitan el guest agent
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
+# El rootfs de Arch Linux ARM viene con sshd arrancado, y aqui se instala
+# openssh y se pone la misma contrasena trivial al usuario y a root. Una VM
+# personal (sin la fase sanitize, que es donde estaba el unico disable) se
+# quedaba escuchando con omarchy/omarchy. Se apaga por defecto; quien lo quiera:
+#   sudo systemctl enable --now sshd
+systemctl disable sshd.service 2>/dev/null || true
+systemctl disable sshd.socket  2>/dev/null || true
 # El portapapeles de SPICE tiene TRES piezas, no dos:
 #   cliente SPICE (UTM) <-puerto virtio-> spice-vdagentd <-socket unix-> agente
 # El demonio es quien habla con el anfitrion; el agente de sesion solo habla
@@ -248,7 +255,13 @@ echo "  disponible para stage3: $(ls "$PROVDIR" | tr '\n' ' ')"
 # El resultado de stage3 tiene que llegar al anfitrion: antes se degradaba a un
 # warn y stage2 emitia su token de exito igualmente, asi que un stage3 que
 # fallara entero producia un disco sin un solo dotfile de Omarchy declarado OK.
-su - "$VM_USER" -c "bash ~/stage3.sh"; STAGE3_RC=$?
+# OJO: con `set -e` + trap ERR, escribir `su ...; RC=$?` NO funciona: si su
+# devuelve != 0 el trap dispara y la etapa muere ANTES de la asignacion, asi
+# que el token TOK_STAGE3_<rc> solo se emitia en el caso 0 y el anfitrion nunca
+# llegaba a ver el fallo especifico de stage3. Con `|| RC=$?` el comando esta
+# en contexto probado y set -e no interviene.
+STAGE3_RC=0
+su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
 [ $STAGE3_RC -eq 0 ] || warn "stage3 termino con errores (rc=$STAGE3_RC)"
 echo "TOK_STAGE3_$STAGE3_RC"
 rm -f "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"

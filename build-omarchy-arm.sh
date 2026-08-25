@@ -76,6 +76,34 @@ INTERACTIVO=0
 [[ -t 0 && -t 1 ]] && INTERACTIVO=1
 [[ -n ${ASSUME_YES:-} ]] && INTERACTIVO=0
 
+# Las respuestas del cuestionario se guardan en $W/respuestas.env para que
+# --from y --only no las tiren. Antes, reanudar regeneraba config.env con los
+# valores por defecto: la VM acababa con el usuario 'builder' y su contrasena
+# aunque el usuario hubiera tecleado otros, y sin avisar de nada.
+RESPUESTAS_VARS=(VM_NAME VM_USER VM_PASSWORD VM_FULLNAME VM_EMAIL VM_HOSTNAME
+                 VM_TIMEZONE VM_KEYMAP VM_XKB VM_LOCALE VM_LOCALE_EXTRA
+                 OMARCHY_REF DIST_NEW_USER DISK_SIZE UTM_CPUS UTM_MEM
+                 HACER_TOOLS HACER_LIBRES HACER_DIST)
+
+shq() { printf "%s" "${1-}" | sed "s/'/'\\\\''/g"; }
+
+guardar_respuestas() {
+  mkdir -p "$W" 2>/dev/null || return 0
+  local v
+  for v in "${RESPUESTAS_VARS[@]}"; do
+    printf "%s='%s'\n" "$v" "$(shq "${!v-}")"
+  done > "$W/respuestas.env"
+}
+
+cargar_respuestas() {
+  [[ -f "$W/respuestas.env" ]] || return 0
+  . "$W/respuestas.env"
+  # HACER_DIST=no recorta las fases: sin esto, reanudar una VM personal se
+  # ponia a sanitizarla y a empaquetarla para repartir.
+  [[ ${HACER_DIST:-} == no ]] && PHASES=(deps fetch prepare build utm verify)
+  return 0
+}
+
 ask() {  # ask <variable> <pregunta> [valor por defecto]
   local var="$1" q="$2" def="${3:-}" cur ans
   cur="${!var:-$def}"
@@ -589,6 +617,13 @@ log "servicios de sistema"
 systemctl enable sddm.service 2>/dev/null || warn "sddm no disponible"
 # Integracion con UTM: utmctl ip-address/exec/file necesitan el guest agent
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
+# El rootfs de Arch Linux ARM viene con sshd arrancado, y aqui se instala
+# openssh y se pone la misma contrasena trivial al usuario y a root. Una VM
+# personal (sin la fase sanitize, que es donde estaba el unico disable) se
+# quedaba escuchando con omarchy/omarchy. Se apaga por defecto; quien lo quiera:
+#   sudo systemctl enable --now sshd
+systemctl disable sshd.service 2>/dev/null || true
+systemctl disable sshd.socket  2>/dev/null || true
 # El portapapeles de SPICE tiene TRES piezas, no dos:
 #   cliente SPICE (UTM) <-puerto virtio-> spice-vdagentd <-socket unix-> agente
 # El demonio es quien habla con el anfitrion; el agente de sesion solo habla
@@ -670,7 +705,13 @@ echo "  disponible para stage3: $(ls "$PROVDIR" | tr '\n' ' ')"
 # El resultado de stage3 tiene que llegar al anfitrion: antes se degradaba a un
 # warn y stage2 emitia su token de exito igualmente, asi que un stage3 que
 # fallara entero producia un disco sin un solo dotfile de Omarchy declarado OK.
-su - "$VM_USER" -c "bash ~/stage3.sh"; STAGE3_RC=$?
+# OJO: con `set -e` + trap ERR, escribir `su ...; RC=$?` NO funciona: si su
+# devuelve != 0 el trap dispara y la etapa muere ANTES de la asignacion, asi
+# que el token TOK_STAGE3_<rc> solo se emitia en el caso 0 y el anfitrion nunca
+# llegaba a ver el fallo especifico de stage3. Con `|| RC=$?` el comando esta
+# en contexto probado y set -e no interviene.
+STAGE3_RC=0
+su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
 [ $STAGE3_RC -eq 0 ] || warn "stage3 termino con errores (rc=$STAGE3_RC)"
 echo "TOK_STAGE3_$STAGE3_RC"
 rm -f "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
@@ -1390,10 +1431,25 @@ log "1/10 desanclando /usr/share/omarchy del home del usuario"
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
-  cp -a "$TARGET" /usr/share/omarchy
+  # Sin set -e, un cp a medias (tipicamente por disco lleno: acabamos de
+  # duplicar el arbol) no impedia el rm -rf de abajo. Se borraba el original y
+  # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
+  # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
+  # copia esta completa.
+  if ! cp -a "$TARGET" /usr/share/omarchy; then
+    warn "no pude copiar $TARGET a /usr/share/omarchy; se deja el original intacto"
+    ln -sfn "$TARGET" /usr/share/omarchy
+    exit 1
+  fi
   chown -R root:root /usr/share/omarchy
+  N_ORIG=$(find "$TARGET" -mindepth 1 | wc -l)
+  N_COPIA=$(find /usr/share/omarchy -mindepth 1 | wc -l)
+  if [ "$N_COPIA" -lt "$N_ORIG" ]; then
+    warn "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas); NO se borra el original"
+    exit 1
+  fi
   rm -rf "$TARGET"
-  echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1))"
+  echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1), $N_COPIA entradas)"
 fi
 
 log "2/10 renombrando el usuario $OLD -> $NEW"
@@ -1693,7 +1749,66 @@ echo "  claves ssh host: $(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l) (0 = se r
 echo "  hostname:   $(cat /etc/hostname)"
 sync
 fstrim -av 2>&1 | head -2 || true
+
+# ─────────────────────── invariantes: esto SI puede fallar ──────────────────
+# Hasta aqui todo eran `echo`: el script corre sin -e y terminaba siempre en un
+# echo, asi que su rc era 0 pasara lo que pasara. repair.sh recogia ese 0, el
+# anfitrion veia TOK_REPAIR_0 y daba la imagen por limpia. Si usermod fallaba,
+# se repartia una imagen con el usuario y la contrasena del constructor.
+log "invariantes de la imagen distribuible"
+FALLOS=0
+mal() { echo "  ✗ $*"; FALLOS=$((FALLOS+1)); }
+bien() { echo "  ✓ $*"; }
+
+getent passwd "$NEW" >/dev/null && bien "existe el usuario $NEW" || mal "no existe el usuario $NEW"
+if [ "$OLD" != "$NEW" ]; then
+  getent passwd "$OLD" >/dev/null && mal "el usuario del constructor ($OLD) sigue existiendo" \
+                                  || bien "el usuario del constructor ya no existe"
+fi
+[ -d /usr/share/omarchy ] && [ ! -L /usr/share/omarchy ] \
+  && bien "/usr/share/omarchy es un directorio real" \
+  || mal "/usr/share/omarchy no es un directorio real"
+
+N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
+[ "$N_CMD" -ge 400 ] && bien "$N_CMD comandos omarchy-*" || mal "solo $N_CMD comandos omarchy-* (esperaba >=400)"
+
+N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
+[ "$N_ROTO" -le 5 ] && bien "$N_ROTO enlaces colgando" || mal "$N_ROTO enlaces colgando"
+
+# Nombres de fichero, no solo contenido: el barrido de arriba usa grep -rl, que
+# mira dentro de los ficheros. Un fichero que LLEVE el nombre del constructor en
+# su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
+# limpio y viajaba dentro de la imagen.
+if [ "$OLD" != "$NEW" ]; then
+  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null)
+  if [ "${#PORNOMBRE[@]}" -gt 0 ] && [ -n "${PORNOMBRE[0]:-}" ]; then
+    echo "  quitando ${#PORNOMBRE[@]} fichero(s) cuyo NOMBRE lleva '$OLD':"
+    for f in "${PORNOMBRE[@]}"; do echo "    $f"; rm -rf "$f"; done
+  fi
+  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null | wc -l)
+  [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
+fi
+
+# El portapapeles: las cinco piezas que pueden romperlo.
+[ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
+grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
+  && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+[ -e "/home/$NEW/.config/systemd/user/graphical-session.target.wants/omarchy-arm-vdagent.service" ] \
+  && bien "agente habilitado en la sesion grafica" \
+  || mal "el agente no quedo habilitado para $NEW"
+if grep -vs -- '^[[:space:]]*--' "/home/$NEW/.config/hypr/autostart.lua" 2>/dev/null | grep -qs spice-vdagent; then
+  mal "autostart.lua lanza el agente oficial: vdagentd desconectara a los dos"
+else
+  bien "autostart.lua no lanza el agente oficial"
+fi
+
+[ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
+
 echo ""
+if [ "$FALLOS" -ne 0 ]; then
+  echo "==> SANITIZE_FALLO: $FALLOS invariante(s) rotos; esta imagen NO se puede distribuir"
+  exit 1
+fi
 echo ""
 echo "==> SANITIZE_OK"
 __PAYLOAD_PROVISION_SANITIZE_SH__
@@ -2694,6 +2809,13 @@ VM_UUID=$(uuidgen)
 # decir las credenciales reales, no las del que lo construyo.
 NOTES_USER="${NOTES_USER:-omarchy}"
 NOTES_PASS="${NOTES_PASS:-$NOTES_USER}"
+# Estos dos van dentro de XML. Un '&' o un '<' en la contrasena rompia el
+# config.plist, y como el `plutil -lint` esta al final, el fallo llegaba DESPUES
+# de copiar el disco entero: nueve gigas gastados para morir con un mensaje que
+# no mencionaba la contrasena por ningun lado.
+xmlq() { printf "%s" "${1-}" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
+NOTES_USER=$(xmlq "$NOTES_USER")
+NOTES_PASS=$(xmlq "$NOTES_PASS")
 
 DISK_UUID=$(uuidgen)
 MAC=$(printf '02:%02X:%02X:%02X:%02X:%02X' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
@@ -2912,23 +3034,28 @@ chmod +x "$W/scripts/make-utm.sh"
   # cualquiera puede llevar espacios (VM_FULLNAME es el caso obvio, pero tambien
   # una contrasena o un nombre de VM). Sin comillas, la segunda palabra se
   # ejecuta como comando y el chroot muere con 127.
+  # Comillas SIMPLES, no dobles. Entrecomillar con dobles solo resolvia los
+  # espacios: el invitado hace `. config.env` y vuelve a expandir lo de dentro,
+  # asi que una contrasena con '$' o con backtick llegaba cambiada (o ejecutaba
+  # algo). Con comillas simples y ' escapado como '\'' el valor viaja literal.
+  cfgq() { printf "%s" "${1-}" | sed "s/'/'\\\\''/g"; }
   cat > "$W/provision/config.env" <<CFGEOF
-VM_USER="$VM_USER"
-VM_PASSWORD="$VM_PASSWORD"
-VM_FULLNAME="$VM_FULLNAME"
-VM_EMAIL="$VM_EMAIL"
-VM_HOSTNAME="$VM_HOSTNAME"
-VM_TIMEZONE="$VM_TIMEZONE"
-VM_KEYMAP="$VM_KEYMAP"
-VM_XKB="$VM_XKB"
-VM_LOCALE="$VM_LOCALE"
-VM_LOCALE_EXTRA="$VM_LOCALE_EXTRA"
-DISK="/dev/vda"
-OMARCHY_REF="$OMARCHY_REF"
-DIST_OLD_USER="$VM_USER"
-DIST_NEW_USER="$DIST_NEW_USER"
-HACER_TOOLS="$HACER_TOOLS"
-HACER_LIBRES="$HACER_LIBRES"
+VM_USER='$(cfgq "$VM_USER")'
+VM_PASSWORD='$(cfgq "$VM_PASSWORD")'
+VM_FULLNAME='$(cfgq "$VM_FULLNAME")'
+VM_EMAIL='$(cfgq "$VM_EMAIL")'
+VM_HOSTNAME='$(cfgq "$VM_HOSTNAME")'
+VM_TIMEZONE='$(cfgq "$VM_TIMEZONE")'
+VM_KEYMAP='$(cfgq "$VM_KEYMAP")'
+VM_XKB='$(cfgq "$VM_XKB")'
+VM_LOCALE='$(cfgq "$VM_LOCALE")'
+VM_LOCALE_EXTRA='$(cfgq "$VM_LOCALE_EXTRA")'
+DISK='/dev/vda'
+OMARCHY_REF='$(cfgq "$OMARCHY_REF")'
+DIST_OLD_USER='$(cfgq "$VM_USER")'
+DIST_NEW_USER='$(cfgq "$DIST_NEW_USER")'
+HACER_TOOLS='$(cfgq "$HACER_TOOLS")'
+HACER_LIBRES='$(cfgq "$HACER_LIBRES")'
 CFGEOF
   # Los arneses llevan la raiz como marcador @OMARM_ROOT@: se sustituye al
   # desplegarlos. Antes era la ruta literal del Mac donde se escribieron.
@@ -3032,7 +3159,10 @@ ph_verify() {
   info "esperando al arranque..."
   sleep 60
   local pty; pty=$("$UTMCTL" attach "$VM_NAME" 2>&1 | grep -o '/dev/ttys[0-9]*' | head -1)
-  [[ -n $pty ]] || { warn "no se pudo obtener el puerto serie; comprueba a mano"; return 0; }
+  # Antes esto era "warn + return 0": sin puerto serie no hay verificacion
+  # posible, y seguir a sanitize/package empaquetaba una imagen que nadie ha
+  # mirado. Si de verdad quieres saltartelo: --from sanitize.
+  [[ -n $pty ]] || die "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Antes esta fase recogia metricas y no las comparaba con nada, asi que
   # terminaba en "ok" pasara lo que pasara. Ahora el invitado emite un veredicto
   # y el anfitrion lo comprueba. Seis condiciones, todas necesarias:
@@ -3072,17 +3202,28 @@ expect {
 # formato largo la linea empieza por los permisos, asi que `grep '^omarchy-'`
 # cuenta cero y el verify declara KO una imagen perfectamente buena. find no se
 # aliasa y ademas no depende del formato de salida.
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name '*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ]; then echo VEREDICTO_OK; else echo VEREDICTO_KO; fi\r"
+# OJO 2: el token va PARTIDO (VERED\"ICTO_OK\"). La consola serie hace eco del
+# comando, asi que si el token viajara entero el log contendria la cadena
+# VEREDICTO_OK antes de que el invitado respondiera nada, y el `grep` del
+# anfitrion la encontraria ahi: la fase daba OK siempre, pasara lo que pasara.
+# Partido, el eco muestra VERED"ICTO_OK" y solo la respuesta real casa.
+#
+# C cuenta las cinco maneras conocidas de que el portapapeles muera. Ninguna
+# necesita un cliente SPICE conectado, asi que se puede comprobar aqui.
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
-  if grep -qa VEREDICTO_OK "$vlog"; then
-    ok "VM '$VM_NAME' verificada: Omarchy 4, Hyprland + quickshell vivos, comandos y unidades en su sitio"
-  elif grep -qa VEREDICTO_KO "$vlog"; then
+  if grep -qa "^VEREDICTO_OK" "$vlog"; then
+    ok "VM '$VM_NAME' verificada: Omarchy 4, Hyprland + quickshell vivos, comandos y unidades en su sitio, portapapeles operativo"
+  elif grep -qa "^VEREDICTO_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "la VM arranca pero el escritorio no esta completo; log en $vlog"
   else
-    warn "no hubo respuesta por el puerto serie; comprueba a mano la ventana de UTM"
+    # Tampoco esto puede ser un aviso: si el invitado no contesta, no sabemos
+    # nada de la imagen, y lo siguiente seria empaquetarla y repartirla.
+    sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
+    die "el invitado no emitio veredicto por el puerto serie; log en $vlog"
   fi
 }
 
@@ -3105,11 +3246,23 @@ ph_sanitize() {
   PROV_ISO="$W/provision/repair.iso" DISK_IMG="$W/dist/dist.qcow2" \
   DIST_OLD_USER="$VM_USER" DIST_NEW_USER="$DIST_NEW_USER" \
     expect -f "$W/scripts/repair.exp" sanitize.sh > "$W/logs/sanitize.log" 2>&1
+  # TOK_REPAIR_0 solo dice que el chroot no reventó, y sanitize.sh corre sin
+  # -e: devolvia 0 aunque usermod hubiera fallado y la imagen conservara al
+  # usuario del constructor. El token con significado es SANITIZE_OK, que
+  # ahora sanitize.sh solo imprime si sus invariantes se cumplen.
+  if grep -qa "SANITIZE_FALLO" "$W/logs/sanitize.log"; then
+    sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$W/logs/sanitize.log" | grep -aE "✗|SANITIZE_FALLO" | tail -20
+    die "la imagen no paso los invariantes de distribucion; revisa $W/logs/sanitize.log"
+  fi
+  grep -qa "SANITIZE_OK" "$W/logs/sanitize.log" || {
+    sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$W/logs/sanitize.log" | tail -30
+    die "la limpieza no llego al final; revisa $W/logs/sanitize.log"
+  }
   grep -qa "TOK_REPAIR_0" "$W/logs/sanitize.log" || {
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$W/logs/sanitize.log" | tail -30
     die "la limpieza fallo; revisa $W/logs/sanitize.log"
   }
-  ok "imagen sanitizada"
+  ok "imagen sanitizada y con los invariantes de distribucion comprobados"
 }
 
 # ────────────────────────────── fase: package ──────────────────────────────
@@ -3124,20 +3277,31 @@ ph_package() {
   qemu-img check "$W/dist/slim.qcow2" >/dev/null || die "la imagen compactada no valida"
   ok "$(du -h "$W/dist/dist.qcow2" | cut -f1) → $(du -h "$W/dist/slim.qcow2" | cut -f1)"
 
-  rm -rf "$W/dist/$VM_NAME.utm"
+  # El bundle que se reparte NO lleva $VM_NAME. Ese nombre es del constructor y
+  # puede ser cualquier cosa ("Omarchy ARM v5" en una de las tandas), y viajaba
+  # dentro del zip como nombre de directorio y como <key>Name</key>, de modo que
+  # al importarla en UTM aparecia con el versionado interno de quien la creo.
+  # Ademas el LEEME dice «doble clic en Omarchy ARM.utm», que entonces no existia.
+  local DNAME="${DIST_VM_NAME:-Omarchy ARM}"
+  rm -rf "$W/dist/$DNAME.utm"
   SRC_QCOW="$W/dist/slim.qcow2" DEST_DIR="$W/dist" UTM_CPUS=$UTM_CPUS UTM_MEM=$UTM_MEM \
     NOTES_USER="$DIST_NEW_USER" NOTES_PASS="$DIST_NEW_USER" \
-    bash "$W/scripts/make-utm.sh" "$VM_NAME" >/dev/null \
+    bash "$W/scripts/make-utm.sh" "$DNAME" >/dev/null \
     || die "no se pudo crear el bundle distribuible"
-  # Ultima red: el bundle no debe llevar rastro del usuario de construccion
-  if grep -q "\b$VM_USER\b" "$W/dist/$VM_NAME.utm/config.plist" 2>/dev/null; then
+  # Ultima red: ni el plist ni el NOMBRE del bundle deben llevar rastro del
+  # usuario ni del nombre de trabajo del constructor.
+  if grep -q "\b$VM_USER\b" "$W/dist/$DNAME.utm/config.plist" 2>/dev/null; then
     die "el config.plist del bundle menciona a '$VM_USER'; revisa make-utm.sh"
   fi
+  if [[ "$DNAME" != "$(printf '%s' "$DNAME" | tr -cd 'A-Za-z .-')" ]]; then
+    die "el nombre de distribucion '$DNAME' lleva caracteres raros; usa algo neutro"
+  fi
   write_readme "$W/dist/LEEME.md"
+  grep -q "$DNAME" "$W/dist/LEEME.md" || info "nota: el LEEME no menciona '$DNAME.utm'"
 
   info "comprimiendo..."
   ( cd "$W/dist" && rm -f omarchy-arm-utm.zip \
-      && zip -r -q -1 omarchy-arm-utm.zip "$VM_NAME.utm" LEEME.md \
+      && zip -r -q -1 omarchy-arm-utm.zip "$DNAME.utm" LEEME.md \
       && shasum -a 256 omarchy-arm-utm.zip > omarchy-arm-utm.zip.sha256 )
   rm -f "$W/dist/dist.qcow2" "$W/dist/slim.qcow2"
   ok "listo: $W/dist/omarchy-arm-utm.zip ($(du -h "$W/dist/omarchy-arm-utm.zip" | cut -f1))"
@@ -3145,19 +3309,16 @@ ph_package() {
 }
 
 write_readme() {
-  # El texto vive en provision/src/LEEME.md y se embebe tal cual: mantener dos
-  # versiones a mano hacia que la del script se quedara desfasada y llegara a
-  # afirmar cosas falsas sobre lo que la imagen lleva dentro.
+  # El texto vive en provision/src/LEEME.md y se embebe tal cual (scripts/sync
+  # lo re-incrusta). Cuando eran dos copias a mano, la del script se quedo atras
+  # y viajaba dentro del zip afirmando cosas falsas -- 432 comandos cuando eran
+  # 439, «el zip ocupa 7 GB» cuando eran 3,6 -- y hasta con una nota interna
+  # para el mantenedor dentro.
   cat > "$1" <<'__PAYLOAD_LEEME_MD__'
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
-**v2 · 2026-08-24**
-
-<!-- NOTA DE VERSIÓN: esta es la copia mantenida. La que viaja dentro del .zip
-     publicado en archive.org es de una revisión anterior y difiere en dos
-     frases (el recuento de comandos y la nota sobre herdr/Zig). No se ha
-     rehecho el zip para no invalidar el sha256 ya publicado por un cambio
-     cosmético; la versión al día está suelta en el propio item. -->
+Imagen construida con
+[`build-omarchy-arm.sh`](https://github.com/ggalancs/omarchy-arm-utm).
 
 Máquina virtual **aarch64 nativa** (acelerada con HVF, sin emulación) con
 Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
@@ -3167,13 +3328,13 @@ Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
 
 - Mac con Apple Silicon (M1 o superior)
 - [UTM](https://mac.getutm.app) 4.7 o posterior
-- ~15 GB de disco libre: el `.zip` ocupa 7 GB y la imagen descomprimida otros
-  7 GB, más lo que crezca al usarla
+- ~11 GB de disco libre: el `.zip` ocupa 3,6 GB y la imagen descomprimida
+  otros 7,2 GB, más lo que crezca al usarla
 
 ## Instalación
 
 1. Descomprime el `.zip`.
-2. Doble clic en `Omarchy ARM.utm` (o **Archivo → Importar** en UTM).
+2. Doble clic en el `.utm` que aparece (o **Archivo → Importar** en UTM).
 3. Arranca la VM.
 
 Entra solo, sin pedir contraseña.
@@ -3208,7 +3369,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los 432 comandos `omarchy-*`.
+menú, terminal, navegador, y los 439 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -3232,6 +3393,23 @@ Limitaciones propias de correr Omarchy en ARM:
 - **El disco viene comprimido** dentro del `.qcow2`. Ocupa la mitad y se
   descomprime al vuelo; si prefieres velocidad de lectura sobre espacio,
   `qemu-img convert -O qcow2 disco.qcow2 sin-comprimir.qcow2`.
+
+## Portapapeles y carpeta compartida
+
+**El portapapeles funciona en los dos sentidos**: copias en el Mac y pegas en
+la VM, y al revés. Solo texto. Dos condiciones:
+
+- **«Share clipboard» activado** en UTM (*Preferencias de la VM → Sharing*).
+- **La VM abierta como ventana.** Arrancada sin ventana (`utmctl start`) no hay
+  ningún cliente SPICE conectado, así que el canal existe pero no lleva nada.
+
+Si no va, `omarchy-arm-vdagent --status` dice en cuál de los tres saltos se
+corta: cliente SPICE → `spice-vdagentd` → sesión de Hyprland.
+
+**Carpeta compartida**: elige una en *Preferencias de la VM → Sharing* y dentro
+ejecuta `omarchy-arm-share`. Detecta solo si UTM está en modo VirtFS o en modo
+SPICE WebDAV y la monta en `/mnt/share` de la forma que corresponda.
+`omarchy-arm-share --status` para ver cómo quedó, `--umount` para soltarla.
 
 ## Las apps que no vienen dentro
 
@@ -3353,6 +3531,7 @@ cuestionario() {
   info "resumen: $VM_KEYMAP/$VM_XKB · $VM_TIMEZONE · ${UTM_CPUS} nucleos · ${UTM_MEM} MiB · disco $DISK_SIZE"
   info "         herramientas: $HACER_TOOLS · OBS+Pinta: $HACER_LIBRES · repartir: $HACER_DIST"
   confirm "Empezar?" si || die "cancelado"
+  guardar_respuestas
 }
 
 # ──────────────────────────────────── main ─────────────────────────────────
@@ -3373,12 +3552,23 @@ done
 # Un nombre de fase mal escrito no debe salir con exito sin hacer nada.
 for sel in "$run_from" "$run_only"; do
   [[ -z $sel ]] && continue
-  printf '%s\n' "${PHASES[@]}" | grep -qx "$sel" \
+  printf '%s\n' "${PHASES[@]}" | grep -qxF "$sel" \
     || die "fase desconocida: '$sel' (validas: ${PHASES[*]})"
 done
 
-# Reanudar o ejecutar una sola fase no debe reabrir el cuestionario.
-[[ -z $run_from && -z $run_only ]] && cuestionario
+# Reanudar o ejecutar una sola fase no debe reabrir el cuestionario, pero SI
+# debe recuperar lo que se contesto la vez anterior.
+if [[ -z $run_from && -z $run_only ]]; then
+  cargar_respuestas          # lo ya contestado sale como valor por defecto
+  cuestionario
+else
+  cargar_respuestas || true
+  if [[ -f "$W/respuestas.env" ]]; then
+    info "reanudando con las respuestas de $W/respuestas.env (usuario '$VM_USER', repartir: ${HACER_DIST:-no})"
+  else
+    warn "no hay $W/respuestas.env: se usaran los valores por defecto, que pueden no ser los que elegiste"
+  fi
+fi
 
 started=0
 [[ -z $run_from ]] && started=1

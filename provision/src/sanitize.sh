@@ -20,10 +20,25 @@ log "1/10 desanclando /usr/share/omarchy del home del usuario"
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
-  cp -a "$TARGET" /usr/share/omarchy
+  # Sin set -e, un cp a medias (tipicamente por disco lleno: acabamos de
+  # duplicar el arbol) no impedia el rm -rf de abajo. Se borraba el original y
+  # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
+  # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
+  # copia esta completa.
+  if ! cp -a "$TARGET" /usr/share/omarchy; then
+    warn "no pude copiar $TARGET a /usr/share/omarchy; se deja el original intacto"
+    ln -sfn "$TARGET" /usr/share/omarchy
+    exit 1
+  fi
   chown -R root:root /usr/share/omarchy
+  N_ORIG=$(find "$TARGET" -mindepth 1 | wc -l)
+  N_COPIA=$(find /usr/share/omarchy -mindepth 1 | wc -l)
+  if [ "$N_COPIA" -lt "$N_ORIG" ]; then
+    warn "la copia quedo incompleta ($N_COPIA de $N_ORIG entradas); NO se borra el original"
+    exit 1
+  fi
   rm -rf "$TARGET"
-  echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1))"
+  echo "  /usr/share/omarchy ahora es un directorio real ($(du -sh /usr/share/omarchy | cut -f1), $N_COPIA entradas)"
 fi
 
 log "2/10 renombrando el usuario $OLD -> $NEW"
@@ -323,6 +338,65 @@ echo "  claves ssh host: $(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l) (0 = se r
 echo "  hostname:   $(cat /etc/hostname)"
 sync
 fstrim -av 2>&1 | head -2 || true
+
+# ─────────────────────── invariantes: esto SI puede fallar ──────────────────
+# Hasta aqui todo eran `echo`: el script corre sin -e y terminaba siempre en un
+# echo, asi que su rc era 0 pasara lo que pasara. repair.sh recogia ese 0, el
+# anfitrion veia TOK_REPAIR_0 y daba la imagen por limpia. Si usermod fallaba,
+# se repartia una imagen con el usuario y la contrasena del constructor.
+log "invariantes de la imagen distribuible"
+FALLOS=0
+mal() { echo "  ✗ $*"; FALLOS=$((FALLOS+1)); }
+bien() { echo "  ✓ $*"; }
+
+getent passwd "$NEW" >/dev/null && bien "existe el usuario $NEW" || mal "no existe el usuario $NEW"
+if [ "$OLD" != "$NEW" ]; then
+  getent passwd "$OLD" >/dev/null && mal "el usuario del constructor ($OLD) sigue existiendo" \
+                                  || bien "el usuario del constructor ya no existe"
+fi
+[ -d /usr/share/omarchy ] && [ ! -L /usr/share/omarchy ] \
+  && bien "/usr/share/omarchy es un directorio real" \
+  || mal "/usr/share/omarchy no es un directorio real"
+
+N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
+[ "$N_CMD" -ge 400 ] && bien "$N_CMD comandos omarchy-*" || mal "solo $N_CMD comandos omarchy-* (esperaba >=400)"
+
+N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
+[ "$N_ROTO" -le 5 ] && bien "$N_ROTO enlaces colgando" || mal "$N_ROTO enlaces colgando"
+
+# Nombres de fichero, no solo contenido: el barrido de arriba usa grep -rl, que
+# mira dentro de los ficheros. Un fichero que LLEVE el nombre del constructor en
+# su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
+# limpio y viajaba dentro de la imagen.
+if [ "$OLD" != "$NEW" ]; then
+  mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null)
+  if [ "${#PORNOMBRE[@]}" -gt 0 ] && [ -n "${PORNOMBRE[0]:-}" ]; then
+    echo "  quitando ${#PORNOMBRE[@]} fichero(s) cuyo NOMBRE lleva '$OLD':"
+    for f in "${PORNOMBRE[@]}"; do echo "    $f"; rm -rf "$f"; done
+  fi
+  RESTAN=$(find /home/"$NEW" /etc /usr/local /opt -xdev -name "*$OLD*" 2>/dev/null | wc -l)
+  [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
+fi
+
+# El portapapeles: las cinco piezas que pueden romperlo.
+[ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
+grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
+  && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+[ -e "/home/$NEW/.config/systemd/user/graphical-session.target.wants/omarchy-arm-vdagent.service" ] \
+  && bien "agente habilitado en la sesion grafica" \
+  || mal "el agente no quedo habilitado para $NEW"
+if grep -vs -- '^[[:space:]]*--' "/home/$NEW/.config/hypr/autostart.lua" 2>/dev/null | grep -qs spice-vdagent; then
+  mal "autostart.lua lanza el agente oficial: vdagentd desconectara a los dos"
+else
+  bien "autostart.lua no lanza el agente oficial"
+fi
+
+[ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
+
 echo ""
+if [ "$FALLOS" -ne 0 ]; then
+  echo "==> SANITIZE_FALLO: $FALLOS invariante(s) rotos; esta imagen NO se puede distribuir"
+  exit 1
+fi
 echo ""
 echo "==> SANITIZE_OK"
