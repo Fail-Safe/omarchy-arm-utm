@@ -3368,6 +3368,14 @@ expect {
 # formato largo la linea empieza por los permisos, asi que `grep '^omarchy-'`
 # cuenta cero y el verify declara KO una imagen perfectamente buena. find no se
 # aliasa y ademas no depende del formato de salida.
+# LIMITE CONOCIDO: esto valida el PRIMER arranque. Un fallo que solo apareciera
+# al reiniciar -como el que arregla fixes/19 en las imagenes antiguas, donde el
+# agente oficial resucitaba desde autostart.lua- no se veria aqui. Se comprobo a
+# mano que la imagen actual si sobrevive al reinicio: el agente arranca con la
+# sesion grafica. Por eso NO se anade una segunda pasada, que seria coste fijo
+# en cada construccion contra una hipotesis. Si algun dia reaparece un fallo de
+# ese tipo, este es el sitio donde reiniciar y repetir el veredicto.
+#
 # OJO 2: el token va PARTIDO (VERED\"ICTO_OK\"). La consola serie hace eco del
 # comando, asi que si el token viajara entero el log contendria la cadena
 # VEREDICTO_OK antes de que el invitado respondiera nada, y el `grep` del
@@ -3568,8 +3576,13 @@ la VM, y al revés. Solo texto. Dos condiciones:
 - **La VM abierta como ventana.** Arrancada sin ventana (`utmctl start`) no hay
   ningún cliente SPICE conectado, así que el canal existe pero no lleva nada.
 
-Si no va, `omarchy-arm-vdagent --status` dice en cuál de los tres saltos se
-corta: cliente SPICE → `spice-vdagentd` → sesión de Hyprland.
+Si no va, esto dice en cuál de los tres saltos se corta —cliente SPICE →
+`spice-vdagentd` → sesión de Hyprland—:
+
+```bash
+systemctl is-active spice-vdagentd              # el demonio
+systemctl --user status omarchy-arm-vdagent     # el agente de tu sesión
+```
 
 **Carpeta compartida**: elige una en *Preferencias de la VM → Sharing* y dentro
 ejecuta `omarchy-arm-share`. Detecta solo si UTM está en modo VirtFS o en modo

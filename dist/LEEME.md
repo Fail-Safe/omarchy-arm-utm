@@ -88,8 +88,13 @@ la VM, y al revés. Solo texto. Dos condiciones:
 - **La VM abierta como ventana.** Arrancada sin ventana (`utmctl start`) no hay
   ningún cliente SPICE conectado, así que el canal existe pero no lleva nada.
 
-Si no va, `omarchy-arm-vdagent --status` dice en cuál de los tres saltos se
-corta: cliente SPICE → `spice-vdagentd` → sesión de Hyprland.
+Si no va, esto dice en cuál de los tres saltos se corta —cliente SPICE →
+`spice-vdagentd` → sesión de Hyprland—:
+
+```bash
+systemctl is-active spice-vdagentd              # el demonio
+systemctl --user status omarchy-arm-vdagent     # el agente de tu sesión
+```
 
 **Carpeta compartida**: elige una en *Preferencias de la VM → Sharing* y dentro
 ejecuta `omarchy-arm-share`. Detecta solo si UTM está en modo VirtFS o en modo

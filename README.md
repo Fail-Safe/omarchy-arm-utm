@@ -355,9 +355,13 @@ gone, 439 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
 running with `-X` and the clipboard agent alive, `sshd` disabled, no SSH host
 keys, no build-time paths inside the compiled binaries.
 
-Two caveats worth stating: that one warning is not zero, and the clipboard is
-certified as *machinery in place* — an actual copy-paste needs a SPICE client,
-i.e. the VM open as a window in UTM.
+The shared clipboard was then checked with real data, in both directions, on a
+VM booted in UTM: a unique token copied on the Mac read back identically inside
+the guest, and one copied inside the guest reached the Mac pasteboard in three
+seconds. It needs the VM open as a window — started headless there is no SPICE
+client attached, so the channel exists but carries nothing.
+
+One caveat worth stating: that single warning is not zero.
 
 ## Licence
 

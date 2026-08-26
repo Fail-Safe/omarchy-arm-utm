@@ -346,9 +346,13 @@ vivos, `spice-vdagentd` con `-X` y el agente del portapapeles activo, `sshd`
 deshabilitado, cero claves SSH de host y ninguna ruta de compilación dentro de
 los binarios.
 
-Dos salvedades: ese aviso no es cero, y el portapapeles queda certificado como
-**maquinaria en su sitio**; un copiar-pegar real necesita un cliente SPICE, es
-decir, la VM abierta como ventana en UTM.
+El portapapeles compartido se comprobó después con datos reales y en los dos
+sentidos, sobre una VM arrancada en UTM: una cadena única copiada en el Mac se
+leyó idéntica dentro del invitado, y otra copiada dentro llegó al Mac en tres
+segundos. Necesita la VM abierta como ventana: arrancada sin ventana no hay
+cliente SPICE conectado, así que el canal existe pero no transporta nada.
+
+Una salvedad: ese único aviso no es cero.
 
 ## Nota
 
