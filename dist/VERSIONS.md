@@ -6,11 +6,12 @@
 |---|---|---|
 | | **← download this one** | the first release |
 | Size | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
-| Published | 2026-08-25 | 2026-08-23 |
-| Shared clipboard | **works** | does not work |
+| Published | 2026-08-26 | 2026-08-23 |
+| Shared clipboard | **works, verified both ways** | does not work |
 | "Update System" notification | gone | repeats on every boot |
 | "Reboot?" after each update | gone | repeats forever |
-| `sha256` | `b547e9e5d1d0fdf1c7b642ecf5b8274064f6eb99485acef6b273e596bc47ec3a` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| `sshd` | disabled | enabled, with a trivial password |
+| `sha256` | `929eb816194a5cfc46b87ebc05f7c29bac004a8850f0ae559d220efae0355958` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
 The plain name belongs to the first release and keeps it, so links and checksums
 published back in August still resolve to the exact bytes they were written
@@ -26,6 +27,26 @@ User `omarchy`, password `omarchy` (also root). **Change it with `passwd`.**
 
 Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 439
 `omarchy-*` commands · 17 tools built for ARM · OBS Studio and Pinta.
+
+## What changed on 2026-08-26
+
+The newer file was rebuilt. Same desktop, same size; what changed is what the
+image no longer carries and what was proven about it:
+
+- **`sshd` comes disabled.** The previous build left it listening with
+  `omarchy`/`omarchy`. Enable it yourself if you want it:
+  `sudo systemctl enable --now sshd`.
+- **No trace of the build account.** The bundle is named `Omarchy ARM.utm`
+  instead of carrying an internal version number, `ttfx` no longer has the
+  build path compiled into it, and files whose *name* mentioned the build user
+  are gone.
+- **The preferred terminal points at something that exists.** It named
+  `Alacritty.desktop`, which is not in the image; it now lists what is.
+- **A udev rule was removed** that handed the session user access to the port
+  `spice-vdagentd` owns exclusively — it did nothing useful and could take the
+  daemon's channel away.
+- **The clipboard was verified with real data**, both directions, on a VM
+  booted in UTM — not inferred from the pieces being in place.
 
 ## What the newer file fixes
 

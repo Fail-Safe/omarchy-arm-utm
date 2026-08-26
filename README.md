@@ -70,7 +70,7 @@ The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
 **https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
-`sha256 b547e9e5d1d0fdf1…`
+`sha256 929eb816194a5cfc…`
 
 The plain `omarchy-arm-utm.zip` next to it is the first release (6.5 GB). It
 keeps the plain name so links and checksums published with it still resolve to
