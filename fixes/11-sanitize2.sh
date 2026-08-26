@@ -1,5 +1,5 @@
 #!/bin/bash
-# Segunda pasada: restos del renombrado de usuario.
+# Second pass: remnants from the user rename.
 set -uo pipefail
 OLD=gabriel; NEW=omarchy
 log() { echo ""; echo "==> $*"; }

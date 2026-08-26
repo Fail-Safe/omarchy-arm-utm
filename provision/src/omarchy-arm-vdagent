@@ -1,31 +1,31 @@
 #!/usr/bin/env python3
 """
-omarchy-arm-vdagent — portapapeles compartido entre el anfitrión y Hyprland.
+omarchy-arm-vdagent — shared clipboard between the host and Hyprland.
 
-CÓMO FUNCIONA EL PORTAPAPELES DE SPICE, Y POR QUÉ ESTO EXISTE
+HOW THE SPICE CLIPBOARD WORKS, AND WHY THIS EXISTS
 
-    El cliente SPICE del anfitrión NO habla con el agente de sesión: habla con
-    el demonio spice-vdagentd por el puerto virtio. El demonio, a su vez,
-    multiplexa hacia los agentes de sesión por un socket Unix
-    (/run/spice-vdagentd/spice-vdagent-sock). Eso es lo que hace que funcione
-    en cualquier otra VM.
+    The host's SPICE client does NOT communicate with the session agent: it
+    communicates with the spice-vdagentd daemon through the virtio port. The
+    daemon, in turn, multiplexes to session agents through a Unix socket
+    (/run/spice-vdagentd/spice-vdagent-sock). That is how it works in any
+    other VM.
 
-    El agente oficial (spice-vdagent) implementa ese lado, pero entrega el
-    portapapeles a X11: vdagent.c:421 llama a
-    vdagent_clipboards_new(vdagent_display_get_x11(...)) y no hay una sola
-    referencia a wlr-data-control en su repositorio. Bajo Hyprland arranca y
-    muere con "cannot open display".
+    The official agent (spice-vdagent) implements that side, but delivers the
+    clipboard to X11: vdagent.c:421 calls
+    vdagent_clipboards_new(vdagent_display_get_x11(...)), and its repository
+    contains no reference to wlr-data-control. Under Hyprland it starts and
+    dies with "cannot open display".
 
-    Este programa ocupa exactamente ese hueco: habla el protocolo udscs con
-    spice-vdagentd igual que el agente oficial, y al otro lado usa
-    wl-copy/wl-paste. El demonio sigue siendo quien habla con el anfitrión.
+    This program fills that exact gap: it speaks the udscs protocol with
+    spice-vdagentd just like the official agent, and uses wl-copy/wl-paste on
+    the other side. The daemon still handles communication with the host.
 
-    Un detalle que importa: vdagentd solo atiende al agente de la sesión
-    ACTIVA de seat0 (vdagentd.c:746). En una VM con Hyprland lanzado por SDDM
-    esa comprobación suele fallar, así que el demonio debe arrancarse con -X
+    One important detail: vdagentd serves only the agent in the ACTIVE seat0
+    session (vdagentd.c:746). In a VM where SDDM launches Hyprland, that check
+    often fails, so the daemon must start with -X
     (disable-session-integration, vdagentd.c:1258).
 
-    Solo texto. Ni imágenes ni ficheros.
+    Text only. No images or files.
 """
 import os, sys, socket, struct, subprocess, threading, time, signal
 
@@ -81,7 +81,7 @@ class Agente:
             log("←", tipo, a1, a2, size)
 
             if tipo == CLIPBOARD_GRAB:
-                # el anfitrión ofrece algo: lo pedimos
+                # the host offers something: we request it
                 self.enviar(CLIPBOARD_REQUEST, SEL_CLIPBOARD, TIPO_UTF8)
 
             elif tipo == CLIPBOARD_REQUEST:
@@ -118,7 +118,7 @@ def escribir_portapapeles(texto):
 
 
 def resolucion():
-    """La resolución real, si hyprctl está disponible; si no, un valor sensato."""
+    """Return the actual resolution if hyprctl is available, or a safe default."""
     try:
         r = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, timeout=4)
         if r.returncode == 0:
@@ -131,7 +131,7 @@ def resolucion():
 
 
 def vigilar(ag):
-    """Si el usuario copia dentro de la VM, se lo ofrecemos al anfitrión."""
+    """Offer clipboard data copied inside the VM to the host."""
     while True:
         t = leer_portapapeles()
         if t is not None and t != ag.ultimo_local:
@@ -157,11 +157,11 @@ def main():
     s.connect(SOCK)
     ag = Agente(s)
 
-    # El agente oficial anuncia su resolución nada más conectar; vdagentd lo
-    # usa para saber que hay una sesión gráfica viva detrás.
+    # The official agent announces its resolution as soon as it connects; vdagentd uses
+    # it to know that there is a live graphical session behind.
     # struct vdagentd_guest_xorg_resolution = 5 ints: width, height, x, y,
-    # display_id (vdagentd-proto.h:51). Si el tamaño no cuadra exactamente,
-    # vdagentd desconecta al agente sin más (vdagentd.c:1088).
+    # display_id (vdagentd-proto.h:51). If the size does not match exactly,
+    # vdagentd disconnects the agent without further notice (vdagentd.c:1088).
     ancho, alto = resolucion()
     ag.enviar(GUEST_XORG_RESOLUTION, ancho, alto,
               struct.pack("<iiiii", ancho, alto, 0, 0, 0))

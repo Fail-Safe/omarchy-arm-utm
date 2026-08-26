@@ -55,6 +55,11 @@ cp alpine-virt-*-aarch64.iso  ~/omarchy-arm-build/dl/alpine-virt-aarch64.iso
 cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz
 ```
 
+El constructor vuelve a comprobar el SHA-256 fijado aunque esos ficheros ya
+esten en cache. Una copia distinta o corrupta detiene la construccion y se
+conserva para inspeccion; nunca se acepta por falta de checksum. Los valores y
+su procedencia estan documentados en [`checksums/`](checksums/).
+
 El directorio de trabajo es `~/omarchy-arm-build` salvo que pongas otro:
 
 ```bash
@@ -120,7 +125,7 @@ compiladas y sin OBS ni Pinta:
 | Fase | Qué hace | Tiempo |
 |---|---|---|
 | `deps` | comprueba el Mac e instala qemu/expect/aria2 si faltan | segundos |
-| `fetch` | descarga Alpine y el rootfs de ALARM, verificando sha256 y MD5 | ~2 min |
+| `fetch` | descarga Alpine y el rootfs de ALARM, verificando SHA-256 fijados | ~2 min |
 | `prepare` | calcula la lista de paquetes cruzando la rama viva de Omarchy con el índice de ARM | ~10 s |
 | `build` | arranca Alpine headless, particiona, despliega el rootfs y corre las tres etapas en chroot | **~40 min** |
 | `utm` | escribe el bundle `.utm` y lo registra en UTM | ~1 min |

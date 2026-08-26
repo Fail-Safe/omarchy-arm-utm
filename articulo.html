@@ -83,7 +83,7 @@ body {
 }
 .wrap { max-width: 78rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
 
-/* rejilla: raíl estrecho de etiquetas + columna de lectura */
+/* grid: narrow label rail + reading column */
 .grid {
   display: grid;
   grid-template-columns: minmax(0, var(--measure));
@@ -94,7 +94,7 @@ body {
   .grid { grid-template-columns: 9rem minmax(0, var(--measure)); justify-content: center; column-gap: 3rem; }
 }
 
-/* ── tipografía ─────────────────────────────────────────────────────── */
+/* ── typography ─────────────────────────────────────────────────────── */
 h1, h2, h3 { font-family: Archivo, "Helvetica Neue", Arial, sans-serif; text-wrap: balance; margin: 0; }
 h1 { font-size: var(--step-3); font-weight: 700; letter-spacing: -.028em; line-height: 1.02; }
 h2 { font-size: var(--step-2); font-weight: 700; letter-spacing: -.022em; line-height: 1.12; }
@@ -113,7 +113,7 @@ hr { border: 0; border-top: 1px solid var(--rule); margin: 3.5rem 0; }
   color: var(--ink-3);
 }
 
-/* ── cabecera ───────────────────────────────────────────────────────── */
+/* ── header ───────────────────────────────────────────────────────── */
 header.masthead { border-bottom: 1px solid var(--rule); margin-bottom: 3.5rem; }
 .masthead-inner { padding: 4.5rem 0 2.75rem; }
 .deck {
@@ -129,7 +129,7 @@ header.masthead { border-bottom: 1px solid var(--rule); margin-bottom: 3.5rem; }
 .meta b { display: block; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
 .meta span { padding: .35rem 0; }
 
-/* ── secciones ──────────────────────────────────────────────────────── */
+/* ── sections ──────────────────────────────────────────────────────── */
 section { margin-bottom: 3.25rem; }
 .rail { grid-column: 1; }
 .col  { grid-column: 1; }
@@ -145,7 +145,7 @@ ul, ol { margin: 0 0 1.2em; padding-left: 1.3em; }
 li { margin-bottom: .4em; }
 li::marker { color: var(--ink-3); }
 
-/* ── código ─────────────────────────────────────────────────────────── */
+/* ── code ─────────────────────────────────────────────────────────── */
 code {
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .84em;
@@ -164,13 +164,13 @@ pre {
   box-shadow: 0 1px 2px rgb(0 0 0 / .18);
 }
 pre code { font-size: inherit; color: inherit; background: none; border: 0; padding: 0; }
-/* en pantallas anchas el código respira más que el texto */
+/* on wide screens, code gets more breathing room than text */
 @media (min-width: 62rem) { pre { margin-left: -2.25rem; margin-right: -4.5rem; } }
-.c  { color: var(--term-dim); }           /* comentario */
-.o  { color: var(--term-accent); }        /* salida destacada */
+.c  { color: var(--term-dim); }           /* comment */
+.o  { color: var(--term-accent); }        /* highlighted output */
 .p  { color: var(--term-dim); }           /* prompt */
 
-/* ── hallazgos ──────────────────────────────────────────────────────── */
+/* ── findings ──────────────────────────────────────────────────────── */
 .finding {
   border-left: 2px solid var(--accent);
   padding: .1rem 0 .1rem 1.4rem;
@@ -179,7 +179,7 @@ pre code { font-size: inherit; color: inherit; background: none; border: 0; padd
 .finding > .eyebrow { display: block; margin-bottom: .5rem; color: var(--accent-ink); }
 .finding h3 { margin-top: 0; }
 
-/* ── nota al margen ─────────────────────────────────────────────────── */
+/* ── margin note ─────────────────────────────────────────────────── */
 .note {
   background: var(--surface); border: 1px solid var(--rule);
   border-radius: 5px; padding: 1.05rem 1.2rem; margin: 1.75rem 0;
@@ -194,7 +194,7 @@ blockquote {
 blockquote p { margin: 0; }
 .note p:last-child { margin-bottom: 0; }
 
-/* ── tablas ─────────────────────────────────────────────────────────── */
+/* ── tables ─────────────────────────────────────────────────────────── */
 .tablewrap { overflow-x: auto; margin: 1.75rem 0; }
 table { border-collapse: collapse; width: 100%; font-size: .95em; }
 th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
@@ -205,7 +205,7 @@ th {
 }
 td code { white-space: nowrap; }
 
-/* ── veredicto ──────────────────────────────────────────────────────── */
+/* ── verdict ──────────────────────────────────────────────────────── */
 .verdict { display: grid; gap: 1.25rem; margin: 1.75rem 0; }
 @media (min-width: 40rem) { .verdict { grid-template-columns: 1fr 1fr; } }
 .verdict > div { background: var(--surface); border: 1px solid var(--rule); border-radius: 5px; padding: 1.1rem 1.25rem; }

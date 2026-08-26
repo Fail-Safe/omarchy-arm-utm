@@ -1,20 +1,20 @@
 #!/bin/bash
 #
-#  omarchy-arm-extras — instala en Arch Linux ARM apps que no vienen en la imagen
+# omarchy-arm-extras — installs on Arch Linux ARM apps that are not included in the image
 #  ───────────────────────────────────────────────────────────────────────────
-#  Las propietarias NO se distribuyen dentro a proposito: empaquetarlas en un
-#  .zip que se reparte seria redistribuir binarios de terceros. Este script las
-#  descarga de su fuente OFICIAL, en tu maquina y bajo tu criterio.
+# Proprietary software is intentionally NOT distributed: packaging it in a
+# distributable .zip would redistribute third-party binaries. This script
+# downloads each app from its OFFICIAL source, on your machine, at your discretion.
 #
-#  Casi todas tienen build arm64 oficial. Las que ya vienen dentro de la imagen
-#  (software libre) se marcan como [ya instalada] y se omiten.
+# Almost all have an official arm64 build. Those already included in the image
+# (free software) are marked as [already installed] and skipped.
 #
-#  Uso:
-#    omarchy-arm-extras                    menu interactivo
-#    omarchy-arm-extras --list             ver que puede instalar
-#    omarchy-arm-extras 1password obsidian instalar elementos concretos
-#    omarchy-arm-extras --all              todo lo que falte
-#    omarchy-arm-extras --force <clave>    reinstalar aunque ya este
+#  Usage:
+#   omarchy-arm-extras                     interactive menu
+#   omarchy-arm-extras --list             view what can be installed
+#   omarchy-arm-extras 1password obsidian  install specific items
+#   omarchy-arm-extras --all              everything that is missing
+#   omarchy-arm-extras --force <key>      reinstall even if already installed
 #
 set -uo pipefail
 
@@ -25,12 +25,12 @@ ok()    { echo "  ${c_ok}✓${c_off} $*"; }
 warn()  { echo "  ${c_warn}!${c_off} $*" >&2; }
 fail()  { echo "  ${c_err}✗${c_off} $*" >&2; }
 
-# /tmp es tmpfs y esta limitado por la RAM: compilar .NET u OBS ahi se queda
-# sin espacio a medias. Se trabaja en disco real.
+# /tmp is tmpfs and limited by RAM: compiling .NET or OBS there will run
+# out of space halfway. Work is done on real disk.
 WORK="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-arm-extras"
 OK_LIST=(); KO_LIST=()
 
-# ── catalogo ────────────────────────────────────────────────────────────────
+# ── catalog ────────────────────────────────────────────────────────────────
 #  clave|titulo|descripcion
 CATALOG=(
   "1password|1Password|Gestor de contrasenas. Tarball arm64 oficial de AgileBits"
@@ -48,12 +48,12 @@ catalog_keys()  { printf '%s\n' "${CATALOG[@]}" | cut -d'|' -f1; }
 catalog_title() { printf '%s\n' "${CATALOG[@]}" | awk -F'|' -v k="$1" '$1==k{print $2}'; }
 catalog_desc()  { printf '%s\n' "${CATALOG[@]}" | awk -F'|' -v k="$1" '$1==k{print $3}'; }
 
-# ── utilidades ──────────────────────────────────────────────────────────────
+# ── utilities ──────────────────────────────────────────────────────────────
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Pinta y OBS Studio son software libre y viajan dentro de la imagen; el resto
-# no. Sin esta comprobacion, `--all` recompilaria OBS entero (media hora) para
-# reinstalar lo que ya esta.
+# Pinta and OBS Studio are free software and come within the image; the rest
+# do not. Without this check, `--all` would recompile OBS entirely (half an hour) to
+# reinstall what is already present.
 is_installed() {
   case "$1" in
     1password)     pacman -Q 1password        >/dev/null 2>&1 || [ -d /opt/1Password ] ;;
@@ -75,13 +75,13 @@ need_sudo() {
   sudo -v || { fail "sin privilegios"; return 1; }
 }
 
-# Construye un paquete de AUR resolviendo las trampas habituales en ARM:
-#  · la URL de clonado usa el PackageBase, que no siempre es el nombre
-#  · muchos PKGBUILD declaran arch=(x86_64) por omision, no por incompatibilidad
-#  · un PKGBUILD puede generar varios subpaquetes y solo uno tener la dependencia rota
+# Builds an AUR package by resolving common pitfalls on ARM:
+#  · the clone URL uses the PackageBase, which is not always the name
+#  · many PKGBUILDs declare arch=(x86_64) by default, not due to incompatibility
+#  · a PKGBUILD can generate several subpackages, and only one may have the broken dependency
 aur_build() {
-  # Un unico `local` expande TODOS los valores antes de asignar ninguno, asi que
-  # $pkg no existiria al construir $dir y con set -u el script aborta.
+  # A single `local` expands ALL values before assigning any, so
+  # $pkg would not exist when building $dir, and with set -u the script aborts.
   local pkg="$1" want="${2:-$1}"
   local dir="$WORK/$pkg" base
   pacman -Q "$want" >/dev/null 2>&1 && { ok "$want ya instalado"; return 0; }
@@ -94,9 +94,9 @@ aur_build() {
   git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null
   [ -f "$dir/PKGBUILD" ] || { fail "no se pudo clonar $pkg (base: $base)"; return 1; }
 
-  # Varios PKGBUILD verifican la firma del upstream en check(). Si la clave no
-  # esta en el llavero, makepkg aborta. Se importan las que el propio PKGBUILD
-  # declara, en vez de saltarse la verificacion.
+  # Several PKGBUILDs verify the upstream signature in check(). If the key is
+  # not in the keyring, makepkg aborts. Those declared by the PKGBUILD itself
+  # are imported, instead of skipping the verification.
   local keys k
   keys=$(sed -n '/^validpgpkeys=(/,/)/p' "$dir/PKGBUILD" | grep -oE '[0-9A-Fa-f]{40}')
   for k in $keys; do
@@ -119,7 +119,7 @@ aur_build() {
   return 1
 }
 
-# ── instaladores ────────────────────────────────────────────────────────────
+# ── installers ────────────────────────────────────────────────────────────
 
 do_1password() {
   title "1Password"
@@ -127,7 +127,7 @@ do_1password() {
   local url=https://downloads.1password.com/linux/tar/stable/aarch64/1password-latest.tar.gz
   mkdir -p "$WORK"; rm -rf "$WORK/1p"; mkdir -p "$WORK/1p"
   curl -fL --progress-bar "$url" -o "$WORK/1p/1p.tar.gz" || { fail "descarga fallida"; return 1; }
-  # Es un gestor de contrasenas: se verifica la firma antes de instalarlo.
+  # It is a password manager: the signature is verified before installing it.
   local KEY=3FEF9748469ADBE15DA7CA80AC2D62742012EA22
   if curl -fsSL "$url.sig" -o "$WORK/1p/1p.tar.gz.sig" 2>/dev/null; then
     gpg --list-keys "$KEY" >/dev/null 2>&1 \
@@ -156,8 +156,8 @@ do_1password_cli() { title "1Password CLI"; aur_build 1password-cli && ok "$(op 
 do_obsidian() {
   title "Obsidian"
   info "Hay AppImage y tarball arm64 oficiales. Se usa el tarball: no depende de fuse2."
-  # OJO: releases/latest puede ser una release SOLO de Android (un .apk suelto).
-  # Hay que buscar la ultima que publique de verdad el tarball arm64 de escritorio.
+  # NOTE: releases/latest might be an Android-only release (a standalone .apk).
+  # You must find the last one actually published with the desktop arm64 tarball.
   local url
   url=$(curl -fsSL --max-time 30 "https://api.github.com/repos/obsidianmd/obsidian-releases/releases?per_page=15" \
         | grep -oE '"browser_download_url": *"[^"]*obsidian-[0-9.]+-arm64\.tar\.gz"' \
@@ -201,8 +201,8 @@ do_chrome() {
 
 do_spotify_web() {
   title "Spotify (webapp)"
-  # Omarchy trata Spotify como paquete nativo, no como webapp — y ese paquete es
-  # x86_64. En ARM la via que funciona es la web, que necesita Widevine.
+  # Omarchy treats Spotify as a native package, not as a webapp — and that package is
+  # x86_64. On ARM, the working method is the web version, which requires Widevine.
   if ! have google-chrome-stable; then
     warn "sin Google Chrome la web de Spotify no reproducirá: instala antes 'chrome'"
   fi
@@ -214,13 +214,13 @@ do_spotify_web() {
   else
     warn "omarchy-webapp-install no está disponible"
   fi
-  # Reasignar SUPER+SHIFT+M, que en Omarchy apunta al binario nativo
+  # Reassign SUPER+SHIFT+M, which in Omarchy points to the native binary
   local f="$HOME/.config/hypr/bindings.lua"
   if [ -f "$f" ] && ! grep -q "open.spotify.com" "$f"; then
     cat >> "$f" <<'LUA'
 
--- Spotify no tiene cliente nativo para aarch64: SUPER+SHIFT+M abre la webapp.
--- Necesita Google Chrome, que es quien trae Widevine en arm64.
+-- Spotify does not have a native client for aarch64: SUPER+SHIFT+M opens the webapp.
+-- It requires Google Chrome, which provides Widevine for arm64.
 o.bind("SUPER + SHIFT + M", "Spotify", o.launch("google-chrome-stable --app=https://open.spotify.com"))
 LUA
     ok "SUPER+SHIFT+M reasignado (reinicia la sesión para aplicarlo)"
@@ -253,23 +253,23 @@ do_obs() {
     || { fail "no pude clonar el PKGBUILD de Arch"; return 1; }
   cd "$dir" || return 1
   sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" PKGBUILD
-  # OJO: 'cef' va en la MISMA linea que makedepends=, no en una propia, asi que
-  # hay que quitarlo como token y no como linea completa.
+  # NOTE: 'cef' goes on the SAME line as makedepends=, not on its own, so
+  # it must be removed as a token and not as a complete line.
   sed -i "s/'cef'[[:space:]]*//g" PKGBUILD
   sed -i "/cef_api_versions\.h/d; /-DCEF_API_VERSION/d; /_cef_api_version/d" PKGBUILD
   sed -i 's/-DENABLE_BROWSER=ON/-DENABLE_BROWSER=OFF/' PKGBUILD
-  # package_obs-studio() aparta los ficheros del plugin de navegador para el
-  # subpaquete aparte. Sin browser esos ficheros no existen y el `mv` aborta el
-  # empaquetado DESPUES de haber compilado todo: hay que quitar esas dos lineas.
+  # package_obs-studio() separates the browser plugin files for the
+  # separate subpackage. Without browser those files do not exist and the `mv` aborts the
+  # packaging AFTER everything has been compiled: those two lines must be removed.
   sed -i '/mv \$pkgdir\/usr\/lib\/obs-plugins\/{obs-browser-page,obs-browser.so}/d' PKGBUILD
   sed -i '/mv \$pkgdir\/usr\/share\/obs\/obs-plugins\/obs-browser /d' PKGBUILD
-  # y los parches del plugin, que ya no se aplican a nada
+  # and the plugin patches, which are no longer applied to anything
   sed -i '/patch -d plugins\/obs-browser/d' PKGBUILD
-  # NO se tocan source=() ni sha256sums=(): borrar entradas de una sin la otra
-  # hace que makepkg aborte con "Integrity checks differ in size from the source
-  # array". Descargar obs-browser de mas es solo ancho de banda.
+  # DO NOT touch source=() nor sha256sums=(): deleting an entry without the other
+  # causes makepkg to abort with "Integrity checks differ in size from the source
+  # array". Downloading extra obs-browser is just wasted bandwidth.
   sed -i '/INSTALL_RPATH.*cef/d' PKGBUILD
-  # El subpaquete del navegador ya no se genera
+  # The browser subpackage is no longer generated
   sed -i '/^package_obs-studio-plugin-browser()/,/^}/d' PKGBUILD
   sed -i "s/^pkgname=(.*)/pkgname=('obs-studio')/" PKGBUILD
   info "PKGBUILD parcheado: aarch64, sin CEF, sin plugin de navegador"
@@ -360,8 +360,8 @@ title "Resumen"
 [ ${#OK_LIST[@]} -gt 0 ] && ok "instalado: ${OK_LIST[*]}"
 if [ ${#KO_LIST[@]} -gt 0 ]; then
   fail "falló: ${KO_LIST[*]}"
-  # No se borra el directorio de trabajo: dentro estan los build.log, que son
-  # lo unico que permite averiguar por que fallo.
+  # The working directory is not deleted: inside are the build.log files, which are
+  # The only thing it allows us to find out is why it failed.
   info "logs en $WORK/<paquete>/build.log"
 else
   rm -rf "$WORK"

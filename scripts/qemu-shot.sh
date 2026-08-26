@@ -1,9 +1,10 @@
 #!/bin/bash
-# Arranca un disco ya instalado con GPU virtio y captura la pantalla por el
-# monitor de QEMU. Evita tener que registrar el bundle en UTM solo para mirar.
+# Boots an installed disk with a virtio GPU and captures the screen through the
+# QEMU monitor, avoiding UTM bundle registration just to inspect the display.
+#
 set -e
-# La raiz se deduce de la ubicacion del propio script: asi el repo se puede
-# clonar en cualquier sitio sin editar nada.
+# The root is inferred from the script's own location: this way the repo can be cloned anywhere without editing anything.
+#
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
 : "${DISK_IMG:?falta DISK_IMG}"
@@ -35,8 +36,8 @@ for i in $(seq 1 30); do [ -S "$MON" ] && break; sleep 1; done
 echo "arrancando, esperando ${WAIT}s al escritorio..."
 sleep "$WAIT"
 
-# Despierta la sesion: tras ~2 min hypridle lanza el salvapantallas y la
-# captura saldria en negro.
+# Wakes up the session: after ~2 minutes, hypridle triggers the screensaver and the
+# capture would come out black.
 printf 'sendkey esc\n' | nc -U "$MON" >/dev/null
 sleep 8
 PPM="$SCRATCH/shot.ppm"

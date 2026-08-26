@@ -1,15 +1,15 @@
 #!/bin/bash
 #
-#  omarchy-arm-share — monta la carpeta que compartes desde UTM.
+# omarchy-arm-share — mounts the folder shared from UTM.
 #
-#  UTM tiene dos modos y el usuario elige uno en Ajustes de la VM → Compartir:
+# UTM has two modes and the user selects one in VM Settings → Sharing:
 #
-#    VirtFS       dispositivo 9p con mount_tag "share". Se monta directo.
-#    SPICE WebDAV puerto virtio org.spice-space.webdav.0. spice-webdavd lo
-#                 sirve en http://localhost:9843/ y se monta con davfs2.
+#    VirtFS       9p device with mount_tag "share". Mounted directly.
+#    SPICE WebDAV virtio port org.spice-space.webdav.0. spice-webdavd serves
+#                 it at http://localhost:9843/ and is mounted using davfs2.
 #
-#  Este script detecta cuál está activo y hace lo que toque. Sin argumentos
-#  monta; con --umount desmonta; con --status dice qué hay.
+# This script detects which one is active and performs the appropriate action. Without arguments
+# it mounts; with --umount it unmounts; with --status it shows the current state.
 #
 set -uo pipefail
 PUNTO="${OMARCHY_SHARE_MNT:-/mnt/share}"
@@ -36,7 +36,7 @@ montar() {
   montado && { echo "ya está montado en $PUNTO"; return 0; }
   sudo mkdir -p "$PUNTO"
 
-  # 1) VirtFS: lo más simple, si el dispositivo está
+  # 1) VirtFS: the simplest option, if the device is
   if sudo mount -t 9p -o trans=virtio,version=9p2000.L,rw,msize=512000 "$TAG" "$PUNTO" 2>/dev/null; then
     echo "montado por VirtFS (9p) en $PUNTO"; return 0
   fi
@@ -53,7 +53,7 @@ montar() {
       echo "  systemctl status spice-webdavd" >&2
       return 1
     fi
-    # davfs2 pregunta usuario y contraseña: aquí no hacen falta
+    # davfs2 prompts for username and password: not needed here
     if printf '\n\n' | sudo mount -t davfs -o rw,uid=$(id -u),gid=$(id -g) "$URL" "$PUNTO" 2>/dev/null; then
       echo "montado por SPICE WebDAV en $PUNTO"; return 0
     fi

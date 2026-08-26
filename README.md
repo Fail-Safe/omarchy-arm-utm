@@ -115,6 +115,14 @@ writer and the README that ships inside the image — and writes them out at
 startup. You can
 copy just that file to another Mac.
 
+**Base images are pinned and fail closed.** The builder accepts only the
+reviewed SHA-256 values embedded in the script, checks cached files again on
+every run, downloads through HTTPS into temporary files, and promotes a file to
+the cache only after verification. The repository copy of the pins and their
+provenance is in [`checksums/`](checksums/). Maintainers can run
+`scripts/update-base-image-pins.sh` to verify two official Arch Linux ARM
+mirrors plus its detached signature before proposing an update.
+
 ### How long
 
 Measured on an M3 Max, tools compiled, without OBS/Pinta:
@@ -122,7 +130,7 @@ Measured on an M3 Max, tools compiled, without OBS/Pinta:
 | Phase | | Time |
 |---|---|---|
 | `deps` | host checks, installs qemu/expect/aria2 | ~10 s |
-| `fetch` | Alpine ISO + ALARM rootfs, sha256 and MD5 verified | 2 min |
+| `fetch` | pinned Alpine ISO + ALARM rootfs, SHA-256 verified | 2 min |
 | `prepare` | package list, computed against Omarchy's live branch | ~10 s |
 | `build` | Alpine headless → partition → rootfs → three chroot stages | **40 min** |
 | `utm` | writes the `.utm` bundle and registers it | 1 min |

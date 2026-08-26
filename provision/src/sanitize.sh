@@ -1,10 +1,10 @@
 #!/bin/bash
-# Sanitizado para distribucion: quita todo lo identificativo del sistema y deja
-# un usuario generico. Se ejecuta como ROOT dentro del chroot.
+# Sanitization for distribution: removes all system-identifying information and leaves
+# a generic user. It runs as ROOT inside the chroot.
 set -uo pipefail
-# config.env lo deja stage1 dentro del invitado: es la unica via por la que el
-# anfitrion puede comunicar el usuario de construccion. Sin esto, cambiar
-# VM_USER hacia que el sanitizado renombrase a un usuario que no existe.
+# config.env places stage1 inside the guest: it is the only way the
+# host can communicate the build user. Without this, changing
+# VM_USER would cause sanitization to rename to a non-existent user.
 [ -f /root/prov/config.env ] && . /root/prov/config.env
 OLD="${DIST_OLD_USER:-${VM_USER:-}}"
 NEW="${DIST_NEW_USER:-omarchy}"
@@ -14,22 +14,22 @@ log()  { echo ""; echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 
 log "1/10 desanclando /usr/share/omarchy del home del usuario"
-# Era un symlink a /home/<usuario>/.local/share/omarchy, lo que ata el sistema a
-# ese usuario. Se convierte en directorio real (como haria el paquete pacman) y
-# el home pasa a apuntar ahi.
+# It was a symlink to /home/<user>/.local/share/omarchy, which ties the system to
+# that user. It is converted into a real directory (as pacman would do) and
+# the home directory now points there.
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
-  # Sin set -e, un cp a medias (tipicamente por disco lleno: acabamos de
-  # duplicar el arbol) no impedia el rm -rf de abajo. Se borraba el original y
-  # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
-  # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
-  # copia esta completa.
-  # El rollback tiene que dejar el sistema EXACTAMENTE como estaba, o el
-  # siguiente intento encuentra /usr/share/omarchy convertido en un directorio
-  # a medias, se salta este bloque entero (la guarda es [ -L ... ]) y da la
-  # imagen por buena. Por eso se borra la copia parcial antes de rehacer el
-  # enlace: 'ln -sfn' sobre un directorio real crea el enlace DENTRO de el.
+  # Without set -e, a partial cp (typically due to a full disk: we have just
+  # duplicated the tree) did not prevent the rm -rf below. The original was deleted and
+  # left an incomplete /usr/share/omarchy: desktop without themes and without
+  # commands, with the phase reporting OK. Now the original is only deleted if the
+  # copy is complete.
+  # The rollback must leave the system EXACTLY as it was, or the
+  # next attempt finds /usr/share/omarchy converted into a partially created
+  # directory, skips this entire block (the guard is [ -L ... ]) and reports
+  # the image as good. That is why the partial copy is deleted before recreating the
+  # link: 'ln -sfn' on a real directory creates the link INSIDE it.
   volver_atras() {
     warn "$1"
     rm -rf /usr/share/omarchy
@@ -56,7 +56,7 @@ if id -u "$OLD" >/dev/null 2>&1; then
   echo "root:$NEW"  | chpasswd
 fi
 id "$NEW"
-# el home del usuario apunta al arbol del sistema
+# the user's home points to the system tree
 install -d -o "$NEW" -g "$NEW" "/home/$NEW/.local/share"
 rm -rf "/home/$NEW/.local/share/omarchy"
 ln -sfn /usr/share/omarchy "/home/$NEW/.local/share/omarchy"
@@ -73,7 +73,7 @@ cat /etc/sddm.conf.d/20-autologin.conf
 
 log "4/10 credenciales y claves"
 rm -rf "/home/$NEW/.ssh"
-rm -f /etc/ssh/ssh_host_*        # se regeneran solas en el primer arranque
+rm -f /etc/ssh/ssh_host_*        # regenerated automatically on first boot
 systemctl disable sshd.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/sshd.service
 rm -f /etc/sudoers.d/99-fix /etc/sudoers.d/99-install
@@ -101,9 +101,9 @@ rm -rf "/home/$NEW/shots" "/home/$NEW"/*.sh "/home/$NEW/config.env" 2>/dev/null 
 rm -f /etc/NetworkManager/system-connections/* 2>/dev/null || true
 
 log "7b/10 apps propietarias fuera de la imagen distribuible"
-# Estas se instalan con omarchy-arm-extras en la maquina del usuario final.
-# Empaquetarlas en un .zip que se reparte seria redistribuir binarios de
-# terceros, asi que se retiran aunque estuvieran en la VM de origen.
+# These are installed with omarchy-arm-extras on the end-user's machine.
+# Packaging them in a .zip that is distributed would constitute redistributing third-party binaries,
+# so they are removed even if they were in the source VM.
 for pkg in 1password 1password-cli typora localsend-bin google-chrome obsidian-bin; do
   pacman -Q "$pkg" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$pkg" >/dev/null 2>&1 && echo "  retirado $pkg"; }
 done
@@ -111,17 +111,17 @@ for d in /opt/1Password /opt/obsidian /opt/typora; do
   [ -e "$d" ] && { rm -rf "$d"; echo "  retirado $d"; }
 done
 rm -f /usr/local/bin/obsidian /usr/local/share/applications/obsidian.desktop 2>/dev/null || true
-# Retirar /opt/1Password deja sus enlaces de /usr/bin apuntando al vacio. Es el
-# mismo descuido de siempre: un barrido de texto no ve el destino de un enlace.
+# Removing /opt/1Password leaves its /usr/bin links pointing to nothing. It's the
+# same old oversight: a text sweep doesn't see the target of a link.
 for l in $(find /usr/bin /usr/local/bin -maxdepth 1 -xtype l 2>/dev/null); do
   case "$(readlink "$l")" in
     /opt/1Password/*|/opt/obsidian/*|/opt/typora/*)
       rm -f "$l"; echo "  enlace colgado retirado: $l" ;;
   esac
 done
-# Los rastros que dejan al instalarse: si se retira Chrome hay que retirar
-# tambien el atajo y el lanzador de la webapp de Spotify, que lo invocan. Si no,
-# la imagen sale con un SUPER+SHIFT+M que apunta a un binario inexistente.
+# The traces left upon installation: if Chrome is removed, you must also remove
+# the shortcut and the webapp launcher for Spotify, which invoke it. Otherwise,
+# the image ends up with a SUPER+SHIFT+M pointing to a non-existent binary.
 BIND="/home/$NEW/.config/hypr/bindings.lua"
 if [ -f "$BIND" ] && grep -q "open.spotify.com" "$BIND"; then
   sed -i '/^-- Spotify no tiene cliente nativo/,/^o.bind("SUPER + SHIFT + M", "Spotify"/d' "$BIND"
@@ -134,16 +134,16 @@ rm -rf "/home/$NEW/.local/share/omarchy/webapps" 2>/dev/null || true
 echo "  (se reinstalan con: omarchy-arm-extras)"
 
 log "7c/10 adelgazando: lo que solo hacia falta para compilar"
-# Compilar las herramientas deja detras cadenas de compilacion enteras (el SDK
-# de .NET son 425 MiB) y toolchains de Rust y Go en el home. Nada de eso hace
-# falta para usar la imagen, y se lleva ~2 GB del zip.
+# Compiling the tools leaves behind entire build chains (the .NET
+# SDK is 425 MiB) and Rust and Go toolchains in the home directory. None of this is
+# needed to use the image, and it takes up ~2 GB of the zip.
 for p in dotnet-sdk-bin dotnet-targeting-pack-bin aspnet-targeting-pack-bin; do
   pacman -Q "$p" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$p" >/dev/null 2>&1 && echo "  quitado $p"; }
 done
-# Omarchy 4 jubila estos cuatro: quickshell es la barra, el menu, el OSD y el
-# demonio de notificaciones. mako ademas roba org.freedesktop.Notifications por
-# activacion D-Bus y deja las notificaciones sin tema. No deberian estar
-# instalados, pero si una version futura de la lista los reintroduce, fuera.
+# Omarchy 4 retires these four: quickshell is the bar, the menu, the OSD, and the
+# notification daemon. mako also hijacks org.freedesktop.Notifications by
+# D-Bus activation and leaves notifications unthemed. They shouldn't be
+# installed, but if a future version of the list reintroduces them, remove them.
 for p in mako swayosd walker elephant; do
   pacman -Q "$p" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$p" >/dev/null 2>&1 && echo "  jubilado $p"; }
 done
@@ -155,19 +155,19 @@ rm -rf "/home/$NEW/.cargo" "/home/$NEW/go" "/home/$NEW/.rustup" "/home/$NEW/.npm
 echo "  imprescindibles que deben seguir: $(for p in hyprland quickshell sddm; do printf '%s ' "$(pacman -Q $p 2>/dev/null || echo FALTA-$p)"; done)"
 
 log "7d/10 adelgazando: lo que no puede hacer falta en una VM"
-# Medido en una imagen real: 675 MiB de firmware para hardware que en una VM
-# QEMU con dispositivos virtio no puede existir. linux-firmware no se instala a
-# proposito, pero los splits por fabricante entran como dependencias.
+# Measured on a real image: 675 MiB of firmware for hardware that in a QEMU
+# VM with virtio devices cannot exist. linux-firmware is not installed on
+# purpose, but the vendor splits come in as dependencies.
 FW=$(pacman -Qq 2>/dev/null | grep -E '^linux-firmware-(intel|nvidia|amdgpu|atheros|broadcom|realtek|mediatek|marvell|qcom|qlogic|liquidio|bnx2x|mellanox|nfp|other)$' | tr '\n' ' ')
 if [ -n "${FW// /}" ]; then
   echo "  firmware de hardware ausente: $FW"
-  # -Rdd: los splits los reclama el metapaquete linux-firmware, que tampoco
-  # hace falta. Si algo se opone, se deja como esta y no se rompe nada.
+  # -Rdd: the linux-firmware metapackage claims the splits, which are also
+  # unnecessary. If anything opposes it, leave it as is and don't break anything.
   pacman -Rdd --noconfirm $FW linux-firmware >/dev/null 2>&1 \
     && echo "  retirados" || echo "  (no se pudieron retirar; se dejan)"
 fi
-# Documentacion y manuales: 469 MiB. Es una imagen para probar un escritorio,
-# no un servidor donde vayas a leer man. Los .md de Omarchy NO se tocan.
+# Documentation and manuals: 469 MiB. This is an image to test a desktop,
+# not on a server where you are going to read man pages. The .md files in Omarchy are NOT touched.
 for d in /usr/share/doc /usr/share/man /usr/share/info /usr/share/gtk-doc; do
   [ -d "$d" ] && { echo "  $d: $(du -shx "$d" 2>/dev/null | cut -f1)"; rm -rf "$d"; }
 done
@@ -178,17 +178,17 @@ log "7/10 logs y caches del sistema"
 rm -rf /var/log/journal/* /var/log/omarchy* /var/log/pacman.log
 find /var/log -type f -name "*.log" -delete 2>/dev/null || true
 rm -rf /var/cache/pacman/pkg/* /var/tmp/* /tmp/* 2>/dev/null || true
-# OJO: /root/prov NO se borra aqui. Los pasos 8a y 8b leen de ahi el hook de
-# actualizacion y el instalador de apps opcionales; borrarlo antes dejaba la
-# imagen sin ninguno de los dos, en silencio. Lo retira repair.sh al salir del
-# chroot, que es donde corresponde.
+# NOTE: /root/prov is NOT deleted here. Steps 8a and 8b read from there the update hook and the
+# optional app installer; deleting it before would leave the
+# image without either of them, silently. repair.sh removes it upon exiting the
+# chroot, which is where it belongs.
 rm -rf /root/.bash_history /root/.cache 2>/dev/null || true
 rm -f /root/STAGE2_OK 2>/dev/null || true
-# Lo escribe stage2 cuando algun paquete no se instala. En una imagen que se
-# reparte, le cuenta al destinatario que le fallo al constructor.
+# stage2 writes it when a package fails to install. In a distributed image, it informs the recipient that the builder failed.
+# The verify phase starts the VM before sanitizing, and that startup leaves a seed
 rm -f /root/failed-packages.txt 2>/dev/null || true
-# La fase verify arranca la VM antes de sanitizar, y ese arranque deja semilla
-# de aleatoriedad y secreto de credenciales: identicos en todas las copias.
+# of randomness and credential secrets: identical across all copies.
+# omarchy-update-dev does not update the tree when OMARCHY_PATH is
 rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret 2>/dev/null || true
 : > /var/log/wtmp 2>/dev/null || true
 : > /var/log/btmp 2>/dev/null || true
@@ -218,22 +218,22 @@ cp /etc/motd "/home/$NEW/Desktop/LEEME.txt"
 chown "$NEW:$NEW" "/home/$NEW/Desktop/LEEME.txt"
 
 log "8a/10 hook de actualizacion para ARM"
-# omarchy-update-dev no actualiza el arbol cuando OMARCHY_PATH es
-# /usr/share/omarchy, que es nuestro caso: sin este hook Omarchy se congela.
+# /usr/share/omarchy, which is our case: without this hook, Omarchy freezes.
+# The checkout must not be polluted by permission changes, or the pull will fail
 if [ -f /root/prov/10-arm-sync ]; then
   install -Dm755 /root/prov/10-arm-sync "/home/$NEW/.config/omarchy/hooks/post-update.d/10-arm-sync"
   chown -R "$NEW:$NEW" "/home/$NEW/.config/omarchy/hooks" 2>/dev/null || true
   echo "  post-update.d/10-arm-sync"
 fi
-# El checkout no debe ensuciarse por cambios de permisos, o el pull fallara
+# repair.sh copies extras.sh as omarchy-arm-extras, but if that copy does not
 git -C /usr/share/omarchy config core.fileMode false 2>/dev/null || true
 git -C /usr/share/omarchy checkout -- . 2>/dev/null || true
 echo "  checkout limpio: $(git -C /usr/share/omarchy status --porcelain 2>/dev/null | wc -l) ficheros"
 
 log "8b/10 instalador de apps opcionales"
-# repair.sh copia extras.sh como omarchy-arm-extras, pero si esa copia no
-# ocurriera el bloque entero se saltaba en silencio y la imagen salia sin la
-# entrada de menu. Se aceptan los dos nombres y se avisa si falta.
+# occur, the entire block would be skipped silently and the image would end up without the
+# menu entry. Both names are accepted, and a warning is issued if one is missing.
+# grep -rl only checks the CONTENT of the files: the target of a symbolic
 EXTRAS_SRC=""
 for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
@@ -303,11 +303,11 @@ for f in /home/$NEW/.config/user-dirs.dirs; do
 done
 
 log "symlinks que apuntan al home antiguo"
-# grep -rl solo mira el CONTENIDO de los ficheros: el destino de un enlace
-# simbolico no es contenido, asi que el barrido de texto los da por limpios.
-# Omarchy guarda el tema y el fondo activos como enlaces
-# (~/.local/state/omarchy/current/{theme,background}), de modo que un enlace
-# colgado deja el escritorio en gris y sin estilo, sin ningun error visible.
+# link is not content, so the text scan considers them clean.
+# Omarchy stores the active theme and background as symbolic
+# links (~/.local/state/omarchy/current/{theme,background}), so that a broken
+# link leaves the desktop gray and unstyled, with no visible error.
+#
 mapfile -t BADLINKS < <(find /home/$NEW /etc /usr/bin /usr/local /opt -xdev -type l \
   -lname "*/home/$OLD/*" 2>/dev/null)
 echo "  encontrados: ${#BADLINKS[@]}"
@@ -328,10 +328,10 @@ echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)
 echo "  fondo activo: $(readlink -f /home/$NEW/.local/state/omarchy/current/background 2>/dev/null || echo NINGUNO)"
 test -e "/home/$NEW/.local/state/omarchy/current/background" \
   && echo "  fondo resuelve: OK" || echo "  fondo resuelve: ROTO"
-# ttfx se compila desde fuente dentro de la VM, y el binario se queda con la
-# ruta de compilacion en su info de depuracion: /home/<constructor>/... Eso es
-# exactamente lo que esta fase existe para borrar, asi que se le quitan los
-# simbolos en vez de declararlo inocuo, que es lo que hacia antes.
+# ttfx is compiled from source inside the VM, and the binary retains the
+# build path in its debug info: /home/<builder>/... This is
+# exactly what this phase exists to remove, so symbols are stripped
+# instead of declaring it harmless, which is what it used to do.
 for b in /usr/local/bin/ttfx /usr/local/bin/omarchy-arm-vdagent; do
   [ -f "$b" ] || continue
   case "$(file -b "$b" 2>/dev/null)" in
@@ -361,11 +361,11 @@ echo "  hostname:   $(cat /etc/hostname)"
 sync
 fstrim -av 2>&1 | head -2 || true
 
-# ─────────────────────── invariantes: esto SI puede fallar ──────────────────
-# Hasta aqui todo eran `echo`: el script corre sin -e y terminaba siempre en un
-# echo, asi que su rc era 0 pasara lo que pasara. repair.sh recogia ese 0, el
-# anfitrion veia TOK_REPAIR_0 y daba la imagen por limpia. Si usermod fallaba,
-# se repartia una imagen con el usuario y la contrasena del constructor.
+# ─────────────────────── invariants: this CAN fail ──────────────────
+# Up to this point, everything was `echo`: the script runs without -e and always ends with an
+# echo, so its exit code is 0 no matter what. repair.sh collects that 0, the
+# host sees TOK_REPAIR_0 and marks the image as clean. If usermod fails,
+# an image with the builder's username and password is distributed.
 log "invariantes de la imagen distribuible"
 FALLOS=0
 mal() { echo "  ✗ $*"; FALLOS=$((FALLOS+1)); }
@@ -386,16 +386,16 @@ N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
 N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
 [ "$N_ROTO" -le 5 ] && bien "$N_ROTO enlaces colgando" || mal "$N_ROTO enlaces colgando"
 
-# Nombres de fichero, no solo contenido: el barrido de arriba usa grep -rl, que
-# mira dentro de los ficheros. Un fichero que LLEVE el nombre del constructor en
-# su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
-# limpio y viajaba dentro de la imagen.
+# Filenames, not just content: the scan above uses grep -rl, which
+# looks inside files. A file that HAS the builder's name in
+# its own path (mise saves one per trusted directory) would pass
+# clean and travel inside the image.
 if [ "$OLD" != "$NEW" ]; then
-  # OJO: como PALABRA, nunca como subcadena. Con "*$OLD*" y VM_USER=dev, esto
-  # casaba con /etc/udev y el rm -rf dejaba la imagen sin una sola regla udev;
-  # con VM_USER=arch casaba con /home/omarchy entero. El nombre del usuario de
-  # construccion es elegible por entorno, asi que el patron tiene que exigir
-  # que $OLD aparezca delimitado por algo que no sea alfanumerico.
+  # NOTE: as a WORD, never as a substring. With "*$OLD*" and VM_USER=dev, this
+  # would match /etc/udev and the rm -rf would leave the image without a single udev rule;
+  # with VM_USER=arch it would match the entire /home/omarchy. The build user's
+  # name is environment-dependent, so the pattern must require
+  # that $OLD appears delimited by something non-alphanumeric.
   RX_OLD=".*/([^/]*[^[:alnum:]])?$OLD([^[:alnum:]][^/]*)?"
   mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
       -regextype posix-extended -regex "$RX_OLD" 2>/dev/null)
@@ -408,7 +408,7 @@ if [ "$OLD" != "$NEW" ]; then
   [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
 fi
 
-# El portapapeles: las cinco piezas que pueden romperlo.
+# The clipboard: the five components that can break it.
 [ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
 grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
   && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
@@ -423,11 +423,11 @@ fi
 
 [ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
 
-# Binarios compilados dentro de la VM: la ruta de compilacion se queda en su
-# info de depuracion. grep -rl no los ve porque mira texto, no simbolos.
+# Binaries compiled inside the VM: the build path remains in their
+# Debug info. grep -rl doesn't find them because it looks for text, not symbols.
 if [ "$OLD" != "$NEW" ]; then
-  # strings puede no estar (viene en binutils); si falta, se dice y no se
-  # inventa un veredicto.
+  # strings may not be available (it comes with binutils); if it's missing, report it and don't
+  # invent a verdict.
   if ! command -v strings >/dev/null 2>&1; then
     echo "  ? binarios de /usr/local/bin: sin 'strings' no se puede comprobar"
   else

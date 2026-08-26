@@ -1,14 +1,14 @@
 #!/bin/sh
-# Reabre el sistema ya instalado en /dev/vda y ejecuta un script dentro del chroot,
-# sin volver a particionar ni descargar nada. Para iterar tras un fallo puntual.
+# Reopens the system already installed on /dev/vda and runs a script inside the chroot,
+# without repartitioning or downloading anything. To iterate after a specific failure.
 set -eu
 PROV=/media/prov
 log() { echo ""; echo "==> [repair] $*"; }
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "TOK_REPAIR_$rc"' EXIT
 
 log "modulos del kernel"
-# Montar btrfs/vfat solo necesita el modulo del kernel, no las utilidades de
-# espacio de usuario: esta etapa NO depende de que haya red.
+# Mounting btrfs/vfat only requires the kernel module, not the user-space utilities:
+# this stage does NOT depend on having network access.
 for m in btrfs vfat fat nls_cp437 nls_iso8859-1 nls_utf8 crc32c-generic xxhash_generic; do
   modprobe "$m" 2>/dev/null || true
 done
@@ -59,8 +59,8 @@ chroot /mnt /bin/bash "/root/prov/$FIXSCRIPT"
 rc=$?
 set -e
 
-# El directorio de trabajo no debe quedarse dentro del sistema: se acumulan ahi
-# todos los scripts de reparacion de todas las pasadas.
+# The working directory must not be left inside the system: scripts accumulate there
+# from all the repair scripts of previous runs.
 log "retirando /root/prov del sistema instalado"
 ls /mnt/root/prov 2>/dev/null | tr '\n' ' '; echo
 rm -rf /mnt/root/prov

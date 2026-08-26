@@ -1,13 +1,13 @@
 #!/bin/sh
-# Etapa 1 — se ejecuta en el live de Alpine (busybox ash).
-# Particiona el disco, despliega el rootfs de Arch Linux ARM y entra en chroot.
+# Stage 1 — runs on the Alpine live environment (busybox ash).
+# Partitions the disk, deploys the Arch Linux ARM rootfs, and enters chroot.
 set -eu
 PROV=/media/prov
 log()  { echo ""; echo "==> [stage1] $*"; }
 warn() { echo "!!  [stage1] $*"; }
 
-# Marcador de salida fiable: un pipe a tee enmascara el codigo de retorno,
-# asi que el propio script emite el token.
+# Reliable exit marker: a pipe to tee masks the return code,
+# so the script itself emits the token.
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "TOK_BUILD_$rc"' EXIT
 
 log "red"
@@ -75,8 +75,8 @@ fi
 df -h /mnt
 
 log "desplegando rootfs de Arch Linux ARM (bsdtar -xpf, preserva xattr/ACL)"
-# La ESP se monta DESPUES: vfat no admite los symlinks que trae /boot en el
-# tarball. El kernel lo repuebla pacman en stage2 sobre la ESP ya montada.
+# The ESP is mounted AFTER: vfat does not support the symlinks included in /boot in the
+# tarball. The kernel is repopulated by pacman in stage2 on the already-mounted ESP.
 bsdtar -xpf "$PROV/alarm-rootfs.tgz" -C /mnt
 echo "  contenido: $(ls /mnt | tr '\n' ' ')"
 [ -d /mnt/etc ] && [ -d /mnt/usr ] || { warn "rootfs incompleto"; exit 1; }

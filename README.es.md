@@ -246,7 +246,7 @@ EMPEZAR.md             guía para ejecutarlo: requisitos y resolución de proble
 ARTICULO.md            explicación paso a paso de cómo se llegó hasta aquí
 articulo.html          la misma, como página
 dist/                  omarchy-arm-utm.zip + sha256 + LEEME para el destinatario
-dl/                    Alpine virt ISO (sha256) + rootfs de ALARM (MD5)
+dl/                    Alpine virt ISO + rootfs de ALARM (SHA-256 fijados)
 provision/src/         stage1..3.sh repair.sh sanitize.sh omarchy-arm-extras hooks/
 scripts/               qemu-build.sh build.exp repair.exp make-utm.sh qemu-shot.sh omssh
 fixes/                 correcciones aplicadas post-build (ya en stage2/3)

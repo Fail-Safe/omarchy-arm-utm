@@ -2,45 +2,45 @@
 #
 #  build-omarchy-arm.sh
 #  ────────────────────────────────────────────────────────────────────────────
-#  Construye, de forma autonoma y sin intervencion, una maquina virtual UTM con
-#  Arch Linux ARM (aarch64 nativo, acelerado con HVF) + Hyprland + la
-#  configuracion de Omarchy 4, y la empaqueta para distribuir.
+# Autonomously build, without intervention, a UTM virtual machine with
+#  Arch Linux ARM (native aarch64, accelerated with HVF) + Hyprland + the
+#  Omarchy 4 configuration, and package it for distribution.
 #
-#  Omarchy 4 no se puede instalar en ARM64, pero no por lo que suele decirse.
-#  El guard de uname -m vive en install/preflight/guard.sh, que existe en master
-#  (3.x) y NO en quattro, donde uname -m no aparece ni una vez. Y su paquete
-#  pacman es arch=('any'): lo que es x86_64-only es el repo donde se publica.
-#  Lo que falta es el mirror: stable-mirror.omarchy.org/core/os/aarch64/ da 404
-#  mientras x86_64 da 200, y post-install/pacman.sh apunta pacman ahi. Esto
-#  reconstruye el equivalente sobre Arch Linux ARM y le aplica el contenido real
-#  del repositorio de Omarchy.
+#  Omarchy 4 cannot be installed on ARM64, but not for the reasons usually stated.
+#  The guard for uname -m lives in install/preflight/guard.sh, which exists in master
+#  (3.x) and NOT in quattro, where uname -m does not appear at all. And its package
+#  pacman is arch=('any'): what is x86_64-only is the repo where it is published.
+#  What is missing is the mirror: stable-mirror.omarchy.org/core/os/aarch64/ returns 404
+#  while x86_64 returns 200, and post-install/pacman.sh points pacman there. This
+#  rebuilds the equivalent on Arch Linux ARM and applies the actual content
+#  of the Omarchy repository.
 #
-#  Uso:
-#    ./build-omarchy-arm.sh                  # todas las fases
-#    ./build-omarchy-arm.sh --from build     # reanudar desde una fase
-#    ./build-omarchy-arm.sh --only package   # ejecutar solo una fase
-#    ./build-omarchy-arm.sh --list           # listar fases
+#  Usage:
+#    ./build-omarchy-arm.sh                  # all phases
+#    ./build-omarchy-arm.sh --from build     # resume from a phase
+#    ./build-omarchy-arm.sh --only package   # run only one phase
+#    ./build-omarchy-arm.sh --list           # list phases
 #
-#  Fases:
-#    deps      comprobar dependencias del anfitrion
-#    fetch     descargar Alpine ISO + rootfs ALARM (con verificacion MD5)
-#    prepare   calcular la lista de paquetes desde la rama viva de Omarchy
-#    build     construir el disco (headless, QEMU + HVF, tres etapas en chroot)
-#    utm       crear el bundle .utm y registrarlo en UTM
-#    verify    arrancar y verificar por consola serie
-#    sanitize  limpiar una copia para distribuirla
-#    package   compactar, comprimir y firmar con sha256
+# Phases:
+#    deps      check host dependencies
+#    fetch     download Alpine ISO + ALARM rootfs (pinned SHA-256 hashes)
+#    prepare   calculate the package list from the live Omarchy branch
+#    build     build the disk (headless, QEMU + HVF, three stages in chroot)
+#    utm       create the .utm bundle and register it in UTM
+#    verify    boot and verify via serial console
+#    sanitize  clean a copy for distribution
+#    package   compact, compress, and sign with SHA-256
 #
-#  Requisitos: macOS en Apple Silicon, Homebrew, UTM 4.7+, Command Line Tools
-#  (git, python3) y ~40 GB libres. No necesita sudo.
+#  Requirements: macOS on Apple Silicon, Homebrew, UTM 4.7+, Command Line Tools
+#  (git, python3) and ~40 GB free. No sudo required.
 #  ────────────────────────────────────────────────────────────────────────────
 set -uo pipefail
 
-# ───────────────────────────────── parametros ──────────────────────────────
-# Que variables trae ya el entorno, ANTES de que los ':=' de abajo las rellenen.
-# Sin esto no hay forma de distinguir "el usuario me lo paso" de "es el valor
-# por defecto", y detectar_del_anfitrion pisaba lo que el usuario habia fijado:
-# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` construia con otra cifra.
+# ───────────────────────────────── parameters ──────────────────────────────
+# What variables are already in the environment, BEFORE the ':=' below fill them.
+# Without this, there is no way to distinguish "the user passed it" from "it is the default
+# value", and detect_from_host was overwriting what the user had set:
+# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` was building with a different value.
 FIJADO_POR_ENTORNO=""
 for _v in VM_TIMEZONE VM_KEYMAP VM_XKB UTM_CPUS UTM_MEM; do
   [ -n "${!_v:-}" ] && FIJADO_POR_ENTORNO="$FIJADO_POR_ENTORNO $_v"
@@ -48,34 +48,39 @@ done
 unset _v
 del_entorno() { case " $FIJADO_POR_ENTORNO " in *" $1 "*) return 0 ;; *) return 1 ;; esac; }
 
-: "${W:=$HOME/omarchy-arm-build}"        # directorio de trabajo
-: "${VM_NAME:=Omarchy ARM}"              # nombre de la VM en UTM
-: "${VM_USER:=builder}"                  # usuario durante la construccion
-: "${VM_PASSWORD:=builder}"              # se pregunta; la imagen distribuible lo renombra
+: "${W:=$HOME/omarchy-arm-build}"        # working directory
+: "${VM_NAME:=Omarchy ARM}"              # VM name in UTM
+: "${VM_USER:=builder}"                  # user during the build
+: "${VM_PASSWORD:=builder}"              # prompted; the distributable image renames it
 : "${VM_FULLNAME:=Omarchy ARM}"
 : "${VM_EMAIL:=usuario@ejemplo.com}"
 : "${VM_HOSTNAME:=omarchy}"
 : "${VM_TIMEZONE:=Europe/Madrid}"
-: "${VM_KEYMAP:=es}"                     # consola de texto
+: "${VM_KEYMAP:=es}"                     # text console
 : "${VM_XKB:=es}"                        # Hyprland/Wayland
 : "${VM_LOCALE:=en_US.UTF-8}"
 : "${VM_LOCALE_EXTRA:=es_ES.UTF-8}"
 : "${DISK_SIZE:=80G}"
-: "${BUILD_SMP:=8}"                      # vCPU durante la construccion
-: "${BUILD_MEM:=8192}"                   # MiB durante la construccion
-: "${UTM_CPUS:=6}"                       # vCPU de la VM final
-: "${UTM_MEM:=6144}"                     # MiB de la VM final
-: "${OMARCHY_REF:=quattro}"              # rama de Omarchy (¡NO master!)
-: "${DIST_NEW_USER:=omarchy}"            # usuario en la imagen distribuible
+: "${BUILD_SMP:=8}"                      # vCPUs during the build
+: "${BUILD_MEM:=8192}"                   # MiB during the build
+: "${UTM_CPUS:=6}"                       # vCPUs in the final VM
+: "${UTM_MEM:=6144}"                     # MiB in the final VM
+: "${OMARCHY_REF:=quattro}"              # Omarchy branch (NOT master!)
+: "${DIST_NEW_USER:=omarchy}"            # user in the distributable image
 : "${ALPINE_VER:=v3.24}"
 : "${ALPINE_ISO:=alpine-virt-3.24.1-aarch64.iso}"
-: "${ALARM_URL:=http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz}"
+: "${ALPINE_URL:=https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VER/releases/aarch64/$ALPINE_ISO}"
+: "${ALPINE_SHA256:=c81699152db11d2a6dbb7d75348d632fcf5811eff414d7e71876a8bb6d48bc02}"
+: "${ALARM_URL:=https://ca.us.mirror.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz}"
+: "${ALARM_SHA256:=42a4eeaa038994ffd31fa173256ef2f0ef511358eeb41b9ea1f8626391b9b319}"
+: "${ALARM_MIRROR_PRIMARY:=https://ca.us.mirror.archlinuxarm.org}"
+: "${ALARM_MIRROR_SECONDARY:=https://fl.us.mirror.archlinuxarm.org}"
 
 UTMCTL=/Applications/UTM.app/Contents/MacOS/utmctl
 DOCS="$HOME/Library/Containers/com.utmapp.UTM/Data/Documents"
 PHASES=(deps fetch prepare build utm verify sanitize package)
 
-# ─────────────────────────────────── salida ────────────────────────────────
+# ─────────────────────────────────── output ────────────────────────────────
 c_ok=$'\033[32m'; c_warn=$'\033[33m'; c_err=$'\033[31m'; c_hi=$'\033[1;36m'; c_off=$'\033[0m'
 phase() { echo; echo "${c_hi}━━━ $* ━━━${c_off}"; }
 info()  { echo "  $*"; }
@@ -83,18 +88,18 @@ ok()    { echo "  ${c_ok}✓${c_off} $*"; }
 warn()  { echo "  ${c_warn}!${c_off} $*" >&2; }
 die()   { echo "  ${c_err}✗ $*${c_off}" >&2; exit 1; }
 
-# ── interaccion ─────────────────────────────────────────────────────────────
-# El script nacio desatendido y debe seguir siendolo: sin terminal, o con
-# --yes, nadie pregunta nada y valen los valores por defecto. Con terminal
-# pregunta lo que de verdad es una decision, y solo eso.
+# ── interaction ─────────────────────────────────────────────────────────────
+# The script was born to run unattended and must continue to do so: without a terminal, or with
+# --yes, nothing is asked and default values are accepted. With a terminal,
+# it asks only what is truly a decision, and nothing else.
 INTERACTIVO=0
 [[ -t 0 && -t 1 ]] && INTERACTIVO=1
 [[ -n ${ASSUME_YES:-} ]] && INTERACTIVO=0
 
-# Las respuestas del cuestionario se guardan en $W/respuestas.env para que
-# --from y --only no las tiren. Antes, reanudar regeneraba config.env con los
-# valores por defecto: la VM acababa con el usuario 'builder' y su contrasena
-# aunque el usuario hubiera tecleado otros, y sin avisar de nada.
+# The questionnaire answers are saved in $W/respuestas.env so that
+# --from and --only do not discard them. Previously, resuming would regenerate config.env with the
+# default values: the VM would end up with the 'builder' user and its password
+# even if the user had typed others, without any warning.
 RESPUESTAS_VARS=(VM_NAME VM_USER VM_PASSWORD VM_FULLNAME VM_EMAIL VM_HOSTNAME
                  VM_TIMEZONE VM_KEYMAP VM_XKB VM_LOCALE VM_LOCALE_EXTRA
                  OMARCHY_REF DIST_NEW_USER DISK_SIZE UTM_CPUS UTM_MEM
@@ -112,25 +117,25 @@ guardar_respuestas() {
 
 cargar_respuestas() {
   [[ -f "$W/respuestas.env" ]] || return 0
-  # Lo guardado NO puede pisar lo que el usuario acaba de poner en el entorno:
-  # `UTM_MEM=16384 ./build-omarchy-arm.sh --from utm` tiene que respetar los
-  # 16384. Se carga en una subshell, se leen los valores y solo se asignan los
-  # que no vinieran del entorno.
+  # What is saved MUST NOT overwrite what the user just set in the environment:
+  # `UTM_MEM=16384 ./build-omarchy-arm.sh --from utm` must respect the
+  # 16384. It is loaded in a subshell, values are read and only those
+  # that did not come from the environment are assigned.
   local v val
   for v in "${RESPUESTAS_VARS[@]}"; do
     del_entorno "$v" && continue
     val=$(. "$W/respuestas.env" >/dev/null 2>&1; printf '%s' "${!v-}")
     printf -v "$v" '%s' "$val"
   done
-  # OJO: aqui NO se toca PHASES. Recortarlo en este punto rompia cuatro cosas a
-  # la vez -- la peor, que la validacion de nombres de fase corre ANTES, asi que
-  # `--from sanitize` (justo el escape que sugiere el die de ph_verify) se
-  # validaba y luego no ejecutaba nada, saliendo con rc=0. El recorte se decide
-  # al final del main, con la respuesta definitiva ya conocida.
+  # NOTE: PHASES are NOT touched here. Trimming it at this point broke four things
+  # the time -- the worst, that phase name validation runs BEFORE, so
+  # `--from sanitize` (exactly the escape suggested by the ph_verify die) is
+  # validated and then executes nothing, exiting with rc=0. The trimming is decided
+  # at the end of main, with the final answer already known.
   return 0
 }
 
-ask() {  # ask <variable> <pregunta> [valor por defecto]
+ask() {  # ask <variable> <question> [default value]
   local var="$1" q="$2" def="${3:-}" cur ans
   cur="${!var:-$def}"
   if (( ! INTERACTIVO )); then printf -v "$var" '%s' "$cur"; return; fi
@@ -138,31 +143,31 @@ ask() {  # ask <variable> <pregunta> [valor por defecto]
   printf -v "$var" '%s' "${ans:-$cur}"
 }
 
-confirm() {  # confirm <pregunta> <si|no por defecto>
+confirm() {  # confirm <question> <yes|no default>
   local q="$1" def="${2:-si}" ans
   if (( ! INTERACTIVO )); then [[ $def == si ]]; return; fi
   read -r -p "  $q [$([[ $def == si ]] && echo 'S/n' || echo 's/N')]: " ans </dev/tty || ans=""
   ans="${ans:-$def}"
-  # ${var,,} es de bash 4 y macOS trae bash 3.2: ahi es un error de expansion
-  # que aborta la funcion entera, y confirm devolvia "si" por accidente.
+  # ${var,,} is bash 4 and macOS ships bash 3.2: there it is an expansion error
+  # that aborts the entire function, and confirm returned "yes" by accident.
   ans=$(printf '%s' "$ans" | tr '[:upper:]' '[:lower:]')
   case "$ans" in s|si|sí|y|yes) return 0 ;; *) return 1 ;; esac
 }
 
-# Valores por defecto tomados del propio Mac: asi la mayoria de las preguntas se
-# contestan con Enter en vez de obligar a buscar el nombre de una zona horaria.
-# Lo detectado del Mac es un VALOR POR DEFECTO mejor, no una orden: si el
-# usuario fijo la variable en el entorno, manda la suya. Antes se asignaba sin
-# condicion y, como el `return` del modo desatendido va DESPUES de esta llamada,
-# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` acababa construyendo con 8192.
+# Default values taken from Mac itself: so most questions are
+# answered with Enter instead of forcing the search for a timezone name.
+# The Mac-detected value is a BETTER DEFAULT VALUE, not a command: if the
+# user has fixed the variable in the environment, it sends theirs. Before it was assigned without
+# condition and, since the `return` in unattended mode comes AFTER this call,
+# `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` ended up building with 8192.
 detectar_del_anfitrion() {
   local tz kb ncpu ram
   if ! del_entorno VM_TIMEZONE; then
     tz=$(readlink /etc/localtime 2>/dev/null | sed 's#.*/zoneinfo/##')
     [[ -n $tz ]] && VM_TIMEZONE="$tz"
   fi
-  # Las dos son independientes: fijar solo VM_XKB no debe dejar VM_KEYMAP en el
-  # 'es' cableado del principio.
+  # The two are independent: setting only VM_XKB must not leave VM_KEYMAP in the
+  # 'es' wired at the beginning.
   if ! del_entorno VM_KEYMAP || ! del_entorno VM_XKB; then
     kb=$(defaults read ~/Library/Preferences/com.apple.HIToolbox.plist AppleSelectedInputSources 2>/dev/null \
          | sed -n 's/.*"KeyboardLayout Name" = "\([^"]*\)".*/\1/p' | head -1)
@@ -186,14 +191,14 @@ detectar_del_anfitrion() {
     (( ram >= 16384 )) && UTM_MEM=8192
     (( ram >= 32768 )) && UTM_MEM=12288
   fi
-  # BUILD_SMP y BUILD_MEM no estan en la lista: son de la VM de construccion,
-  # no del resultado, y ahi interesa exprimir el Mac.
+  # BUILD_SMP and BUILD_MEM are not in the list: they belong to the build VM,
+  # not the result, and there the interest is to squeeze the Mac.
   BUILD_SMP=$(( ncpu > 8 ? 8 : ncpu ))
   (( ram >= 16384 )) && BUILD_MEM=8192
   return 0
 }
 
-# ─────────────────────────────── fase: deps ────────────────────────────────
+# ─────────────────────────────── phase: deps ────────────────────────────────
 ph_deps() {
   phase "deps · dependencias del anfitrion"
   [[ $(uname -s) == Darwin ]] || die "esto solo corre en macOS"
@@ -204,84 +209,94 @@ ph_deps() {
   done
   command -v qemu-system-aarch64 >/dev/null || die "falta qemu-system-aarch64"
   command -v expect >/dev/null || die "falta expect"
-  # git y python3 vienen de las Command Line Tools, que en un Mac recien
-  # estrenado no estan. Se usan en 'prepare' y en la comprobacion de la rama.
+  # git and python3 come from the Command Line Tools, which on a freshly
+  # set up Mac are not present. They are used in 'prepare' and in branch checking.
   for c in git python3 zip shasum curl hdiutil; do
     command -v "$c" >/dev/null || die "falta '$c' (¿ejecutaste 'xcode-select --install'?)"
   done
   [[ -x $UTMCTL ]] || die "falta UTM: brew install --cask utm"
-  # Medido en una construccion real: el disco llega a 9,5 GB, la copia para
-  # sanitizar a otros 6,5 y el zip a 4. Con clones de APFS el pico ronda los 30.
+  # Measured in a real build: the disk reaches 9.5 GB, the copy for
+  # sanitizing to another 6.5 and the zip to 4. With APFS clones the peak is around 30.
   local free; free=$(df -g "$HOME" | tail -1 | awk '{print $4}')
   (( free > 40 )) || die "hacen falta ~40 GB libres (hay ${free} GB)"
   ok "qemu $(qemu-system-aarch64 --version | head -1 | awk '{print $4}'), UTM $(defaults read /Applications/UTM.app/Contents/Info.plist CFBundleShortVersionString), ${free} GB libres"
 }
 
-# Toda fase puede ejecutarse suelta con --only/--from, asi que los directorios
-# no pueden depender de que se haya pasado por deps.
+# Any phase can be run standalone with --only/--from, so the directories
+# they cannot depend on deps having been passed.
 ensure_dirs() { mkdir -p "$W"/{dl,vm,provision,scripts,logs,dist,shots}; }
 
-# ─────────────────────────────── fase: fetch ───────────────────────────────
+# ─────────────────────────────── phase: fetch ───────────────────────────────
+sha256_file() { shasum -a 256 "$1" | awk '{print $1}'; }
+
+validate_sha256() {
+  local digest="$1" label="$2"
+  [[ $digest =~ ^[0-9a-fA-F]{64}$ ]] \
+    || die "sha256 no valido para $label: se esperaban 64 digitos hexadecimales"
+}
+
+validate_fetch_url() {
+  case "$1" in
+    https://*|file://*) ;;
+    *) die "URL no segura para $2: solo se permiten https:// y file://" ;;
+  esac
+}
+
+verify_sha256() {
+  local file="$1" expected="$2" label="$3" got
+  validate_sha256 "$expected" "$label"
+  expected=$(printf '%s' "$expected" | tr 'A-F' 'a-f')
+  got=$(sha256_file "$file") || { warn "no se pudo calcular el sha256 de $label"; return 1; }
+  if [[ $got != "$expected" ]]; then
+    warn "$label no cuadra con el sha256 fijado (esperado $expected, obtenido $got)"
+    return 1
+  fi
+}
+
+fetch_verified() {
+  local url="$1" expected="$2" dest="$3" label="$4"
+  local partial="$dest.partial"
+  validate_fetch_url "$url" "$label"
+  validate_sha256 "$expected" "$label"
+
+  if [[ -s $dest ]]; then
+    verify_sha256 "$dest" "$expected" "$label" \
+      || die "$label en cache no supera la verificacion; se conserva en $dest para inspeccion"
+    ok "$label en cache, sha256 verificado ($(du -h "$dest" | cut -f1))"
+    return 0
+  fi
+
+  info "$label"
+  if ! aria2c -x8 -s8 -c --file-allocation=none -q \
+      -d "$(dirname "$partial")" -o "$(basename "$partial")" "$url"; then
+    die "no se pudo descargar $label ($url); la descarga parcial se conserva para reanudar"
+  fi
+  if ! verify_sha256 "$partial" "$expected" "$label"; then
+    rm -f "$partial" "$partial.aria2"
+    die "se rechazo la descarga de $label"
+  fi
+  mv "$partial" "$dest"
+  rm -f "$partial.aria2"
+  ok "$label descargado, sha256 verificado ($(du -h "$dest" | cut -f1))"
+}
+
 ph_fetch() {
   phase "fetch · imagenes base"
   local iso="$W/dl/alpine-virt-aarch64.iso"
   local tgz="$W/dl/alarm-rootfs.tgz"
 
-  if [[ ! -s $iso ]]; then
-    # Alpine RETIRA del CDN los parches antiguos al publicar el siguiente, asi
-    # que fijar 3.24.1 caduca solo. Se resuelve el ultimo virt aarch64 de la
-    # rama leyendo el indice, y ALPINE_ISO queda como respaldo.
-    local base="https://dl-cdn.alpinelinux.org/alpine/$ALPINE_VER/releases/aarch64"
-    local latest
-    latest=$(curl -fsSL --max-time 30 "$base/" 2>/dev/null \
-             | grep -oE 'alpine-virt-[0-9.]+-aarch64\.iso' | sort -V | tail -1)
-    [[ -n $latest ]] || { warn "no pude leer el indice de Alpine; uso $ALPINE_ISO"; latest="$ALPINE_ISO"; }
-    info "Alpine $latest (entorno live para el bootstrap)"
-    aria2c -x8 -s8 -c --file-allocation=none -q -d "$W/dl" -o "$(basename "$iso").parcial" \
-      "$base/$latest" || die "no se pudo descargar Alpine ($base/$latest)"
-    # Se verifica contra el sha256 publicado antes de darlo por bueno: una
-    # descarga interrumpida deja un fichero no vacio que se reutilizaria siempre.
-    local wsha gsha
-    wsha=$(curl -fsSL --max-time 30 "$base/$latest.sha256" 2>/dev/null | awk '{print $1}')
-    gsha=$(shasum -a 256 "$W/dl/$(basename "$iso").parcial" | awk '{print $1}')
-    if [[ -n $wsha && $wsha != "$gsha" ]]; then
-      rm -f "$W/dl/$(basename "$iso").parcial"
-      die "el ISO de Alpine no cuadra con su sha256 publicado"
-    fi
-    mv "$W/dl/$(basename "$iso").parcial" "$iso"
-    [[ -n $wsha ]] && info "sha256 verificado" || warn "sin sha256 publicado: no verificado"
-  fi
-  ok "Alpine $(du -h "$iso" | cut -f1)"
-
-  if [[ ! -s $tgz ]]; then
-    info "rootfs de Arch Linux ARM (~800 MB)"
-    aria2c -x8 -s8 -c --file-allocation=none -q -d "$W/dl" -o "$(basename "$tgz")" \
-      "$ALARM_URL" || die "no se pudo descargar el rootfs de ALARM"
-  fi
-  # El tarball se rehace cada pocas semanas: se verifica contra el MD5 publicado
-  local want got
-  want=$(curl -fsSL --max-time 30 "$ALARM_URL.md5" | awk '{print $1}')
-  got=$(md5 -q "$tgz")
-  if [[ -z $want ]]; then
-    # Antes se anunciaba "MD5 verificado" aunque el curl del checksum fallara.
-    warn "no pude leer $ALARM_URL.md5: el rootfs queda SIN verificar"
-    ok "rootfs ALARM $(du -h "$tgz" | cut -f1), sin verificar"
-  elif [[ $want != "$got" ]]; then
-    warn "MD5 no coincide (esperado $want, obtenido $got); se vuelve a descargar"
-    rm -f "$tgz"
-    [[ ${FETCH_RETRY:-0} -ge 1 ]] && die "el rootfs de ALARM sigue sin cuadrar tras reintentar"
-    FETCH_RETRY=1 ph_fetch; return
-  else
-    ok "rootfs ALARM $(du -h "$tgz" | cut -f1), MD5 verificado"
-  fi
+  fetch_verified "$ALPINE_URL" "$ALPINE_SHA256" "$iso" \
+    "Alpine $ALPINE_ISO (entorno live para el bootstrap)"
+  fetch_verified "$ALARM_URL" "$ALARM_SHA256" "$tgz" \
+    "rootfs de Arch Linux ARM"
 }
 
-# ────────────────────────────── fase: prepare ──────────────────────────────
+# ────────────────────────────── phase: prepare ──────────────────────────────
 ph_prepare() {
   phase "prepare · lista de paquetes"
-  # quattro es una rama de pre-release: cuando la fusionen o la borren, todo lo
-  # que sigue falla sin decir por que. Se comprueba antes y se cae a la rama por
-  # defecto del repositorio, avisando.
+  # quattro is a pre-release branch: when it is merged or deleted, everything that
+  # follows fails without stating why. It is checked beforehand and falls back to the
+  # repository's default branch, with a warning.
   if ! git ls-remote --exit-code --heads https://github.com/basecamp/omarchy.git "$OMARCHY_REF" >/dev/null 2>&1; then
     local defref
     defref=$(git ls-remote --symref https://github.com/basecamp/omarchy.git HEAD 2>/dev/null \
@@ -291,21 +306,27 @@ ph_prepare() {
     warn "revisa que la estructura no haya cambiado: este build asume Omarchy 4"
     OMARCHY_REF="$defref"
   fi
-  # La lista se calcula contra la rama VIVA de Omarchy interseccionada con lo que
-  # existe en Arch Linux ARM. Hacerlo aqui, y no con una lista fija, evita que el
-  # build se rompa cuando Omarchy cambie de paquetes.
+  # The list is computed against the VIVA branch of Omarchy intersected with what
+  # exists in Arch Linux ARM. Doing it here, rather than with a fixed list, prevents the
+  # build from breaking when Omarchy changes packages.
   local base=/tmp/om-base.$$ core=/tmp/alarm-core.$$ extra=/tmp/alarm-extra.$$
   curl -fsSL --max-time 60 \
     "https://raw.githubusercontent.com/basecamp/omarchy/$OMARCHY_REF/install/omarchy-base.packages" \
     -o "$base" || die "no se pudo leer la lista de paquetes de Omarchy"
-  curl -fsSL --max-time 120 http://mirror.archlinuxarm.org/aarch64/core/core.db   -o "$core"  || die "mirror ALARM no responde"
-  curl -fsSL --max-time 180 http://mirror.archlinuxarm.org/aarch64/extra/extra.db -o "$extra" || die "mirror ALARM no responde"
+  validate_fetch_url "$ALARM_MIRROR_PRIMARY" "mirror primario de Arch Linux ARM"
+  validate_fetch_url "$ALARM_MIRROR_SECONDARY" "mirror secundario de Arch Linux ARM"
+  curl -fsSL --max-time 120 "$ALARM_MIRROR_PRIMARY/aarch64/core/core.db" -o "$core" \
+    || curl -fsSL --max-time 120 "$ALARM_MIRROR_SECONDARY/aarch64/core/core.db" -o "$core" \
+    || die "los mirrors HTTPS de ALARM no responden para core.db"
+  curl -fsSL --max-time 180 "$ALARM_MIRROR_PRIMARY/aarch64/extra/extra.db" -o "$extra" \
+    || curl -fsSL --max-time 180 "$ALARM_MIRROR_SECONDARY/aarch64/extra/extra.db" -o "$extra" \
+    || die "los mirrors HTTPS de ALARM no responden para extra.db"
 
   local d=/tmp/alarmdb.$$; rm -rf "$d"; mkdir -p "$d"; ( cd "$d" && tar -xzf "$core"; tar -xzf "$extra" )
   ls -1 "$d" | sed -E 's/-[^-]+-[^-]+$//' | sort -u > /tmp/alarm-pkgs.$$
 
-  # quickshell-git no existe en ALARM; quickshell 0.3.x lo sustituye.
-  # nvim y ttf-jetbrains-mono-nerd-basic son nombres propios de Omarchy.
+  # quickshell-git does not exist in ALARM; quickshell 0.3.x replaces it.
+  # nvim and ttf-jetbrains-mono-nerd-basic are proper names from Omarchy.
   python3 - "$base" /tmp/alarm-pkgs.$$ "$W/provision" <<'PYEOF'
 import sys, pathlib
 base, alarm_f, out = sys.argv[1], sys.argv[2], pathlib.Path(sys.argv[3])
@@ -341,28 +362,28 @@ print(f"  nucleo={len(core)}  extras={len(ext)}  sin equivalente en ARM={len(set
 print("  no disponibles:", " ".join(sorted(set(miss))))
 PYEOF
   rm -rf "$d" "$base" "$core" "$extra" /tmp/alarm-pkgs.$$
-  # Sin esto un fallo de escritura pasaria inadvertido y el build moriria mas
-  # tarde, lejos de la causa.
+  # Without this, a write error would go unnoticed and the build would die later,
+  # far from the cause.
   [ -s "$W/provision/packages-core.txt" ] || die "no se pudieron escribir las listas de paquetes"
   ok "listas generadas contra la rama '$OMARCHY_REF': $(grep -cvE '^#|^$' "$W/provision/packages-core.txt") en el nucleo, $(grep -cvE '^#|^$' "$W/provision/packages-extra.txt") extras"
 }
 
-# ─────────────────────────── payloads (se escriben en $W) ──────────────────
+# ─────────────────────────── payloads (written to $W) ──────────────────
 write_payloads() {
-  # Los ficheros de provision y los arneses expect se materializan aqui para que
-  # este script sea autocontenido: un solo fichero reproduce todo el proceso.
+  # Provision files and expect harnesses are materialized here so that
+  # this script is self-contained: a single file reproduces the entire process.
 mkdir -p "$W/provision"
 cat > "$W/provision/stage1.sh" <<'__PAYLOAD_PROVISION_STAGE1_SH__'
 #!/bin/sh
-# Etapa 1 — se ejecuta en el live de Alpine (busybox ash).
-# Particiona el disco, despliega el rootfs de Arch Linux ARM y entra en chroot.
+# Stage 1 — runs on the Alpine live environment (busybox ash).
+# Partitions the disk, deploys the Arch Linux ARM rootfs, and enters chroot.
 set -eu
 PROV=/media/prov
 log()  { echo ""; echo "==> [stage1] $*"; }
 warn() { echo "!!  [stage1] $*"; }
 
-# Marcador de salida fiable: un pipe a tee enmascara el codigo de retorno,
-# asi que el propio script emite el token.
+# Reliable exit marker: a pipe to tee masks the return code,
+# so the script itself emits the token.
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "TOK_BUILD_$rc"' EXIT
 
 log "red"
@@ -430,8 +451,8 @@ fi
 df -h /mnt
 
 log "desplegando rootfs de Arch Linux ARM (bsdtar -xpf, preserva xattr/ACL)"
-# La ESP se monta DESPUES: vfat no admite los symlinks que trae /boot en el
-# tarball. El kernel lo repuebla pacman en stage2 sobre la ESP ya montada.
+# The ESP is mounted AFTER: vfat does not support the symlinks included in /boot in the
+# tarball. The kernel is repopulated by pacman in stage2 on the already-mounted ESP.
 bsdtar -xpf "$PROV/alarm-rootfs.tgz" -C /mnt
 echo "  contenido: $(ls /mnt | tr '\n' ' ')"
 [ -d /mnt/etc ] && [ -d /mnt/usr ] || { warn "rootfs incompleto"; exit 1; }
@@ -493,8 +514,8 @@ chmod +x "$W/provision/stage1.sh"
 mkdir -p "$W/provision"
 cat > "$W/provision/stage2.sh" <<'__PAYLOAD_PROVISION_STAGE2_SH__'
 #!/bin/bash
-# Etapa 2 — dentro del chroot de Arch Linux ARM, como root.
-# Sistema base, kernel, arranque UEFI, paquetes del stack Omarchy y login.
+# Stage 2 — inside the Arch Linux ARM chroot, as root.
+# Base system, kernel, UEFI boot, Omarchy stack packages, and login.
 set -euo pipefail
 . /root/prov/config.env
 . /root/prov/fsinfo.env
@@ -510,27 +531,27 @@ log "inicializando el llavero de Arch Linux ARM"
 pacman-key --init
 pacman-key --populate archlinuxarm
 
-# Una construccion de una hora no puede morir porque el mirror se atasque diez
-# segundos. Paso real: "failed retrieving file noto-fonts-...: Operation too
-# slow. Less than 1 bytes/sec transferred the last 10 seconds" -> la instalacion
-# en bloque cayo, el reintento uno a uno dejo pipewire-jack fuera y la etapa
-# aborto por su trap ERR, con 40 minutos ya invertidos.
-#
-# --disable-download-timeout quita ese limite de velocidad minima, que es lo que
-# aborto. Y se anade un segundo Server: el mirrorlist de ALARM trae solo el
-# geo-balanceador, asi que si el nodo que te toca va mal no hay a donde caer.
-# Un mirror extra no es un riesgo: pacman verifica la firma de cada paquete
-# contra el llavero de archlinuxarm.
-if ! grep -q 'de.mirror.archlinuxarm.org' /etc/pacman.d/mirrorlist 2>/dev/null; then
-  echo 'Server = http://de.mirror.archlinuxarm.org/$arch/$repo' >> /etc/pacman.d/mirrorlist
-fi
-# DisableDownloadTimeout en pacman.conf, no como flag suelto: asi lo heredan
-# TODAS las invocaciones, incluida la que hace makepkg -s por dentro para
-# resolver dependencias de compilacion.
+# The mirrors included in the tarball use HTTP. Although pacman verifies the signature of
+# each package, TLS also protects the index, version selection, and
+# availability. Two official mirrors with valid certificates are set.
+: "${ALARM_MIRROR_PRIMARY:=https://ca.us.mirror.archlinuxarm.org}"
+: "${ALARM_MIRROR_SECONDARY:=https://fl.us.mirror.archlinuxarm.org}"
+case "$ALARM_MIRROR_PRIMARY" in https://*) ;; *) warn "el mirror primario debe usar HTTPS"; exit 1 ;; esac
+case "$ALARM_MIRROR_SECONDARY" in https://*) ;; *) warn "el mirror secundario debe usar HTTPS"; exit 1 ;; esac
+{
+  printf 'Server = %s/$arch/$repo\n' "$ALARM_MIRROR_PRIMARY"
+  printf 'Server = %s/$arch/$repo\n' "$ALARM_MIRROR_SECONDARY"
+} > /etc/pacman.d/mirrorlist
+# A one-hour build cannot fail because a mirror hangs for ten
+# seconds. DisableDownloadTimeout keeps retries useful and pacman
+# maintains cryptographic verification for each package.
+# DisableDownloadTimeout in pacman.conf, not as a standalone flag: this way it is inherited by
+# ALL invocations, including the one makepkg -s performs internally to
+# resolve build dependencies.
 grep -q '^DisableDownloadTimeout' /etc/pacman.conf \
   || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout\nParallelDownloads = 5/' /etc/pacman.conf
 
-# Envoltorio con reintentos: el mirror falla por rachas, no de forma estable.
+# Retry wrapper: the mirror fails in bursts, not consistently.
 pac() {
   local intento
   for intento in 1 2 3; do
@@ -547,21 +568,21 @@ pacman -Syu --noconfirm --needed --disable-download-timeout \
   || pacman -Syu --noconfirm --needed --disable-download-timeout
 
 log "sistema base"
-# linux-firmware se omite a proposito: ~800 MB inutiles en una VM
+# linux-firmware is intentionally omitted: ~800 MB useless in a VM
 pac base base-devel linux-aarch64 \
   sudo git vim networkmanager openssh which man-db man-pages less \
   btrfs-progs dosfstools e2fsprogs efibootmgr \
   rsync wget curl unzip zip
 
-# ---------------------------------------------------------------- localizacion
+# ---------------------------------------------------------------- localization
 log "zona horaria, locales, teclado, hostname"
 ln -sf "/usr/share/zoneinfo/$VM_TIMEZONE" /etc/localtime
 sed -i "s/^#\(${VM_LOCALE} \)/\1/; s/^#\(${VM_LOCALE_EXTRA} \)/\1/" /etc/locale.gen
 grep -q "^${VM_LOCALE} " /etc/locale.gen || echo "${VM_LOCALE} UTF-8" >> /etc/locale.gen
 locale-gen
 echo "LANG=$VM_LOCALE" > /etc/locale.conf
-# Hyprland lee XKBLAYOUT de aqui (default/hypr/input.lua); KEYMAP solo
-# cubre la consola de texto.
+# Hyprland reads XKBLAYOUT from here (default/hypr/input.lua); KEYMAP only
+# covers the text console.
 printf 'KEYMAP=%s\nXKBLAYOUT=%s\n' "$VM_KEYMAP" "$VM_XKB" > /etc/vconsole.conf
 echo "$VM_HOSTNAME" > /etc/hostname
 cat > /etc/hosts <<EOF
@@ -589,7 +610,7 @@ KERNEL_ROOTFLAGS=""
 fi
 cat /etc/fstab
 
-# ---------------------------------------------------------------- usuario
+# ---------------------------------------------------------------- user
 log "usuario $VM_USER"
 userdel -r alarm 2>/dev/null || true
 if ! id -u "$VM_USER" >/dev/null 2>&1; then
@@ -598,7 +619,7 @@ fi
 echo "$VM_USER:$VM_PASSWORD" | chpasswd
 echo "root:$VM_PASSWORD"     | chpasswd
 install -m 0440 /dev/stdin /etc/sudoers.d/10-wheel <<<'%wheel ALL=(ALL:ALL) ALL'
-# sin contrasena solo mientras dura la instalacion; se retira al final
+# no password only during installation; removed at the end
 install -m 0440 /dev/stdin /etc/sudoers.d/99-install <<<"$VM_USER ALL=(ALL:ALL) NOPASSWD: ALL"
 
 # ---------------------------------------------------------------- initramfs
@@ -608,15 +629,15 @@ grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci vir
 mkinitcpio -P
 echo "  /boot:"; ls -la /boot
 
-# ---------------------------------------------------------------- arranque UEFI
+# ---------------------------------------------------------------- UEFI boot
 log "systemd-boot en la ESP"
-# --no-variables: no escribimos NVRAM; UTM arranca por la ruta de reserva
-# \EFI\BOOT\BOOTAA64.EFI, que bootctl instala igualmente.
+# --no-variables: we do not write to NVRAM; UTM boots via the fallback path
+# \EFI\BOOT\BOOTAA64.EFI, which bootctl installs as well.
 bootctl --esp-path=/boot --no-variables install
 
-# La ESP se monta vacia DESPUES de extraer el rootfs, asi que /boot no tiene
-# kernel. "pacman -S --needed" no lo repone si la version instalada ya coincide
-# con la del repositorio, asi que se fuerza la reinstalacion del paquete.
+# The ESP is mounted empty AFTER extracting the rootfs, so /boot has no kernel.
+# "pacman -S --needed" does not reinstall it if the installed version already matches
+# the one in the repository, so the package reinstall is forced.
 if [ ! -f /boot/Image ] && [ ! -f /boot/vmlinuz-linux-aarch64 ]; then
   echo "  /boot vacio: reinstalando linux-aarch64 para repoblarlo"
   pacman -S --noconfirm --disable-download-timeout linux-aarch64 || warn "no se pudo reinstalar el kernel"
@@ -657,7 +678,7 @@ EOF
 echo "  kernel=$KERNEL_IMG initrd=$INITRD"
 echo "  ESP:"; find /boot/EFI /boot/loader -maxdepth 3 | sort
 
-# ---------------------------------------------------------------- red
+# ---------------------------------------------------------------- networking
 log "red: NetworkManager (se desactiva systemd-networkd del tarball)"
 systemctl disable systemd-networkd.service systemd-networkd.socket 2>/dev/null || true
 systemctl disable systemd-resolved.service 2>/dev/null || true
@@ -665,7 +686,7 @@ rm -f /etc/systemd/network/*.network 2>/dev/null || true
 systemctl enable NetworkManager.service
 systemctl enable systemd-timesyncd.service 2>/dev/null || true
 
-# ---------------------------------------------------------------- escritorio
+# ---------------------------------------------------------------- desktop
 log "instalando el stack de escritorio (Hyprland + herramientas de Omarchy)"
 install_list() {
   local file="$1" label="$2" fatal="$3"
@@ -676,7 +697,7 @@ install_list() {
   local FAILED=()
   for p in "${PKGS[@]}"; do
     pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 && continue
-    # Segunda pasada al que falle: casi siempre es el mirror, no el paquete.
+    # Retry failed packages: the mirror, not the package, is usually at fault.
     sleep 3
     pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 || FAILED+=("$p")
   done
@@ -694,30 +715,30 @@ set -e
 
 log "servicios de sistema"
 systemctl enable sddm.service 2>/dev/null || warn "sddm no disponible"
-# Integracion con UTM: utmctl ip-address/exec/file necesitan el guest agent
+# UTM integration: utmctl ip-address/exec/file require the guest agent
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
-# El rootfs de Arch Linux ARM viene con sshd arrancado, y aqui se instala
-# openssh y se pone la misma contrasena trivial al usuario y a root. Una VM
-# personal (sin la fase sanitize, que es donde estaba el unico disable) se
-# quedaba escuchando con omarchy/omarchy. Se apaga por defecto; quien lo quiera:
+# The Arch Linux ARM rootfs comes with sshd started, and here we install
+# openssh and set the same trivial password for the user and root. A personal VM
+# (without the sanitize phase, which is where the only disable was) would
+# remain listening with omarchy/omarchy. It is stopped by default; if you want it:
 #   sudo systemctl enable --now sshd
 systemctl disable sshd.service 2>/dev/null || true
 systemctl disable sshd.socket  2>/dev/null || true
-# El portapapeles de SPICE tiene TRES piezas, no dos:
-#   cliente SPICE (UTM) <-puerto virtio-> spice-vdagentd <-socket unix-> agente
-# El demonio es quien habla con el anfitrion; el agente de sesion solo habla
-# con el demonio. Por eso hay que dejar vivo spice-vdagentd aunque su agente
-# oficial (X11) no sirva en Hyprland: lo que se sustituye es el agente, no el
-# demonio.
+# The SPICE clipboard has THREE components, not two:
+#   SPICE client (UTM) <-virtio port-> spice-vdagentd <-unix socket-> agent
+# The daemon is what communicates with the host; the session agent only talks
+# to the daemon. That is why you must keep spice-vdagentd alive even though its official
+# agent (X11) is incompatible with Hyprland: replace the agent, not the
+# daemon.
 #
-# Y hace falta -X: la comprobacion de "sesion activa de seat0"
-# (vdagentd.c:746, systemd-login.c:272) falla con Hyprland lanzado por SDDM, y
-# entonces el demonio descarta el portapapeles en silencio.
+# And -X is needed: the "active seat0 session" check
+# (vdagentd.c:746, systemd-login.c:272) fails with Hyprland launched by SDDM, and
+# then the daemon silently discards the clipboard.
 mkdir -p /etc/systemd/system/spice-vdagentd.service.d
 cat > /etc/systemd/system/spice-vdagentd.service.d/override.conf <<'OVR'
 [Service]
-# -X: sin integracion con logind. Sin esto el demonio no encuentra "la sesion
-# activa de seat0" bajo Hyprland y descarta el portapapeles sin avisar.
+# -X: without logind integration. Without this, the daemon cannot find the "active
+# seat0 session" under Hyprland and discards the clipboard without warning.
 ExecStart=
 ExecStart=/usr/bin/spice-vdagentd -X -x -f
 OVR
@@ -725,38 +746,38 @@ systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 
-# NO se instala regla udev para /dev/virtio-ports/com.redhat.spice.0.
-# La habia, y estaba mal por partida doble: omarchy-arm-vdagent no abre ese
-# puerto nunca —habla por el socket unix /run/spice-vdagentd/spice-vdagent-sock,
-# como explica el propio stage3—, y el puerto lo abre en exclusiva el demonio.
-# Darle ACL al usuario del asiento con TAG+="uaccess" solo servia para que algo
-# se lo pudiera quitar al demonio y dejarlo sin canal ("Device or resource
-# busy"), que es justo el primer callejon sin salida de este problema.
-# El MODE="0660" ademas no hacia nada: sin GROUP= el grupo se queda en root.
+# No udev rule is installed for /dev/virtio-ports/com.redhat.spice.0.
+# There was one, and it was wrong in two ways: omarchy-arm-vdagent never opens that
+# port —it communicates via the unix socket /run/spice-vdagentd/spice-vdagent-sock,
+# as stage3 itself explains—, and the port is exclusively opened by the daemon.
+# Granting the seat user an ACL with TAG+="uaccess" only allows another process
+# to take the port from the daemon and leave it without a channel ("Device or resource
+# busy"), which is precisely the first dead end of this problem.
+# MODE="0660" additionally did nothing: without GROUP=, the group remains root.
 
-# La carpeta compartida de UTM tiene DOS modos y el usuario elige cual:
-#   VirtFS → dispositivo 9p con mount_tag "share"
-#   SPICE WebDAV → puerto virtio org.spice-space.webdav.0, servido por
-#     spice-webdavd (paquete phodav) en http://localhost:9843/
-# Se preparan los dos: cada uno se activa solo si su dispositivo existe.
+# UTM's shared folder has TWO modes, and the user chooses which one:
+#   VirtFS → 9p device with mount_tag "share"
+#   SPICE WebDAV → virtio port org.spice-space.webdav.0, served by
+#     spice-webdavd (phodav package) at http://localhost:9843/
+# Both are prepared: each activates only if its device exists.
 systemctl enable spice-webdavd.service 2>/dev/null || true
 echo "  spice-webdavd habilitado (modo SPICE WebDAV de UTM)"
 
-# Carpeta compartida de UTM. El bundle declara DirectoryShareMode=VirtFS, pero
-# eso solo expone el dispositivo: el invitado tiene que montarlo. El tag es
+# UTM shared folder. The bundle declares DirectoryShareMode=VirtFS, but
+# this only exposes the device: the guest must mount it. The tag is
 # "share" (UTM, Configuration/UTMQemuConfiguration+Arguments.swift:1234).
-# nofail para que un arranque sin carpeta configurada no caiga a emergencia,
-# y x-systemd.automount para no pagar el montaje si no se usa.
+# nofail so that a boot without a configured shared folder does not drop to emergency,
+# and x-systemd.automount to avoid the cost of mounting if it is not used.
 mkdir -p /mnt/share
-# La entrada de fstab solo vale para VirtFS, y el usuario puede haber elegido
-# SPICE WebDAV. En vez de fijar un modo, se instala omarchy-arm-share, que
-# detecta cual esta activo. La entrada de fstab se deja igualmente con nofail:
-# si el dispositivo 9p existe, se monta solo en el arranque.
+# The fstab entry is only valid for VirtFS, and the user may have chosen
+# SPICE WebDAV. Instead of fixing a mode, omarchy-arm-share is installed, which
+# detects which one is active. The fstab entry is left with nofail:
+# if the 9p device exists, it is mounted only at boot.
 if ! grep -q '^share ' /etc/fstab; then
   cat >> /etc/fstab <<'FSTAB'
 
-# Carpeta compartida de UTM en modo VirtFS. Si elegiste SPICE WebDAV, esta
-# linea no hace nada (nofail) y la monta omarchy-arm-share.
+# Shared folder of UTM in VirtFS mode. If you chose SPICE WebDAV, this
+# line does nothing (nofail) and mounts omarchy-arm-share.
 share  /mnt/share  9p  trans=virtio,version=9p2000.L,rw,nofail,x-systemd.automount,_netdev,msize=512000  0  0
 FSTAB
 fi
@@ -769,8 +790,8 @@ usermod -aG docker "$VM_USER" 2>/dev/null || true
 log "etapa 3: dotfiles de Omarchy como $VM_USER"
 chmod +x /root/prov/stage3.sh
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
-# stage3 corre como usuario normal y /root es 0750: cualquier prueba suya sobre
-# /root/prov da falso sin dar error. Se le deja una copia legible en su home.
+# stage3 runs as a normal user and /root is 0750: any test you perform on
+# /root/prov returns false without error. A readable copy is left in their home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
 for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
@@ -780,14 +801,14 @@ cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
 chown -R "$VM_USER:$VM_USER" "$PROVDIR"
 chown "$VM_USER:$VM_USER" "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
 echo "  disponible para stage3: $(ls "$PROVDIR" | tr '\n' ' ')"
-# El resultado de stage3 tiene que llegar al anfitrion: antes se degradaba a un
-# warn y stage2 emitia su token de exito igualmente, asi que un stage3 que
-# fallara entero producia un disco sin un solo dotfile de Omarchy declarado OK.
-# OJO: con `set -e` + trap ERR, escribir `su ...; RC=$?` NO funciona: si su
-# devuelve != 0 el trap dispara y la etapa muere ANTES de la asignacion, asi
-# que el token TOK_STAGE3_<rc> solo se emitia en el caso 0 y el anfitrion nunca
-# llegaba a ver el fallo especifico de stage3. Con `|| RC=$?` el comando esta
-# en contexto probado y set -e no interviene.
+# The result of stage3 must reach the host: previously it degraded to a
+# warn and stage2 emitted its success token anyway, so a completely failed stage3
+# produced a disk with not a single Omarchy dotfile declared OK.
+# NOTE: with `set -e` + trap ERR, writing `su ...; RC=$?` does NOT work: if su
+# returns != 0 the trap triggers and the stage dies BEFORE the assignment, so
+# TOK_STAGE3_<rc> was emitted only when rc=0, and the host never
+# saw the specific failure of stage3. With `|| RC=$?` the command is
+# in a tested context, so set -e does not trigger.
 STAGE3_RC=0
 su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
 [ $STAGE3_RC -eq 0 ] || warn "stage3 termino con errores (rc=$STAGE3_RC)"
@@ -819,23 +840,23 @@ sed -i '/-auth.*pam_gnome_keyring\.so/d;/-password.*pam_gnome_keyring\.so/d' /et
 echo "  sesion=$SESSION"
 ls /usr/local/share/wayland-sessions /usr/share/wayland-sessions 2>/dev/null
 
-# ---------------------------------------------------------------- ajustes VM
+# ---------------------------------------------------------------- VM settings
 log "ajustes propios de maquina virtual"
-# El cursor por hardware y los modificadores DRM dan problemas sobre virtio-gpu
+# The hardware cursor and DRM modifiers cause issues over virtio-gpu
 mkdir -p /etc/environment.d
 cat > /etc/environment.d/90-vm-graphics.conf <<'EOF'
 # virtio-gpu (virgl) bajo UTM/QEMU
 WLR_NO_HARDWARE_CURSORS=1
 AQ_NO_MODIFIERS=1
 WLR_RENDERER_ALLOW_SOFTWARE=1
-# Sin esto, las ventanas de clientes GPU (alacritty, chromium) se mapean pero
-# NO se pintan: virgl no entrega buffers que Hyprland pueda componer. Solo
-# renderizan los clientes que usan wl_shm (foot). Con llvmpipe funcionan todos.
-# Comprobado que NO lo arreglan: AQ_NO_MODIFIERS, render:cm_enabled=false,
+# Without this, GPU client windows (alacritty, chromium) are mapped but
+# NOT painted: virgl does not deliver buffers that Hyprland can compose. Only
+# clients using wl_shm render (foot). With llvmpipe all work.
+# Verified that these do NOT fix it: AQ_NO_MODIFIERS, render:cm_enabled=false,
 # render:explicit_sync (eliminado en Hyprland 0.56).
 LIBGL_ALWAYS_SOFTWARE=1
 EOF
-# consola serie util para depurar desde el host
+# serial console useful for debugging from the host
 systemctl enable serial-getty@ttyAMA0.service 2>/dev/null || true
 
 log "limpieza"
@@ -860,9 +881,9 @@ chmod +x "$W/provision/stage2.sh"
 mkdir -p "$W/provision"
 cat > "$W/provision/stage3.sh" <<'__PAYLOAD_PROVISION_STAGE3_SH__'
 #!/bin/bash
-# Etapa 3 — como usuario normal dentro del chroot.
-# Dotfiles de Omarchy, tema, y las piezas que solo existen en AUR.
-set -uo pipefail   # sin -e: esta etapa es best-effort por partes
+# Stage 3 — as a normal user inside the chroot.
+# Omarchy dotfiles, theme, and the components that exist only in the AUR.
+set -uo pipefail   # no -e: this stage is best-effort in sections
 . ~/config.env
 
 log()  { echo ""; echo "==> [stage3] $*"; }
@@ -873,13 +894,13 @@ export OMARCHY_INSTALL="$OMARCHY_PATH/install"
 export PATH="$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin"
 export OMARCHY_CHROOT_INSTALL=1
 
-# ------------------------------------------------------------ repo de Omarchy
+# ------------------------------------------------------------ Omarchy repository
 log "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
 rm -rf "$OMARCHY_PATH"
 mkdir -p "$(dirname "$OMARCHY_PATH")"
 git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone fallido"; exit 1; }
-# core.fileMode=false ANTES del chmod: si no, los cambios de permiso dejan el
-# checkout sucio y `git pull --ff-only` se niega a actualizarlo despues.
+# core.fileMode=false BEFORE chmod: otherwise, permission changes leave the
+# checkout dirty and `git pull --ff-only` refuses to update it afterwards.
 git -C "$OMARCHY_PATH" config core.fileMode false
 find "$OMARCHY_PATH/bin" -type f -exec chmod +x {} \; 2>/dev/null
 echo "  version: $(cat "$OMARCHY_PATH/version" 2>/dev/null)"
@@ -906,39 +927,39 @@ aur_install() {
 }
 
 AUR_OK=(); AUR_KO=()
-# xdg-terminal-exec resuelve $TERMINAL. walker y elephant NO se instalan:
-# quattro los jubila (ver bin/omarchy-upgrade-to-quattro), el lanzador y el
-# menu son paneles de quickshell (`omarchy-shell shell toggle omarchy.menu`).
+# xdg-terminal-exec resolves $TERMINAL. walker and elephant are NOT installed:
+# quattro retires them (see bin/omarchy-upgrade-to-quattro), the launcher and the
+# menu are quickshell panels (`omarchy-shell shell toggle omarchy.menu`).
 for p in yay xdg-terminal-exec; do
   if aur_install "$p"; then AUR_OK+=("$p"); else AUR_KO+=("$p"); fi
 done
 echo "  AUR ok:    ${AUR_OK[*]:-ninguno}"
 echo "  AUR falló: ${AUR_KO[*]:-ninguno}"
 
-# Sustituto si xdg-terminal-exec no compiló: Omarchy usa $TERMINAL=xdg-terminal-exec
+# Fallback if xdg-terminal-exec failed to compile: Omarchy uses $TERMINAL=xdg-terminal-exec
 if ! command -v xdg-terminal-exec >/dev/null 2>&1; then
   warn "xdg-terminal-exec ausente: instalando un envoltorio sobre alacritty"
   sudo install -m 0755 /dev/stdin /usr/local/bin/xdg-terminal-exec <<'EOF'
 #!/bin/sh
-# Envoltorio minimo: Omarchy exporta TERMINAL=xdg-terminal-exec.
-# El respaldo es foot, que si esta en omarchy-base.packages de quattro
-# (alacritty no lo esta: apuntar ahi dejaba $TERMINAL roto).
+# Minimal wrapper: Omarchy exports TERMINAL=xdg-terminal-exec.
+# The fallback is foot, which is included in quattro's omarchy-base.packages
+# (alacritty is not: pointing there left $TERMINAL broken).
 T=$(command -v foot || command -v alacritty || command -v xterm) || exit 127
 if [ "$#" -eq 0 ]; then exec "$T"; fi
 exec "$T" -e "$@"
 EOF
 fi
 
-# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64.
-# El respaldo es foot, que SI viene en omarchy-base.packages de quattro (y
-# alacritty NO: no esta ni en esa lista ni en la de infra). Nombrar
-# Alacritty.desktop aqui apuntaba a un .desktop que no existe en la imagen, y
-# xdg-terminal-exec acababa eligiendo por descarte. Se listan por preferencia
-# y solo los que de verdad estan instalados.
+# Default terminal: Omarchy prefers ghostty, which does not exist for aarch64.
+# The fallback is foot, which IS included in quattro's omarchy-base.packages (and
+# alacritty is NOT: it is not in that list nor in the infrastructure list. Naming
+# Alacritty.desktop here pointed to a .desktop file that does not exist in the image, and
+# xdg-terminal-exec ended up choosing a fallback. Entries are listed by preference
+# and only those that are actually installed.
 : > ~/.config/xdg-terminals.list
-# Nombres literales, sin ${t^}: eso es bash 4 y aunque aqui dentro haya bash 5,
-# no merece la pena dejar un bash-4-ismo en un payload que tambien se lee en un
-# Mac con bash 3.2.
+# Literal names, without ${t^}: that is bash 4 and although bash 5 is present here,
+# it is not worth leaving a bash-4-ism in a payload that is also read in a
+# Mac with bash 3.2.
 for f in com.mitchellh.ghostty.desktop ghostty.desktop \
          foot.desktop Alacritty.desktop alacritty.desktop xterm.desktop; do
   for d in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
@@ -948,27 +969,27 @@ done
 [ -s ~/.config/xdg-terminals.list ] || printf 'foot.desktop\n' > ~/.config/xdg-terminals.list
 echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
 
-# ------------------------------------------------ integracion de sistema
-# Omarchy 4 se distribuye como paquete pacman que coloca el arbol en
-# /usr/share/omarchy, los binarios en el PATH del sistema y hooks en
-# /etc/profile.d y /usr/share/uwsm/env.d. Ese paquete solo existe para x86_64,
-# asi que aqui se replica a mano. Sin esto OMARCHY_PATH queda vacio y Hyprland
-# arranca en modo emergencia por no encontrar default/hypr/bootstrap.lua.
+# ------------------------------------------------ system integration
+# Omarchy 4 is distributed as a pacman package that places the tree in
+# /usr/share/omarchy, binaries in the system PATH, and hooks in
+# /etc/profile.d and /usr/share/uwsm/env.d. This package only exists for x86_64,
+# so it is manually replicated here. Without this, OMARCHY_PATH remains empty and Hyprland
+# starts in emergency mode because it cannot find default/hypr/bootstrap.lua.
 log "integrando Omarchy en las rutas de sistema (sustituye al paquete pacman)"
 sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
-# Los comandos van a /usr/bin, que es donde los pone el package() de upstream.
-# Ponerlos en /usr/local/bin parecia mas limpio (no choca con pacman) pero
-# rompe cosas: el arbol lleva 13 rutas /usr/bin/omarchy-* cableadas, cinco de
-# ellas en ficheros .service. enable-user-units.sh fallaba por eso, y como
-# first-run solo se marca hecho si NINGUN paso falla, se repetia en cada login
-# reenviando el aviso "Update System" para siempre.
-# Comprobado: ninguno de los 433 nombres colisiona con un paquete de ALARM.
+# Commands go to /usr/bin, which is where the upstream package() places them.
+# Placing them in /usr/local/bin seemed cleaner (does not conflict with pacman) but
+# breaks things: the tree has 13 hardcoded /usr/bin/omarchy-* paths, five of
+# which are in .service files. enable-user-units.sh failed because of this, and since
+# first-run is only marked as done if NO step fails, it repeated on every login
+# perpetually showing the "Update System" notification.
+# Verified: none of the 433 names collide with any ALARM package.
 sudo mkdir -p /usr/bin
-# Los enlaces apuntan a /usr/share/omarchy, NO a $OMARCHY_PATH. Aqui son la
-# misma cosa (el primero es un symlink al segundo), pero el sanitizador
-# convierte /usr/share/omarchy en directorio real y renombra al usuario: un
-# enlace a /home/<constructor>/... queda colgado y se lleva por delante los 433
-# comandos. /usr/share/omarchy es la unica ruta estable de las dos.
+# The symlinks point to /usr/share/omarchy, NOT to $OMARCHY_PATH. Here they are the
+# same thing (the first is a symlink to the second), but the sanitizer
+# converts /usr/share/omarchy into a real directory and renames it for the user: a
+# symlink to /home/<builder>/... becomes dangling and takes the 433
+# commands with it. /usr/share/omarchy is the only stable path of the two.
 n=0
 for f in "$OMARCHY_PATH"/bin/*; do
   [ -f "$f" ] || continue
@@ -976,12 +997,12 @@ for f in "$OMARCHY_PATH"/bin/*; do
   sudo ln -sfn "/usr/share/omarchy/bin/$(basename "$f")" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
 echo "  $n binarios en /usr/bin -> /usr/share/omarchy/bin"
-# Las unidades de usuario van a /usr/lib/systemd/user/, que es donde systemd las
-# busca. Las instala el paquete omarchy-settings, que tampoco existe para ARM.
-# Sin esto, install/user/first-run/enable-user-units.sh falla en cada login, y
-# como omarchy-provision-first-run solo se marca hecho si NINGUN paso falla, el
-# first-run se repite indefinidamente reenviando el aviso "Update System".
-# Fuente: docs/file-layout.md, "systemd/user/*.service → /usr/lib/systemd/user/".
+# User units go to /usr/lib/systemd/user/, which is where systemd looks for them.
+# The omarchy-settings package installs them upstream, but it does not exist for ARM.
+# Without this, install/user/first-run/enable-user-units.sh fails on every login, and
+# since omarchy-provision-first-run is only marked as done if NO step fails, the
+# first-run repeats indefinitely, resending the "Update System" notification.
+# Source: docs/file-layout.md, "systemd/user/*.service → /usr/lib/systemd/user/".
 if [ -d "$OMARCHY_PATH/default/systemd/user" ]; then
   sudo install -d /usr/lib/systemd/user
   sudo cp -a "$OMARCHY_PATH/default/systemd/user/." /usr/lib/systemd/user/
@@ -1000,12 +1021,12 @@ for d in system.conf.d user.conf.d logind.conf.d oomd.conf.d; do
 done
 [ -d "$OMARCHY_PATH/etc/fastfetch" ] && sudo cp -a "$OMARCHY_PATH/etc/fastfetch" /etc/ 2>/dev/null || true
 [ -d "$OMARCHY_PATH/etc/gnupg" ] && sudo cp -a "$OMARCHY_PATH/etc/gnupg/." /etc/gnupg/ 2>/dev/null || true
-# systemd-oomd viene configurado en etc/systemd/oomd.conf.d pero hay que
-# habilitarlo; NetworkManager-wait-online retrasa el arranque sin aportar nada
-# en una VM con red de usuario.
+# systemd-oomd is configured in etc/systemd/oomd.conf.d but it must be
+# enabled; NetworkManager-wait-online delays boot without providing any
+# benefit in a VM with user-mode networking.
 sudo systemctl enable systemd-oomd.service 2>/dev/null || true
 sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
-# gnome-keyring en el PAM de SDDM bloquea el autologin sin llavero configurado
+# gnome-keyring in SDDM's PAM configuration blocks autologin without a configured keyring
 for pf in /etc/pam.d/sddm /etc/pam.d/sddm-autologin /etc/pam.d/sddm-greeter; do
   [ -f "$pf" ] && sudo sed -i '/-auth.*pam_gnome_keyring\.so/d;/-password.*pam_gnome_keyring\.so/d' "$pf"
 done
@@ -1032,75 +1053,75 @@ if [ ! -e ~/.config/omarchy/current/theme ]; then
   mkdir -p ~/.config/omarchy/current
   ln -snf "$OMARCHY_PATH/themes/tokyo-night" ~/.config/omarchy/current/theme
 fi
-# Enlaces de tema por app. En quattro el tema activo vive en
-# ~/.local/state/omarchy/current/theme (bin/omarchy-theme-set:12), no en
-# ~/.config/omarchy/current, que es la ruta de Omarchy 3 y aqui no existe.
-# No hay enlace de mako: quattro no tiene demonio de notificaciones externo.
+# Per-app theme links. In quattro, the active theme resides in
+# ~/.local/state/omarchy/current/theme (bin/omarchy-theme-set:12), not in
+# ~/.config/omarchy/current, which is the Omarchy 3 path and does not exist here.
+# There is no mako link: quattro has no external notification daemon.
 mkdir -p ~/.config/btop/themes
 ln -snf ~/.local/state/omarchy/current/theme/btop.theme ~/.config/btop/themes/current.theme
 ls -l ~/.local/state/omarchy/current/ 2>/dev/null
 
-# ------------------------------------------------------------ ajustes de VM
+# ------------------------------------------------------------ VM adjustments
 log "ajustes para máquina virtual"
-# quattro usa configuracion Lua: escribir monitors.conf no serviria de nada.
+# quattro uses Lua configuration: writing monitors.conf would be useless.
 cat > ~/.config/hypr/monitors.lua <<'LUA'
 -- See https://wiki.hypr.land/Configuring/Basics/Monitors/
--- Modos disponibles:  hyprctl monitors all
+-- Available modes: hyprctl monitors all
 --
--- VM en UTM/QEMU con virtio-gpu. Dos ajustes respecto a los valores de Omarchy:
+-- VM in UTM/QEMU with virtio-gpu. Two adjustments compared to Omarchy's values:
 --
---  1. Escala 1 (Omarchy asume pantallas retina 2x; en la VM deja todo gigante).
---  2. Resolucion fija 1920x1200 en vez de "preferred", que da 1280x800.
+--  1. Scale 1 (Omarchy assumes 2x retina screens; in the VM, everything would be huge).
+--  2. Fixed resolution 1920x1200 instead of "preferred", which yields 1280x800.
 --
--- IMPORTANTE: cambiar el modo EN CALIENTE (hyprctl / recarga de config) rompe
--- el renderizado bajo virgl: el escritorio se queda en blanco hasta reiniciar.
--- Aplicado desde el arranque funciona bien. Si tocas esto, reinicia la VM.
+-- IMPORTANT: changing the mode at runtime (hyprctl / config reload) breaks
+-- rendering under virgl: the desktop remains blank until reboot.
+-- Applying at boot works fine. If you modify this, restart the VM.
 --
--- Para que la resolucion siga al tamano de la ventana de UTM:
---   hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+-- To make the resolution follow the UTM window size:
+--  hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 hl.env("GDK_SCALE", "1")
 hl.monitor({ output = "Virtual-1", mode = "1920x1200@60", position = "0x0", scale = 1 })
 LUA
 rm -f ~/.config/hypr/monitors.conf ~/.config/hypr/autostart.conf
 
-# Portapapeles compartido con el host de UTM
+# Shared clipboard with the UTM host
 cat > ~/.config/hypr/autostart.lua <<'LUA'
--- Procesos extra al iniciar la sesion.
+-- Extra processes launched at session start.
 hl.on("hyprland.start", function()
-  -- spice-vdagent NO se lanza: su portapapeles es X11 y bajo Hyprland muere
-  -- con "cannot open display". Peor aun, si arranca, vdagentd ve dos agentes
-  -- en la misma sesion y desconecta a los dos ("multiple agents in one
-  -- session"). El portapapeles lo lleva omarchy-arm-vdagent, como servicio
-  -- de usuario.
+  -- spice-vdagent is NOT launched: its clipboard is X11-only and under Hyprland it fails
+  -- with "cannot open display". Worse, if it starts, vdagentd detects two agents
+  -- in the same session and disconnects both ("multiple agents in one
+  -- session"). The clipboard is handled by omarchy-arm-vdagent, as a user
+  -- service.
 end)
 LUA
 
-# --- sellar migraciones: un install limpio nace con el estado final -------
-# Sin esto omarchy-update intenta reproducir ~80 migraciones historicas y muere
-# en la primera que instale un paquete propio de Omarchy (x86_64 only).
+# --- seal migrations: a clean install starts with the final state -------
+# Without this, omarchy-update attempts to replay ~80 historical migrations and dies
+# on the first one that installs an Omarchy-specific package (x86_64 only).
 mkdir -p ~/.local/state/omarchy/migrations
 for f in "$OMARCHY_PATH"/migrations/*.sh; do
   [ -f "$f" ] && : > ~/.local/state/omarchy/migrations/"$(basename "$f")"
 done
 echo "  migraciones selladas: $(ls -1 ~/.local/state/omarchy/migrations | wc -l)"
 
-# --- branding (about + salvapantallas) -----------------------------------
+# --- branding (about + screensaver) --------------------------------------
 mkdir -p ~/.config/omarchy/branding
 cp "$OMARCHY_PATH/icon.txt" ~/.config/omarchy/branding/about.txt 2>/dev/null || true
 cp "$OMARCHY_PATH/logo.txt" ~/.config/omarchy/branding/screensaver.txt 2>/dev/null || true
 
-# --- omarchy-pkg-add tolerante con lo que no existe en ARM ---------------
-# CRITICO: /usr/local/bin/omarchy-pkg-add es un symlink al arbol. Escribir con
-# `tee` lo seguiria y reemplazaria el script ORIGINAL de Omarchy por este
-# envoltorio, cuyo REAL apuntaria entonces a si mismo: bucle infinito. Hay que
-# borrar el symlink y crear un fichero real.
+# --- omarchy-pkg-add tolerant of what does not exist on ARM ---------------
+# CRITICAL: /usr/local/bin/omarchy-pkg-add is a symlink to the tree. Writing with
+# `tee` would follow and replace the ORIGINAL Omarchy script with this
+# wrapper, whose REAL target would then point to itself: infinite loop. You must
+# delete the symlink and create a real file.
 sudo rm -f /usr/local/bin/omarchy-pkg-add
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-pkg-add <<'WRAP'
 #!/bin/bash
-# Envoltorio para Arch Linux ARM: los paquetes propios de Omarchy (tensaku,
-# omarchy-nvim, ttfx...) y varias apps propietarias solo existen para x86_64.
-# El original aborta si falta alguno, lo que tumba omarchy-update entero y deja
-# las migraciones a medias. Aqui se omiten con un aviso y se instala el resto.
+# Wrapper for Arch Linux ARM: Omarchy's own packages (tensaku,
+# omarchy-nvim, ttfx...) and several proprietary apps only exist for x86_64.
+# The original aborts if any are missing, which crashes omarchy-update entirely and leaves
+# migrations incomplete. Here they are skipped with a warning and the rest are installed.
 REAL=/usr/share/omarchy/bin/omarchy-pkg-add
 avail=(); skip=()
 for p in "$@"; do
@@ -1115,22 +1136,22 @@ done
 exec "$REAL" "${avail[@]}"
 WRAP
 
-# --- herramientas de Omarchy que no se publican para aarch64 -------------
-# Casi ninguna es incompatible: son Rust, Go o Qt/C++ y solo les falta que
-# alguien las construya. Varias declaran arch=(x86_64) por omision, no porque
-# el codigo no sea portable; en esos casos basta con anadir la arquitectura.
-# Se compilan en orden de coste creciente y ninguna es fatal si falla.
+# --- Omarchy tools not published for aarch64 -------------
+# Almost none are incompatible: they are Rust, Go, or Qt/C++ and only lack
+# someone to build them. Several declare arch=(x86_64) by default, not because
+# the code is not portable; in those cases, simply add the architecture.
+# They are compiled in order of increasing cost, and none is fatal if it fails.
 build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
-  # Un unico `local` expande todos los valores antes de asignar ninguno,
-  # asi que $pkg no existe aun al construir $dir. Hay que separarlos.
+  # A single `local` expands all values before assigning any,
+  # so $pkg does not yet exist when building $dir. They must be separated.
   local src="$1" pkg="$2"
   local dir="/tmp/omabuild/$pkg"
   pacman -Q "$pkg" >/dev/null 2>&1 && return 0
   rm -rf "$dir"; mkdir -p "$dir"
   case "$src" in
     aur)
-      # Las URL de AUR usan el PackageBase, que no siempre es el nombre del
-      # paquete (yaru-icon-theme vive en el repo "yaru").
+      # AUR URLs use the PackageBase, which is not always the name of the
+      # package (yaru-icon-theme lives in the "yaru" repo).
       local base
       base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
              | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
@@ -1144,30 +1165,30 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
       rm -rf "$dir/repo" ;;
   esac
   [ -f "$dir/PKGBUILD" ] || return 1
-  # 'any' puede venir sin comillas; mezclarlo con arquitecturas concretas es un
-  # error de makepkg, asi que solo se parchea cuando no es 'any' ni trae aarch64.
+  # 'any' may come without quotes; mixing it with specific architectures is a
+  # makepkg error, so it is only patched when it is not 'any' and does not include aarch64.
   grep -qE "^arch=\(.*\b(aarch64|any)\b" "$dir/PKGBUILD" || \
     sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" "$dir/PKGBUILD"
-  # Un PKGBUILD puede generar varios subpaquetes y que solo uno de ellos tenga
-  # una dependencia ausente en ARM (yaru-gtk-theme necesita gtk-engine-murrine).
-  # Se compila sin instalar y despues se instala solo el subpaquete pedido.
-  # -s instala las dependencias de compilacion. Sin el, la mayoria de estos
-  # PKGBUILD fallan en el primer paso por makedepends ausentes. No se usa -i
-  # porque la instalacion se hace despues, subpaquete a subpaquete.
-  # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
-  # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
-  # decia "no compilaron: X" y no habia forma de averiguar nada mas.
-  # El limite de velocidad lo quita DisableDownloadTimeout en /etc/pacman.conf
-  # (lo pone stage2): asi lo hereda tambien el pacman que lanza makepkg -s para
-  # sus dependencias. Pasarlo por la variable PACMAN no vale, porque makepkg la
-  # invoca entrecomillada y una cadena con argumentos se busca como si fuera el
-  # nombre del ejecutable.
+  # A PKGBUILD can generate several subpackages, with only one of them having
+  # a missing dependency on ARM (yaru-gtk-theme needs gtk-engine-murrine).
+  # It is compiled without installing, and then only the requested subpackage is installed.
+  # -s installs build dependencies. Without it, most of these
+  # PKGBUILDs fail at the first step due to missing makedepends. -i is not used
+  # because installation is done afterwards, subpackage by subpackage.
+  # If it fails, the log is the only thing that explains why, and until now it was lost
+  # with the `rm -rf /tmp/omabuild` two lines below: the build
+  # said "did not compile: X" and there was no way to find out anything else.
+  # The speed limit is removed by DisableDownloadTimeout in /etc/pacman.conf
+  # (it is set in stage2): so it is also inherited by the pacman that runs makepkg -s for
+  # its dependencies. Passing it via the PACMAN variable does not work, because makepkg invokes it
+  # quoted, and a string with arguments is searched as if it were the
+  # executable name.
   if ( cd "$dir" && makepkg -s --noconfirm --needed --noprogressbar --nocheck ) >"$dir/build.log" 2>&1; then
     local built
     built=$(ls "$dir/$pkg"-*.pkg.tar.* 2>/dev/null | head -1)
     [ -n "$built" ] || built=$(ls "$dir"/*.pkg.tar.* 2>/dev/null | head -1)
-    # theme-system.sh ya creo symlinks dentro de /usr/share/icons/Yaru porque el
-    # tema no estaba: el paquete real choca con ellos. --overwrite lo resuelve.
+    # theme-system.sh already created symlinks inside /usr/share/icons/Yaru because the
+    # theme was missing: the real package conflicts with them. --overwrite resolves this.
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
   else
@@ -1180,8 +1201,8 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   fi
 }
 
-# Algunos PKGBUILD invocan zig por ruta fija y versionada (/opt/zig0.15/zig).
-# En ARM solo hay una version de zig, asi que se enlaza donde la buscan.
+# Some PKGBUILDs invoke zig via a fixed, versioned path (/opt/zig0.15/zig).
+# On ARM there is only one zig version, so link it at the path these builds expect.
 if pacman -Si zig >/dev/null 2>&1; then
   sudo pacman -S --noconfirm --needed --disable-download-timeout zig >/dev/null 2>&1 || true
   for v in zig0.15 zig0.14; do
@@ -1209,47 +1230,47 @@ echo "  compiladas: ${TOOLS_OK[*]:-ninguna}"
 [ ${#TOOLS_KO[@]} -gt 0 ] && warn "no compilaron: ${TOOLS_KO[*]}"
 rm -rf /tmp/omabuild
 fi
-# Omarchy sustituye a proposito dos iconos de Yaru por los de Adwaita; si Yaru
-# se acaba de instalar hay que volver a aplicarlo.
+# Omarchy intentionally replaces two Yaru icons with Adwaita ones; if Yaru
+# has just been installed, it needs to be reapplied.
 sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" >/dev/null 2>&1 || true
 
-# herdr queda fuera: su PKGBUILD usa `zig fetch` con la semantica de Zig 0.15 y
-# Arch Linux ARM solo empaqueta 0.16 ("no build.zig file found"). Construir
-# zig0.15 desde fuente son horas y es una herramienta de desarrollo, no del
-# escritorio.
+# herdr is left out: its PKGBUILD uses `zig fetch` with Zig 0.15 semantics and
+# Arch Linux ARM only packages 0.16 ("no build.zig file found"). Building
+# Building zig 0.15 from source takes hours, and it is a development tool rather than a
+# desktop runtime dependency.
 
-# --- el aviso de reinicio por kernel, que en ARM no se apaga nunca -------
-# omarchy-update-restart decide si el kernel cambio buscando un vmlinuz dentro
-# de /usr/lib/modules/<version>/ que pertenezca a un paquete. En Arch x86_64 el
-# paquete linux lo instala ahi; en Arch Linux ARM, linux-aarch64 deja la imagen
-# en /boot/Image y NO crea ese vmlinuz. El bucle no encuentra nada, la variable
-# se queda en "true" y pide reiniciar en cada actualizacion, para siempre.
-# Este envoltorio compara lo que de verdad toca: uname -r contra el directorio
-# de modulos que posee el paquete del kernel. /usr/local/bin va antes que
-# /usr/bin en el PATH, asi que sustituye al original sin tocar el arbol.
+# --- The kernel restart warning, which on ARM never shuts down -------
+# omarchy-update-restart decides whether the kernel changed by looking for a vmlinuz inside
+# /usr/lib/modules/<version>/ that belongs to a package. On x86_64 Arch the
+# linux package installs it there; on Arch Linux ARM, linux-aarch64 leaves the image
+# in /boot/Image and DOES NOT create that vmlinuz. The loop finds nothing, the variable
+# remains "true" and requests a restart on every update, forever.
+# This wrapper compares what actually matters: uname -r against the directory
+# of modules owned by the kernel package. /usr/local/bin comes before
+# /usr/bin in the PATH, so it replaces the original without touching the tree.
 log "envoltorio de omarchy-update-restart (aviso de kernel en ALARM)"
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-update-restart <<'KRN'
 #!/bin/bash
-# En Arch Linux ARM el kernel no deja vmlinuz en /usr/lib/modules/<ver>/, que es
-# lo que busca el original: sin eso pide reiniciar siempre. Se compara uname -r
-# con el directorio de modulos que pertenece al paquete del kernel.
+# On Arch Linux ARM the kernel does not leave a vmlinuz in /usr/lib/modules/<ver>/, which is
+# what the original looks for: without it, it always requests a restart. It compares uname -r
+# with the module directory belonging to the kernel package.
 if [ -z "${OMARCHY_SKIP_KERNEL_CHECK:-}" ]; then
-  # modules.dep lo genera depmod y no pertenece a ningun paquete. modules.builtin
-  # si lo trae linux-aarch64, asi que sirve para saber si el directorio de
-  # modulos del kernel en ejecucion es el del paquete instalado.
+  # modules.dep is generated by depmod and does not belong to any package. modules.builtin
+  # is provided by linux-aarch64, so it serves to determine whether the directory of
+  # modules for the running kernel is the one from the installed package.
   pkg=$(pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null \
         || pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.order 2>/dev/null || true)
   if [ -n "$pkg" ]; then
-    # El directorio de modulos del kernel en ejecucion pertenece al paquete
-    # instalado: no hay kernel nuevo esperando un reinicio.
+    # The module directory for the running kernel belongs to the installed
+    # package: there is no new kernel waiting for a restart.
     export OMARCHY_KERNEL_CURRENT=1
   fi
 fi
 REAL=/usr/bin/omarchy-update-restart
 [ -x "$REAL" ] || exit 0
 if [ -n "${OMARCHY_KERNEL_CURRENT:-}" ]; then
-  # Se omite solo el bloque del kernel; el resto (Hyprland, servicios, shell)
-  # se deja intacto ejecutando el original con esa comprobacion ya resuelta.
+  # Only the kernel block is omitted; the rest (Hyprland, services, shell)
+  # is left intact by running the original with that check already resolved.
   sed 's#^kernel_updated=true$#kernel_updated=false#' "$REAL" | bash -s -- "$@"
 else
   exec "$REAL" "$@"
@@ -1257,16 +1278,14 @@ fi
 KRN
 echo "  /usr/local/bin/omarchy-update-restart"
 
-# --- ttfx: efectos de texto del salvapantallas (Rust, ~12 min) -----------
+# --- ttfx: screensaver text effects (Rust, ~12 min) ----------------------
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   log "compilando ttfx desde fuente (no existe para aarch64)"
   rm -rf /tmp/ttfx-src
-  # La ruta de compilacion se queda DENTRO del binario: Rust mete la ruta del
-  # fuente en los mensajes de panic (.rodata), y ahi strip no llega. Si se
-  # compila desde $HOME, la imagen que se reparte acaba diciendo quien la
-  # construyo. Se compila en /tmp, con CARGO_HOME en /tmp para que las rutas de
-  # las dependencias tampoco pasen por el home, y con --remap-path-prefix por si
-  # alguna se cuela igualmente.
+  # Rust embeds the source path in panic messages (.rodata), beyond strip's
+  # reach. Compiling from $HOME would reveal who built the distributed image.
+  # Build in /tmp, keep CARGO_HOME there so dependency paths avoid the home
+  # directory, and use --remap-path-prefix in case any paths still slip through.
   if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
      && ( cd /tmp/ttfx-src \
           && CARGO_HOME=/tmp/cargo-ttfx \
@@ -1280,10 +1299,10 @@ if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   rm -rf /tmp/ttfx-src /tmp/cargo-ttfx
 fi
 
-# --- teclado: layout es y Super utilizable desde macOS -------------------
-# macOS intercepta Cmd antes de que UTM lo vea (Cmd+Space abre Spotlight), asi
-# que los atajos SUPER de Omarchy serian inalcanzables. altwin:swap_lalt_lwin
-# intercambia Alt y Super: la tecla Option (⌥) del Mac actua como SUPER.
+# --- keyboard: layout is y and Super usable from macOS -------------------
+# macOS intercepts Cmd before UTM sees it (Cmd+Space opens Spotlight), making
+# Omarchy's SUPER shortcuts unreachable. altwin:swap_lalt_lwin swaps Alt and
+# Super, so the Mac's Option (⌥) key acts as SUPER.
 cat > ~/.config/hypr/input.lua <<LUA
 hl.config({
   input = {
@@ -1293,7 +1312,7 @@ hl.config({
 })
 LUA
 
-# --- sin blur: el render va por llvmpipe (ver 90-vm-graphics.conf) --------
+# --- no blur: rendering goes through llvmpipe (see 90-vm-graphics.conf) --------
 cat > ~/.config/hypr/looknfeel.lua <<'LUA'
 hl.config({
   decoration = {
@@ -1303,21 +1322,21 @@ hl.config({
 })
 LUA
 
-# --- refuerzo del entorno para apps lanzadas por uwsm --------------------
+# --- reinforcement of the environment for apps launched by uwsm --------------------
 mkdir -p ~/.config/uwsm/env.d
 cat > ~/.config/uwsm/env.d/20-vm-graphics <<'ENVEOF'
 export LIBGL_ALWAYS_SOFTWARE=1
 ENVEOF
 
-# Directorios de usuario
+# User directories
 xdg-user-dirs-update 2>/dev/null || true
 mkdir -p ~/Pictures/Screenshots ~/Videos ~/Desktop ~/Documents ~/Downloads
 
 # ------------------------------------------------------------ git
-# --- instalador opcional de apps que no vienen en la imagen ---------------
-# Varias apps (1Password, Obsidian, Typora, LocalSend) SI tienen build arm64
-# oficial, pero son propietarias: incluirlas en una imagen que se distribuye
-# seria redistribuir binarios de terceros. Se deja el instalador a mano.
+# --- optional installer for apps not included in the image ---------------
+# Several apps (1Password, Obsidian, Typora, LocalSend) DO have official arm64
+# builds, but they are proprietary. Including them in a distributed image would
+# redistribute third-party binaries, so the installer is left for manual use.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
   log "instalador de apps opcionales (omarchy-arm-extras)"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-extras" /usr/local/bin/omarchy-arm-extras
@@ -1334,24 +1353,24 @@ DESK
   echo "  disponible como comando y en el menu de aplicaciones"
 fi
 
-# --- portapapeles compartido con el anfitrion ---------------------------
-# El portapapeles de SPICE va en tres saltos:
-#   cliente SPICE (UTM) <-virtio-> spice-vdagentd <-socket unix-> agente
-# El demonio habla con el anfitrion; el agente de sesion solo habla con el
-# demonio. El agente OFICIAL entrega el portapapeles a X11 (vdagent.c:421 ->
+# --- shared clipboard with the host ---------------------------
+# The SPICE clipboard goes through three hops:
+#   SPICE client (UTM) <-virtio-> spice-vdagentd <-unix socket-> agent
+# The daemon communicates with the host; the session agent only communicates with the
+# daemon. The OFFICIAL agent hands off the clipboard to X11 (vdagent.c:421 ->
 # vdagent_clipboards_new(vdagent_display_get_x11(...)), cero referencias a
-# wlr-data-control) y bajo Hyprland muere con "cannot open display".
+# wlr-data-control) and under Hyprland it dies with "cannot open display".
 #
-# omarchy-arm-vdagent ocupa ese hueco: mismo protocolo udscs con el demonio,
-# pero al otro lado wl-copy/wl-paste. El demonio se queda como esta (con -X,
-# ver stage2): sustituimos el agente, NO el demonio. Intentar hablar por el
-# puerto virtio directamente deja al demonio sin canal ("Device or resource
-# busy") y el anfitrion ignora todo.
+# omarchy-arm-vdagent fills that gap: same udscs protocol with the daemon,
+# but on the other side wl-copy/wl-paste. The daemon remains as is (with -X,
+# see stage2): we replace the agent, NOT the daemon. Attempting to communicate via the
+# virtio port directly leaves the daemon without a channel ("Device or resource
+# busy") and the host ignores everything.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
   log "agente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
-  # El agente oficial no debe arrancar: vdagentd desconecta a los dos si ve
-  # dos agentes en la misma sesion ("multiple agents in one session").
+  # The official agent must not start: vdagentd disconnects both if it sees
+  # two agents in the same session ("multiple agents in one session").
   sudo systemctl --global mask spice-vdagent.service 2>/dev/null || true
   mkdir -p ~/.config/systemd/user
   cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
@@ -1363,7 +1382,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
-# El socket lo crea spice-vdagentd al arrancar; si aun no esta, se reintenta.
+# The socket is created by spice-vdagentd at startup; if it is not yet present, it retries.
 ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/spice-vdagentd/spice-vdagent-sock ] && exit 0; sleep 2; done; exit 1'
 ExecStart=/usr/local/bin/omarchy-arm-vdagent
 Restart=on-failure
@@ -1376,8 +1395,8 @@ UNIT
   systemctl --user enable omarchy-arm-vdagent.service 2>/dev/null || true
   echo "  /usr/local/bin/omarchy-arm-vdagent + servicio de usuario"
 fi
-# Puente por carpeta compartida, como alternativa si el canal SPICE no esta
-# disponible (por ejemplo con el backend de virtualizacion de Apple).
+# Shared folder bridge, as an alternative if the SPICE channel is not
+# available (for example with Apple's virtualization backend).
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
   echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
@@ -1386,11 +1405,11 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-share" /usr/local/bin/omarchy-arm-share
   echo "  /usr/local/bin/omarchy-arm-share (monta la carpeta, sea VirtFS o WebDAV)"
 
-  # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
-  # asi es como se distribuye. Se instalan con el mismo instalador para no
-  # duplicar su logica (OBS necesita quitar el plugin de navegador, cuyo CEF es
-  # x86-only; Pinta necesita el .NET arm64 de Microsoft, que Arch no empaqueta).
-  # Es lo mas caro del build: ~45 min. HACER_LIBRES=no lo omite.
+  # OBS Studio and Pinta are free software: they can be included in the image, and
+  # that is how they are distributed. They are installed with the same installer to avoid
+  # duplicating their logic (OBS needs to remove the browser plugin, whose CEF is
+  # x86-only; Pinta needs Microsoft's .NET arm64, which Arch does not package).
+  # This is the most expensive part of the build: ~45 min. HACER_LIBRES=no skips it.
   if [ "${HACER_LIBRES:-si}" = "si" ]; then
     log "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
@@ -1405,13 +1424,13 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   fi
 fi
 
-# --- actualizaciones: que "Update System" funcione y sea reversible --------
-# a) snapper: sin el, omarchy-snapshot devuelve 127 y cada actualizacion se hace
-#    sin instantanea previa, es decir sin posibilidad de volver atras.
-# b) hook post-update: omarchy-update-dev solo hace `git pull` cuando
-#    OMARCHY_PATH apunta FUERA de /usr/share/omarchy, y aqui apunta justo ahi.
-#    Sin el hook, el sistema recibe paquetes pero el arbol de Omarchy (scripts,
-#    temas, configuracion) se queda congelado en la version clonada.
+# --- updates: ensure "Update System" works and is reversible --------
+# a) snapper: without it, omarchy-snapshot returns 127 and each update becomes
+#    without a previous snapshot, i.e., without the ability to go back.
+# b) post-update hook: omarchy-update-dev only performs `git pull` when
+#    OMARCHY_PATH points OUTSIDE of /usr/share/omarchy, and here it points exactly there.
+#    Without the hook, the system receives packages but the Omarchy tree (scripts,
+#    themes, configuration) remains frozen at the cloned version.
 log "actualizaciones: snapper + hook post-update"
 sudo pacman -S --noconfirm --needed --disable-download-timeout snapper >/dev/null 2>&1 || warn "snapper no disponible"
 if command -v snapper >/dev/null 2>&1; then
@@ -1445,16 +1464,16 @@ chmod +x "$W/provision/stage3.sh"
 mkdir -p "$W/provision"
 cat > "$W/provision/repair.sh" <<'__PAYLOAD_PROVISION_REPAIR_SH__'
 #!/bin/sh
-# Reabre el sistema ya instalado en /dev/vda y ejecuta un script dentro del chroot,
-# sin volver a particionar ni descargar nada. Para iterar tras un fallo puntual.
+# Re-mount the already installed system on /dev/vda and run a script inside the chroot,
+# without re-partitioning or downloading anything. To iterate after a specific failure.
 set -eu
 PROV=/media/prov
 log() { echo ""; echo "==> [repair] $*"; }
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "TOK_REPAIR_$rc"' EXIT
 
 log "modulos del kernel"
-# Montar btrfs/vfat solo necesita el modulo del kernel, no las utilidades de
-# espacio de usuario: esta etapa NO depende de que haya red.
+# Mounting btrfs/vfat only requires the kernel module, not the user-space utilities:
+# this stage does NOT depend on having network access.
 for m in btrfs vfat fat nls_cp437 nls_iso8859-1 nls_utf8 crc32c-generic xxhash_generic; do
   modprobe "$m" 2>/dev/null || true
 done
@@ -1505,8 +1524,8 @@ chroot /mnt /bin/bash "/root/prov/$FIXSCRIPT"
 rc=$?
 set -e
 
-# El directorio de trabajo no debe quedarse dentro del sistema: se acumulan ahi
-# todos los scripts de reparacion de todas las pasadas.
+# The working directory must not be left inside the system: all repair scripts from
+# previous runs accumulate there.
 log "retirando /root/prov del sistema instalado"
 ls /mnt/root/prov 2>/dev/null | tr '\n' ' '; echo
 rm -rf /mnt/root/prov
@@ -1526,12 +1545,12 @@ chmod +x "$W/provision/repair.sh"
 mkdir -p "$W/provision"
 cat > "$W/provision/sanitize.sh" <<'__PAYLOAD_PROVISION_SANITIZE_SH__'
 #!/bin/bash
-# Sanitizado para distribucion: quita todo lo identificativo del sistema y deja
-# un usuario generico. Se ejecuta como ROOT dentro del chroot.
+# Sanitization for distribution: removes all system-identifying information and leaves
+# a generic user. It runs as ROOT inside the chroot.
 set -uo pipefail
-# config.env lo deja stage1 dentro del invitado: es la unica via por la que el
-# anfitrion puede comunicar el usuario de construccion. Sin esto, cambiar
-# VM_USER hacia que el sanitizado renombrase a un usuario que no existe.
+# config.env places stage1 inside the guest: it is the only way the
+# host can communicate the build user. Without this, changing
+# VM_USER would cause sanitization to rename to a non-existent user.
 [ -f /root/prov/config.env ] && . /root/prov/config.env
 OLD="${DIST_OLD_USER:-${VM_USER:-}}"
 NEW="${DIST_NEW_USER:-omarchy}"
@@ -1541,22 +1560,22 @@ log()  { echo ""; echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 
 log "1/10 desanclando /usr/share/omarchy del home del usuario"
-# Era un symlink a /home/<usuario>/.local/share/omarchy, lo que ata el sistema a
-# ese usuario. Se convierte en directorio real (como haria el paquete pacman) y
-# el home pasa a apuntar ahi.
+# It was a symlink to /home/<user>/.local/share/omarchy, which ties the system to
+# that user. It is converted into a real directory (as pacman would do) and
+# the home directory now points there.
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
-  # Sin set -e, un cp a medias (tipicamente por disco lleno: acabamos de
-  # duplicar el arbol) no impedia el rm -rf de abajo. Se borraba el original y
-  # quedaba un /usr/share/omarchy incompleto: escritorio sin temas y sin
-  # comandos, con la fase diciendo OK. Ahora el original solo se borra si la
-  # copia esta completa.
-  # El rollback tiene que dejar el sistema EXACTAMENTE como estaba, o el
-  # siguiente intento encuentra /usr/share/omarchy convertido en un directorio
-  # a medias, se salta este bloque entero (la guarda es [ -L ... ]) y da la
-  # imagen por buena. Por eso se borra la copia parcial antes de rehacer el
-  # enlace: 'ln -sfn' sobre un directorio real crea el enlace DENTRO de el.
+  # Without set -e, a partial cp (typically due to a full disk: we have just
+  # duplicated the tree) did not prevent the rm -rf below. The original was deleted and
+  # left an incomplete /usr/share/omarchy: desktop without themes and without
+  # commands, with the phase reporting OK. Now the original is only deleted if the
+  # copy is complete.
+  # The rollback must leave the system EXACTLY as it was, or the
+  # next attempt finds /usr/share/omarchy converted into a partially created
+  # directory, skips this entire block (the guard is [ -L ... ]) and reports
+  # the image as good. That is why the partial copy is deleted before recreating the
+  # link: 'ln -sfn' on a real directory creates the link INSIDE it.
   volver_atras() {
     warn "$1"
     rm -rf /usr/share/omarchy
@@ -1583,7 +1602,7 @@ if id -u "$OLD" >/dev/null 2>&1; then
   echo "root:$NEW"  | chpasswd
 fi
 id "$NEW"
-# el home del usuario apunta al arbol del sistema
+# the user's home points to the system tree
 install -d -o "$NEW" -g "$NEW" "/home/$NEW/.local/share"
 rm -rf "/home/$NEW/.local/share/omarchy"
 ln -sfn /usr/share/omarchy "/home/$NEW/.local/share/omarchy"
@@ -1600,7 +1619,7 @@ cat /etc/sddm.conf.d/20-autologin.conf
 
 log "4/10 credenciales y claves"
 rm -rf "/home/$NEW/.ssh"
-rm -f /etc/ssh/ssh_host_*        # se regeneran solas en el primer arranque
+rm -f /etc/ssh/ssh_host_*        # regenerated automatically on first boot
 systemctl disable sshd.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/sshd.service
 rm -f /etc/sudoers.d/99-fix /etc/sudoers.d/99-install
@@ -1628,9 +1647,9 @@ rm -rf "/home/$NEW/shots" "/home/$NEW"/*.sh "/home/$NEW/config.env" 2>/dev/null 
 rm -f /etc/NetworkManager/system-connections/* 2>/dev/null || true
 
 log "7b/10 apps propietarias fuera de la imagen distribuible"
-# Estas se instalan con omarchy-arm-extras en la maquina del usuario final.
-# Empaquetarlas en un .zip que se reparte seria redistribuir binarios de
-# terceros, asi que se retiran aunque estuvieran en la VM de origen.
+# These are installed with omarchy-arm-extras on the end-user's machine.
+# Packaging them in a .zip that is distributed would constitute redistributing third-party binaries,
+# so they are removed even if they were in the source VM.
 for pkg in 1password 1password-cli typora localsend-bin google-chrome obsidian-bin; do
   pacman -Q "$pkg" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$pkg" >/dev/null 2>&1 && echo "  retirado $pkg"; }
 done
@@ -1638,17 +1657,17 @@ for d in /opt/1Password /opt/obsidian /opt/typora; do
   [ -e "$d" ] && { rm -rf "$d"; echo "  retirado $d"; }
 done
 rm -f /usr/local/bin/obsidian /usr/local/share/applications/obsidian.desktop 2>/dev/null || true
-# Retirar /opt/1Password deja sus enlaces de /usr/bin apuntando al vacio. Es el
-# mismo descuido de siempre: un barrido de texto no ve el destino de un enlace.
+# Removing /opt/1Password leaves its /usr/bin links pointing to nothing. It's the
+# same old oversight: a text sweep doesn't see the target of a link.
 for l in $(find /usr/bin /usr/local/bin -maxdepth 1 -xtype l 2>/dev/null); do
   case "$(readlink "$l")" in
     /opt/1Password/*|/opt/obsidian/*|/opt/typora/*)
       rm -f "$l"; echo "  enlace colgado retirado: $l" ;;
   esac
 done
-# Los rastros que dejan al instalarse: si se retira Chrome hay que retirar
-# tambien el atajo y el lanzador de la webapp de Spotify, que lo invocan. Si no,
-# la imagen sale con un SUPER+SHIFT+M que apunta a un binario inexistente.
+# The traces left upon installation: if Chrome is removed, you must also remove
+# the shortcut and the webapp launcher for Spotify, which invoke it. Otherwise,
+# the image ends up with a SUPER+SHIFT+M pointing to a non-existent binary.
 BIND="/home/$NEW/.config/hypr/bindings.lua"
 if [ -f "$BIND" ] && grep -q "open.spotify.com" "$BIND"; then
   sed -i '/^-- Spotify no tiene cliente nativo/,/^o.bind("SUPER + SHIFT + M", "Spotify"/d' "$BIND"
@@ -1661,16 +1680,16 @@ rm -rf "/home/$NEW/.local/share/omarchy/webapps" 2>/dev/null || true
 echo "  (se reinstalan con: omarchy-arm-extras)"
 
 log "7c/10 adelgazando: lo que solo hacia falta para compilar"
-# Compilar las herramientas deja detras cadenas de compilacion enteras (el SDK
-# de .NET son 425 MiB) y toolchains de Rust y Go en el home. Nada de eso hace
-# falta para usar la imagen, y se lleva ~2 GB del zip.
+# Compiling the tools leaves behind entire build chains (the .NET
+# SDK is 425 MiB) and Rust and Go toolchains in the home directory. None of this is
+# needed to use the image, and it takes up ~2 GB of the zip.
 for p in dotnet-sdk-bin dotnet-targeting-pack-bin aspnet-targeting-pack-bin; do
   pacman -Q "$p" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$p" >/dev/null 2>&1 && echo "  quitado $p"; }
 done
-# Omarchy 4 jubila estos cuatro: quickshell es la barra, el menu, el OSD y el
-# demonio de notificaciones. mako ademas roba org.freedesktop.Notifications por
-# activacion D-Bus y deja las notificaciones sin tema. No deberian estar
-# instalados, pero si una version futura de la lista los reintroduce, fuera.
+# Omarchy 4 retires these four: quickshell is the bar, the menu, the OSD, and the
+# notification daemon. mako also hijacks org.freedesktop.Notifications by
+# D-Bus activation and leaves notifications unthemed. They shouldn't be
+# installed, but if a future version of the list reintroduces them, remove them.
 for p in mako swayosd walker elephant; do
   pacman -Q "$p" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$p" >/dev/null 2>&1 && echo "  jubilado $p"; }
 done
@@ -1682,19 +1701,19 @@ rm -rf "/home/$NEW/.cargo" "/home/$NEW/go" "/home/$NEW/.rustup" "/home/$NEW/.npm
 echo "  imprescindibles que deben seguir: $(for p in hyprland quickshell sddm; do printf '%s ' "$(pacman -Q $p 2>/dev/null || echo FALTA-$p)"; done)"
 
 log "7d/10 adelgazando: lo que no puede hacer falta en una VM"
-# Medido en una imagen real: 675 MiB de firmware para hardware que en una VM
-# QEMU con dispositivos virtio no puede existir. linux-firmware no se instala a
-# proposito, pero los splits por fabricante entran como dependencias.
+# Measured on a real image: 675 MiB of firmware for hardware that in a QEMU
+# VM with virtio devices cannot exist. linux-firmware is not installed on
+# purpose, but the vendor splits come in as dependencies.
 FW=$(pacman -Qq 2>/dev/null | grep -E '^linux-firmware-(intel|nvidia|amdgpu|atheros|broadcom|realtek|mediatek|marvell|qcom|qlogic|liquidio|bnx2x|mellanox|nfp|other)$' | tr '\n' ' ')
 if [ -n "${FW// /}" ]; then
   echo "  firmware de hardware ausente: $FW"
-  # -Rdd: los splits los reclama el metapaquete linux-firmware, que tampoco
-  # hace falta. Si algo se opone, se deja como esta y no se rompe nada.
+  # -Rdd: the linux-firmware metapackage claims the splits, which are also
+  # unnecessary. If anything opposes it, leave it as is and don't break anything.
   pacman -Rdd --noconfirm $FW linux-firmware >/dev/null 2>&1 \
     && echo "  retirados" || echo "  (no se pudieron retirar; se dejan)"
 fi
-# Documentacion y manuales: 469 MiB. Es una imagen para probar un escritorio,
-# no un servidor donde vayas a leer man. Los .md de Omarchy NO se tocan.
+# Documentation and manuals: 469 MiB. This is an image to test a desktop,
+# not on a server where you are going to read man pages. The .md files in Omarchy are NOT touched.
 for d in /usr/share/doc /usr/share/man /usr/share/info /usr/share/gtk-doc; do
   [ -d "$d" ] && { echo "  $d: $(du -shx "$d" 2>/dev/null | cut -f1)"; rm -rf "$d"; }
 done
@@ -1705,17 +1724,17 @@ log "7/10 logs y caches del sistema"
 rm -rf /var/log/journal/* /var/log/omarchy* /var/log/pacman.log
 find /var/log -type f -name "*.log" -delete 2>/dev/null || true
 rm -rf /var/cache/pacman/pkg/* /var/tmp/* /tmp/* 2>/dev/null || true
-# OJO: /root/prov NO se borra aqui. Los pasos 8a y 8b leen de ahi el hook de
-# actualizacion y el instalador de apps opcionales; borrarlo antes dejaba la
-# imagen sin ninguno de los dos, en silencio. Lo retira repair.sh al salir del
-# chroot, que es donde corresponde.
+# NOTE: /root/prov is NOT deleted here. Steps 8a and 8b read from there the update hook and the
+# optional app installer; deleting it before would leave the
+# image without either of them, silently. repair.sh removes it upon exiting the
+# chroot, which is where it belongs.
 rm -rf /root/.bash_history /root/.cache 2>/dev/null || true
 rm -f /root/STAGE2_OK 2>/dev/null || true
-# Lo escribe stage2 cuando algun paquete no se instala. En una imagen que se
-# reparte, le cuenta al destinatario que le fallo al constructor.
+# stage2 writes it when a package fails to install. In a distributed image, it informs the recipient that the builder failed.
+# The verify phase starts the VM before sanitizing, and that startup leaves a seed
 rm -f /root/failed-packages.txt 2>/dev/null || true
-# La fase verify arranca la VM antes de sanitizar, y ese arranque deja semilla
-# de aleatoriedad y secreto de credenciales: identicos en todas las copias.
+# of randomness and credential secrets: identical across all copies.
+# omarchy-update-dev does not update the tree when OMARCHY_PATH is
 rm -f /var/lib/systemd/random-seed /var/lib/systemd/credential.secret 2>/dev/null || true
 : > /var/log/wtmp 2>/dev/null || true
 : > /var/log/btmp 2>/dev/null || true
@@ -1745,22 +1764,22 @@ cp /etc/motd "/home/$NEW/Desktop/LEEME.txt"
 chown "$NEW:$NEW" "/home/$NEW/Desktop/LEEME.txt"
 
 log "8a/10 hook de actualizacion para ARM"
-# omarchy-update-dev no actualiza el arbol cuando OMARCHY_PATH es
-# /usr/share/omarchy, que es nuestro caso: sin este hook Omarchy se congela.
+# /usr/share/omarchy, which is our case: without this hook, Omarchy freezes.
+# The checkout must not be polluted by permission changes, or the pull will fail
 if [ -f /root/prov/10-arm-sync ]; then
   install -Dm755 /root/prov/10-arm-sync "/home/$NEW/.config/omarchy/hooks/post-update.d/10-arm-sync"
   chown -R "$NEW:$NEW" "/home/$NEW/.config/omarchy/hooks" 2>/dev/null || true
   echo "  post-update.d/10-arm-sync"
 fi
-# El checkout no debe ensuciarse por cambios de permisos, o el pull fallara
+# repair.sh copies extras.sh as omarchy-arm-extras, but if that copy does not
 git -C /usr/share/omarchy config core.fileMode false 2>/dev/null || true
 git -C /usr/share/omarchy checkout -- . 2>/dev/null || true
 echo "  checkout limpio: $(git -C /usr/share/omarchy status --porcelain 2>/dev/null | wc -l) ficheros"
 
 log "8b/10 instalador de apps opcionales"
-# repair.sh copia extras.sh como omarchy-arm-extras, pero si esa copia no
-# ocurriera el bloque entero se saltaba en silencio y la imagen salia sin la
-# entrada de menu. Se aceptan los dos nombres y se avisa si falta.
+# occur, the entire block would be skipped silently and the image would end up without the
+# menu entry. Both names are accepted, and a warning is issued if one is missing.
+# grep -rl only checks the CONTENT of the files: the target of a symbolic
 EXTRAS_SRC=""
 for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
@@ -1830,11 +1849,11 @@ for f in /home/$NEW/.config/user-dirs.dirs; do
 done
 
 log "symlinks que apuntan al home antiguo"
-# grep -rl solo mira el CONTENIDO de los ficheros: el destino de un enlace
-# simbolico no es contenido, asi que el barrido de texto los da por limpios.
-# Omarchy guarda el tema y el fondo activos como enlaces
-# (~/.local/state/omarchy/current/{theme,background}), de modo que un enlace
-# colgado deja el escritorio en gris y sin estilo, sin ningun error visible.
+# link is not content, so the text scan considers them clean.
+# Omarchy stores the active theme and background as symbolic
+# links (~/.local/state/omarchy/current/{theme,background}), so that a broken
+# link leaves the desktop gray and unstyled, with no visible error.
+#
 mapfile -t BADLINKS < <(find /home/$NEW /etc /usr/bin /usr/local /opt -xdev -type l \
   -lname "*/home/$OLD/*" 2>/dev/null)
 echo "  encontrados: ${#BADLINKS[@]}"
@@ -1855,10 +1874,10 @@ echo "  enlaces rotos en /usr/bin: $(find /usr/bin -xtype l 2>/dev/null | wc -l)
 echo "  fondo activo: $(readlink -f /home/$NEW/.local/state/omarchy/current/background 2>/dev/null || echo NINGUNO)"
 test -e "/home/$NEW/.local/state/omarchy/current/background" \
   && echo "  fondo resuelve: OK" || echo "  fondo resuelve: ROTO"
-# ttfx se compila desde fuente dentro de la VM, y el binario se queda con la
-# ruta de compilacion en su info de depuracion: /home/<constructor>/... Eso es
-# exactamente lo que esta fase existe para borrar, asi que se le quitan los
-# simbolos en vez de declararlo inocuo, que es lo que hacia antes.
+# ttfx is compiled from source inside the VM, and the binary retains the
+# build path in its debug info: /home/<builder>/... This is
+# exactly what this phase exists to remove, so symbols are stripped
+# instead of declaring it harmless, which is what it used to do.
 for b in /usr/local/bin/ttfx /usr/local/bin/omarchy-arm-vdagent; do
   [ -f "$b" ] || continue
   case "$(file -b "$b" 2>/dev/null)" in
@@ -1888,11 +1907,11 @@ echo "  hostname:   $(cat /etc/hostname)"
 sync
 fstrim -av 2>&1 | head -2 || true
 
-# ─────────────────────── invariantes: esto SI puede fallar ──────────────────
-# Hasta aqui todo eran `echo`: el script corre sin -e y terminaba siempre en un
-# echo, asi que su rc era 0 pasara lo que pasara. repair.sh recogia ese 0, el
-# anfitrion veia TOK_REPAIR_0 y daba la imagen por limpia. Si usermod fallaba,
-# se repartia una imagen con el usuario y la contrasena del constructor.
+# ─────────────────────── invariants: this CAN fail ──────────────────
+# Up to this point, everything was `echo`: the script runs without -e and always ends with an
+# echo, so its exit code is 0 no matter what. repair.sh collects that 0, the
+# host sees TOK_REPAIR_0 and marks the image as clean. If usermod fails,
+# an image with the builder's username and password is distributed.
 log "invariantes de la imagen distribuible"
 FALLOS=0
 mal() { echo "  ✗ $*"; FALLOS=$((FALLOS+1)); }
@@ -1913,16 +1932,16 @@ N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
 N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
 [ "$N_ROTO" -le 5 ] && bien "$N_ROTO enlaces colgando" || mal "$N_ROTO enlaces colgando"
 
-# Nombres de fichero, no solo contenido: el barrido de arriba usa grep -rl, que
-# mira dentro de los ficheros. Un fichero que LLEVE el nombre del constructor en
-# su propia ruta (mise guarda uno por cada directorio de confianza) pasaba
-# limpio y viajaba dentro de la imagen.
+# Filenames, not just content: the scan above uses grep -rl, which
+# looks inside files. A file that HAS the builder's name in
+# its own path (mise saves one per trusted directory) would pass
+# clean and travel inside the image.
 if [ "$OLD" != "$NEW" ]; then
-  # OJO: como PALABRA, nunca como subcadena. Con "*$OLD*" y VM_USER=dev, esto
-  # casaba con /etc/udev y el rm -rf dejaba la imagen sin una sola regla udev;
-  # con VM_USER=arch casaba con /home/omarchy entero. El nombre del usuario de
-  # construccion es elegible por entorno, asi que el patron tiene que exigir
-  # que $OLD aparezca delimitado por algo que no sea alfanumerico.
+  # NOTE: as a WORD, never as a substring. With "*$OLD*" and VM_USER=dev, this
+  # would match /etc/udev and the rm -rf would leave the image without a single udev rule;
+  # with VM_USER=arch it would match the entire /home/omarchy. The build user's
+  # name is environment-dependent, so the pattern must require
+  # that $OLD appears delimited by something non-alphanumeric.
   RX_OLD=".*/([^/]*[^[:alnum:]])?$OLD([^[:alnum:]][^/]*)?"
   mapfile -t PORNOMBRE < <(find /home/"$NEW" /etc /usr/local /opt -xdev -mindepth 1 \
       -regextype posix-extended -regex "$RX_OLD" 2>/dev/null)
@@ -1935,7 +1954,7 @@ if [ "$OLD" != "$NEW" ]; then
   [ "$RESTAN" -eq 0 ] && bien "ningun nombre de fichero menciona a $OLD" || mal "$RESTAN nombres siguen mencionando a $OLD"
 fi
 
-# El portapapeles: las cinco piezas que pueden romperlo.
+# The clipboard: the five components that can break it.
 [ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
 grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
   && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
@@ -1950,11 +1969,11 @@ fi
 
 [ "$(ls /etc/ssh/ssh_host_* 2>/dev/null | wc -l)" -eq 0 ] && bien "sin claves ssh de host" || mal "quedan claves ssh de host"
 
-# Binarios compilados dentro de la VM: la ruta de compilacion se queda en su
-# info de depuracion. grep -rl no los ve porque mira texto, no simbolos.
+# Binaries compiled inside the VM: the build path remains in their
+# Debug info. grep -rl doesn't find them because it looks for text, not symbols.
 if [ "$OLD" != "$NEW" ]; then
-  # strings puede no estar (viene en binutils); si falta, se dice y no se
-  # inventa un veredicto.
+  # strings may not be available (it comes with binutils); if it's missing, report it and don't
+  # invent a verdict.
   if ! command -v strings >/dev/null 2>&1; then
     echo "  ? binarios de /usr/local/bin: sin 'strings' no se puede comprobar"
   else
@@ -1984,21 +2003,21 @@ mkdir -p "$W/provision"
 cat > "$W/provision/extras.sh" <<'__PAYLOAD_PROVISION_EXTRAS_SH__'
 #!/bin/bash
 #
-#  omarchy-arm-extras — instala en Arch Linux ARM apps que no vienen en la imagen
+# omarchy-arm-extras — installs on Arch Linux ARM apps that are not included in the image
 #  ───────────────────────────────────────────────────────────────────────────
-#  Las propietarias NO se distribuyen dentro a proposito: empaquetarlas en un
-#  .zip que se reparte seria redistribuir binarios de terceros. Este script las
-#  descarga de su fuente OFICIAL, en tu maquina y bajo tu criterio.
+# Proprietary software is intentionally NOT distributed: packaging it in a
+# distributable .zip would redistribute third-party binaries. This script
+# downloads each app from its OFFICIAL source, on your machine, at your discretion.
 #
-#  Casi todas tienen build arm64 oficial. Las que ya vienen dentro de la imagen
-#  (software libre) se marcan como [ya instalada] y se omiten.
+# Almost all have an official arm64 build. Those already included in the image
+# (free software) are marked as [already installed] and skipped.
 #
-#  Uso:
-#    omarchy-arm-extras                    menu interactivo
-#    omarchy-arm-extras --list             ver que puede instalar
-#    omarchy-arm-extras 1password obsidian instalar elementos concretos
-#    omarchy-arm-extras --all              todo lo que falte
-#    omarchy-arm-extras --force <clave>    reinstalar aunque ya este
+#  Usage:
+#   omarchy-arm-extras                     interactive menu
+#   omarchy-arm-extras --list             view what can be installed
+#   omarchy-arm-extras 1password obsidian  install specific items
+#   omarchy-arm-extras --all              everything that is missing
+#   omarchy-arm-extras --force <key>      reinstall even if already installed
 #
 set -uo pipefail
 
@@ -2009,12 +2028,12 @@ ok()    { echo "  ${c_ok}✓${c_off} $*"; }
 warn()  { echo "  ${c_warn}!${c_off} $*" >&2; }
 fail()  { echo "  ${c_err}✗${c_off} $*" >&2; }
 
-# /tmp es tmpfs y esta limitado por la RAM: compilar .NET u OBS ahi se queda
-# sin espacio a medias. Se trabaja en disco real.
+# /tmp is tmpfs and limited by RAM: compiling .NET or OBS there will run
+# out of space halfway. Work is done on real disk.
 WORK="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-arm-extras"
 OK_LIST=(); KO_LIST=()
 
-# ── catalogo ────────────────────────────────────────────────────────────────
+# ── catalog ────────────────────────────────────────────────────────────────
 #  clave|titulo|descripcion
 CATALOG=(
   "1password|1Password|Gestor de contrasenas. Tarball arm64 oficial de AgileBits"
@@ -2032,12 +2051,12 @@ catalog_keys()  { printf '%s\n' "${CATALOG[@]}" | cut -d'|' -f1; }
 catalog_title() { printf '%s\n' "${CATALOG[@]}" | awk -F'|' -v k="$1" '$1==k{print $2}'; }
 catalog_desc()  { printf '%s\n' "${CATALOG[@]}" | awk -F'|' -v k="$1" '$1==k{print $3}'; }
 
-# ── utilidades ──────────────────────────────────────────────────────────────
+# ── utilities ──────────────────────────────────────────────────────────────
 have() { command -v "$1" >/dev/null 2>&1; }
 
-# Pinta y OBS Studio son software libre y viajan dentro de la imagen; el resto
-# no. Sin esta comprobacion, `--all` recompilaria OBS entero (media hora) para
-# reinstalar lo que ya esta.
+# Pinta and OBS Studio are free software and come within the image; the rest
+# do not. Without this check, `--all` would recompile OBS entirely (half an hour) to
+# reinstall what is already present.
 is_installed() {
   case "$1" in
     1password)     pacman -Q 1password        >/dev/null 2>&1 || [ -d /opt/1Password ] ;;
@@ -2059,13 +2078,13 @@ need_sudo() {
   sudo -v || { fail "sin privilegios"; return 1; }
 }
 
-# Construye un paquete de AUR resolviendo las trampas habituales en ARM:
-#  · la URL de clonado usa el PackageBase, que no siempre es el nombre
-#  · muchos PKGBUILD declaran arch=(x86_64) por omision, no por incompatibilidad
-#  · un PKGBUILD puede generar varios subpaquetes y solo uno tener la dependencia rota
+# Builds an AUR package by resolving common pitfalls on ARM:
+#  · the clone URL uses the PackageBase, which is not always the name
+#  · many PKGBUILDs declare arch=(x86_64) by default, not due to incompatibility
+#  · a PKGBUILD can generate multiple subpackages, and only one may have the broken dependency
 aur_build() {
-  # Un unico `local` expande TODOS los valores antes de asignar ninguno, asi que
-  # $pkg no existiria al construir $dir y con set -u el script aborta.
+  # A single `local` expands ALL values before assigning any, so
+  # $pkg would not exist when building $dir, and with set -u the script aborts.
   local pkg="$1" want="${2:-$1}"
   local dir="$WORK/$pkg" base
   pacman -Q "$want" >/dev/null 2>&1 && { ok "$want ya instalado"; return 0; }
@@ -2078,9 +2097,9 @@ aur_build() {
   git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null
   [ -f "$dir/PKGBUILD" ] || { fail "no se pudo clonar $pkg (base: $base)"; return 1; }
 
-  # Varios PKGBUILD verifican la firma del upstream en check(). Si la clave no
-  # esta en el llavero, makepkg aborta. Se importan las que el propio PKGBUILD
-  # declara, en vez de saltarse la verificacion.
+  # Several PKGBUILDs verify the upstream signature in check(). If the key is
+  # not in the keyring, makepkg aborts. Those declared by the PKGBUILD itself
+  # are imported, instead of skipping the verification.
   local keys k
   keys=$(sed -n '/^validpgpkeys=(/,/)/p' "$dir/PKGBUILD" | grep -oE '[0-9A-Fa-f]{40}')
   for k in $keys; do
@@ -2103,7 +2122,7 @@ aur_build() {
   return 1
 }
 
-# ── instaladores ────────────────────────────────────────────────────────────
+# ── installers ────────────────────────────────────────────────────────────
 
 do_1password() {
   title "1Password"
@@ -2111,7 +2130,7 @@ do_1password() {
   local url=https://downloads.1password.com/linux/tar/stable/aarch64/1password-latest.tar.gz
   mkdir -p "$WORK"; rm -rf "$WORK/1p"; mkdir -p "$WORK/1p"
   curl -fL --progress-bar "$url" -o "$WORK/1p/1p.tar.gz" || { fail "descarga fallida"; return 1; }
-  # Es un gestor de contrasenas: se verifica la firma antes de instalarlo.
+  # It is a password manager: the signature is verified before installing it.
   local KEY=3FEF9748469ADBE15DA7CA80AC2D62742012EA22
   if curl -fsSL "$url.sig" -o "$WORK/1p/1p.tar.gz.sig" 2>/dev/null; then
     gpg --list-keys "$KEY" >/dev/null 2>&1 \
@@ -2140,8 +2159,8 @@ do_1password_cli() { title "1Password CLI"; aur_build 1password-cli && ok "$(op 
 do_obsidian() {
   title "Obsidian"
   info "Hay AppImage y tarball arm64 oficiales. Se usa el tarball: no depende de fuse2."
-  # OJO: releases/latest puede ser una release SOLO de Android (un .apk suelto).
-  # Hay que buscar la ultima que publique de verdad el tarball arm64 de escritorio.
+  # NOTE: releases/latest might be an Android-only release (a standalone .apk).
+  # You must find the last one actually published as a desktop arm64 tarball.
   local url
   url=$(curl -fsSL --max-time 30 "https://api.github.com/repos/obsidianmd/obsidian-releases/releases?per_page=15" \
         | grep -oE '"browser_download_url": *"[^"]*obsidian-[0-9.]+-arm64\.tar\.gz"' \
@@ -2185,8 +2204,8 @@ do_chrome() {
 
 do_spotify_web() {
   title "Spotify (webapp)"
-  # Omarchy trata Spotify como paquete nativo, no como webapp — y ese paquete es
-  # x86_64. En ARM la via que funciona es la web, que necesita Widevine.
+  # Omarchy treats Spotify as a native package, not as a webapp — and that package is
+  # x86_64. On ARM, the working method is the web version, which requires Widevine.
   if ! have google-chrome-stable; then
     warn "sin Google Chrome la web de Spotify no reproducirá: instala antes 'chrome'"
   fi
@@ -2198,13 +2217,13 @@ do_spotify_web() {
   else
     warn "omarchy-webapp-install no está disponible"
   fi
-  # Reasignar SUPER+SHIFT+M, que en Omarchy apunta al binario nativo
+  # Reassign SUPER+SHIFT+M, which in Omarchy points to the native binary
   local f="$HOME/.config/hypr/bindings.lua"
   if [ -f "$f" ] && ! grep -q "open.spotify.com" "$f"; then
     cat >> "$f" <<'LUA'
 
--- Spotify no tiene cliente nativo para aarch64: SUPER+SHIFT+M abre la webapp.
--- Necesita Google Chrome, que es quien trae Widevine en arm64.
+-- Spotify has no native aarch64 client: SUPER+SHIFT+M opens the web app.
+-- Requires Google Chrome, which provides Widevine on arm64.
 o.bind("SUPER + SHIFT + M", "Spotify", o.launch("google-chrome-stable --app=https://open.spotify.com"))
 LUA
     ok "SUPER+SHIFT+M reasignado (reinicia la sesión para aplicarlo)"
@@ -2237,23 +2256,23 @@ do_obs() {
     || { fail "no pude clonar el PKGBUILD de Arch"; return 1; }
   cd "$dir" || return 1
   sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" PKGBUILD
-  # OJO: 'cef' va en la MISMA linea que makedepends=, no en una propia, asi que
-  # hay que quitarlo como token y no como linea completa.
+  # NOTE: 'cef' goes on the SAME line as makedepends=, not on its own, so
+  # it must be removed as a token and not as a complete line.
   sed -i "s/'cef'[[:space:]]*//g" PKGBUILD
   sed -i "/cef_api_versions\.h/d; /-DCEF_API_VERSION/d; /_cef_api_version/d" PKGBUILD
   sed -i 's/-DENABLE_BROWSER=ON/-DENABLE_BROWSER=OFF/' PKGBUILD
-  # package_obs-studio() aparta los ficheros del plugin de navegador para el
-  # subpaquete aparte. Sin browser esos ficheros no existen y el `mv` aborta el
-  # empaquetado DESPUES de haber compilado todo: hay que quitar esas dos lineas.
+  # package_obs-studio() separates the browser plugin files for the
+  # separate subpackage. Without browser those files do not exist and the `mv` aborts the
+  # packaging AFTER everything has been compiled: those two lines must be removed.
   sed -i '/mv \$pkgdir\/usr\/lib\/obs-plugins\/{obs-browser-page,obs-browser.so}/d' PKGBUILD
   sed -i '/mv \$pkgdir\/usr\/share\/obs\/obs-plugins\/obs-browser /d' PKGBUILD
-  # y los parches del plugin, que ya no se aplican a nada
+  # and the plugin patches, which are no longer applied to anything
   sed -i '/patch -d plugins\/obs-browser/d' PKGBUILD
-  # NO se tocan source=() ni sha256sums=(): borrar entradas de una sin la otra
-  # hace que makepkg aborte con "Integrity checks differ in size from the source
-  # array". Descargar obs-browser de mas es solo ancho de banda.
+  # DO NOT touch source=() nor sha256sums=(): deleting an entry without the other
+  # causes makepkg to abort with "Integrity checks differ in size from the source
+  # array". Downloading extra obs-browser is just wasted bandwidth.
   sed -i '/INSTALL_RPATH.*cef/d' PKGBUILD
-  # El subpaquete del navegador ya no se genera
+  # The browser subpackage is no longer generated
   sed -i '/^package_obs-studio-plugin-browser()/,/^}/d' PKGBUILD
   sed -i "s/^pkgname=(.*)/pkgname=('obs-studio')/" PKGBUILD
   info "PKGBUILD parcheado: aarch64, sin CEF, sin plugin de navegador"
@@ -2344,8 +2363,8 @@ title "Resumen"
 [ ${#OK_LIST[@]} -gt 0 ] && ok "instalado: ${OK_LIST[*]}"
 if [ ${#KO_LIST[@]} -gt 0 ]; then
   fail "falló: ${KO_LIST[*]}"
-  # No se borra el directorio de trabajo: dentro estan los build.log, que son
-  # lo unico que permite averiguar por que fallo.
+  # The working directory is not deleted: inside are the build.log files, which are
+  # The only thing it allows us to determine is why it failed.
   info "logs en $WORK/<paquete>/build.log"
 else
   rm -rf "$WORK"
@@ -2357,20 +2376,20 @@ chmod +x "$W/provision/extras.sh"
 mkdir -p "$W/provision"
 cat > "$W/provision/armsync.sh" <<'__PAYLOAD_PROVISION_ARMSYNC_SH__'
 #!/bin/bash
-# Hook post-update para instalaciones ARM.
+# Post-update hook for ARM installations.
 #
-# En esta instalacion Omarchy no viene de su paquete pacman (que solo existe
-# para x86_64) sino de un checkout de git. omarchy-update-dev solo hace `git
-# pull` cuando OMARCHY_PATH apunta FUERA de /usr/share/omarchy, y aqui apunta
-# justo ahi, asi que sin este hook el arbol de Omarchy no se actualizaria nunca:
-# el sistema recibiria paquetes nuevos pero los scripts, temas y configuracion
-# de Omarchy se quedarian congelados en la version clonada.
+# In this installation, Omarchy does not come from its pacman package (which
+# exists only for x86_64), but from a git checkout. omarchy-update-dev runs
+# `git pull` only when OMARCHY_PATH points OUTSIDE /usr/share/omarchy; here it
+# points exactly there. Without this hook, the Omarchy tree would never update:
+# the system would receive new packages while Omarchy's scripts, themes, and
+# configuration remained frozen at the cloned version.
 set -uo pipefail
 TREE=/usr/share/omarchy
 
 git -C "$TREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
-# El arbol puede ser del usuario (VM de desarrollo) o de root (imagen distribuida)
+# The tree can belong to the user (development VM) or root (distributed image).
 if [ -w "$TREE/.git" ]; then GIT=(git -C "$TREE"); else GIT=(sudo git -C "$TREE"); fi
 
 echo -e "\e[32m\nActualizar el árbol de Omarchy (checkout git)\e[0m"
@@ -2383,20 +2402,20 @@ after=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
 if [ "$before" = "$after" ]; then echo "  ya estaba al día ($after)"; exit 0; fi
 echo "  $before → $after"
 
-# Enlazar los binarios nuevos, respetando los envoltorios propios de ARM
-# (omarchy-pkg-add es un fichero real, no un enlace: no debe pisarse).
+# Link new binaries while preserving ARM-specific wrappers.
+# (omarchy-pkg-add is a real file, not a symlink: do not overwrite it.)
 n=0
 for f in "$TREE"/bin/*; do
   [ -f "$f" ] || continue
   b=$(basename "$f"); t="/usr/bin/$b"
   [ -e "$t" ] && [ ! -L "$t" ] && continue
   [ -L "$t" ] && continue
-  # A /usr/share/omarchy, no a $TREE: esa ruta sobrevive al renombrado del
-  # usuario que hace el sanitizador (ver stage3).
+  # Link to /usr/share/omarchy, not $TREE: that path survives the user rename
+  # performed by the sanitizer (see stage3).
   sudo ln -sfn "/usr/share/omarchy/bin/$b" "$t" 2>/dev/null && n=$((n+1))
 done
 [ "$n" -gt 0 ] && echo "  $n binarios nuevos enlazados en /usr/bin"
-# Enlaces que apuntan a comandos ya retirados del arbol
+# Links that point to commands already removed from the tree.
 sudo find /usr/bin -xtype l -delete 2>/dev/null || true
 exit 0
 __PAYLOAD_PROVISION_ARMSYNC_SH__
@@ -2405,26 +2424,26 @@ chmod +x "$W/provision/armsync.sh"
 cat > "$W/provision/clipbrd.sh" <<'__PAYLOAD_PROVISION_CLIPBRD_SH__'
 #!/bin/bash
 #
-#  omarchy-arm-clipboard — portapapeles compartido con el Mac, vía la carpeta
-#  compartida de UTM.
+#  omarchy-arm-clipboard — shared clipboard with Mac, via the folder
+#  shared by UTM.
 #
-#  POR QUE HACE FALTA
-#  UTM ofrece "Compartir portapapeles", pero eso solo funciona si el invitado
-#  corre spice-vdagent, y el portapapeles de spice-vdagent es X11 puro: su
-#  clipboard.c delega todo en vdagent_x11_* y no hay una sola referencia a
-#  wlr-data-control en su codigo. Bajo Hyprland (Wayland nativo) no puede
-#  funcionar, por mucho que el servicio arranque.
+#  WHY IT IS NEEDED
+#  UTM offers "Shared Clipboard", but that only works if the guest
+#  runs spice-vdagent, and spice-vdagent's clipboard is pure X11: its
+#  clipboard.c delegates everything to vdagent_x11_* and there is not a single reference to
+#  wlr-data-control in its code. Under Hyprland (native Wayland) it cannot
+#  work, no matter if the service starts.
 #
-#  COMO FUNCIONA
-#  Vigila /mnt/share/.clipboard en las dos direcciones: si el fichero cambia,
-#  lo copia al portapapeles del invitado; si el portapapeles del invitado
-#  cambia, lo escribe al fichero. En el Mac, un script equivalente hace lo
-#  mismo con pbcopy/pbpaste. Solo texto.
+#  HOW IT WORKS
+#  Monitors /mnt/share/.clipboard in both directions: if the file changes,
+#  it copies it to the guest's clipboard; if the guest's clipboard
+#  changes, it writes it to the file. On the Mac, an equivalent script does the
+#  same with pbcopy/pbpaste. Text only.
 #
-#  USO
-#    omarchy-arm-clipboard             vigila (lo lanza el servicio de usuario)
-#    omarchy-arm-clipboard --install   instala el servicio y lo arranca
-#    omarchy-arm-clipboard --host      imprime el script para el Mac
+#  USAGE
+#    omarchy-arm-clipboard             monitors (launched by the user service)
+#    omarchy-arm-clipboard --install   installs the service and starts it
+#    omarchy-arm-clipboard --host      prints the script for the Mac
 #
 set -uo pipefail
 
@@ -2460,9 +2479,9 @@ UNIT
 script_anfitrion() {
   cat <<'MACEOF'
 #!/bin/bash
-# Ejecutar EN EL MAC. Sincroniza el portapapeles con la VM a traves de la
-# carpeta que tengas compartida en los ajustes de la VM en UTM.
-#   ./clipboard-mac.sh ~/ruta/de/la/carpeta/compartida
+# Run ON THE MAC. Synchronizes the clipboard with the VM through the
+# folder you have shared in the VM settings in UTM.
+#   ./clipboard-mac.sh ~/path/to/shared/folder
 set -uo pipefail
 DIR="${1:?uso: $0 <carpeta compartida con la VM>}"
 F="$DIR/.clipboard"
@@ -2494,13 +2513,13 @@ vigilar() {
   ultimo_local="$(wl-paste --no-newline 2>/dev/null || true)"
   ultimo_remoto="$(cat "$FILE" 2>/dev/null || true)"
   while :; do
-    # invitado -> fichero
+    # guest -> file
     actual="$(wl-paste --no-newline 2>/dev/null || true)"
     if [ "$actual" != "$ultimo_local" ] && [ -n "$actual" ]; then
       printf '%s' "$actual" > "$FILE"
       ultimo_local="$actual"; ultimo_remoto="$actual"
     fi
-    # fichero -> invitado
+    # file -> guest
     remoto="$(cat "$FILE" 2>/dev/null || true)"
     if [ "$remoto" != "$ultimo_remoto" ] && [ -n "$remoto" ]; then
       printf '%s' "$remoto" | wl-copy
@@ -2523,32 +2542,32 @@ chmod +x "$W/provision/clipbrd.sh"
 cat > "$W/provision/vdagent.py" <<'__PAYLOAD_PROVISION_VDAGENT_PY__'
 #!/usr/bin/env python3
 """
-omarchy-arm-vdagent — portapapeles compartido entre el anfitrión y Hyprland.
+omarchy-arm-vdagent — shared clipboard between the host and Hyprland.
 
-CÓMO FUNCIONA EL PORTAPAPELES DE SPICE, Y POR QUÉ ESTO EXISTE
+HOW THE SPICE CLIPBOARD WORKS, AND WHY THIS EXISTS
 
-    El cliente SPICE del anfitrión NO habla con el agente de sesión: habla con
-    el demonio spice-vdagentd por el puerto virtio. El demonio, a su vez,
-    multiplexa hacia los agentes de sesión por un socket Unix
-    (/run/spice-vdagentd/spice-vdagent-sock). Eso es lo que hace que funcione
-    en cualquier otra VM.
+    The host's SPICE client does NOT communicate with the session agent: it
+    communicates with the spice-vdagentd daemon through the virtio port. The
+    daemon, in turn, multiplexes to session agents through a Unix socket
+    (/run/spice-vdagentd/spice-vdagent-sock). That is how it works in any
+    other VM.
 
-    El agente oficial (spice-vdagent) implementa ese lado, pero entrega el
-    portapapeles a X11: vdagent.c:421 llama a
-    vdagent_clipboards_new(vdagent_display_get_x11(...)) y no hay una sola
-    referencia a wlr-data-control en su repositorio. Bajo Hyprland arranca y
-    muere con "cannot open display".
+    The official agent (spice-vdagent) implements that side, but delivers the
+    clipboard to X11: vdagent.c:421 calls
+    vdagent_clipboards_new(vdagent_display_get_x11(...)), and its repository
+    contains no reference to wlr-data-control. Under Hyprland it starts and
+    dies with "cannot open display".
 
-    Este programa ocupa exactamente ese hueco: habla el protocolo udscs con
-    spice-vdagentd igual que el agente oficial, y al otro lado usa
-    wl-copy/wl-paste. El demonio sigue siendo quien habla con el anfitrión.
+    This program fills that exact gap: it speaks the udscs protocol with
+    spice-vdagentd just like the official agent, and uses wl-copy/wl-paste on
+    the other side. The daemon still handles communication with the host.
 
-    Un detalle que importa: vdagentd solo atiende al agente de la sesión
-    ACTIVA de seat0 (vdagentd.c:746). En una VM con Hyprland lanzado por SDDM
-    esa comprobación suele fallar, así que el demonio debe arrancarse con -X
+    One important detail: vdagentd serves only the agent in the ACTIVE seat0
+    session (vdagentd.c:746). In a VM where SDDM launches Hyprland, that check
+    often fails, so the daemon must start with -X
     (disable-session-integration, vdagentd.c:1258).
 
-    Solo texto. Ni imágenes ni ficheros.
+    Text only. No images or files.
 """
 import os, sys, socket, struct, subprocess, threading, time, signal
 
@@ -2604,7 +2623,7 @@ class Agente:
             log("←", tipo, a1, a2, size)
 
             if tipo == CLIPBOARD_GRAB:
-                # el anfitrión ofrece algo: lo pedimos
+                # the host offers something: we request it
                 self.enviar(CLIPBOARD_REQUEST, SEL_CLIPBOARD, TIPO_UTF8)
 
             elif tipo == CLIPBOARD_REQUEST:
@@ -2641,7 +2660,7 @@ def escribir_portapapeles(texto):
 
 
 def resolucion():
-    """La resolución real, si hyprctl está disponible; si no, un valor sensato."""
+    """Return the actual resolution if hyprctl is available, or a safe default."""
     try:
         r = subprocess.run(["hyprctl", "monitors", "-j"], capture_output=True, timeout=4)
         if r.returncode == 0:
@@ -2654,7 +2673,7 @@ def resolucion():
 
 
 def vigilar(ag):
-    """Si el usuario copia dentro de la VM, se lo ofrecemos al anfitrión."""
+    """Offer clipboard data copied inside the VM to the host."""
     while True:
         t = leer_portapapeles()
         if t is not None and t != ag.ultimo_local:
@@ -2680,11 +2699,11 @@ def main():
     s.connect(SOCK)
     ag = Agente(s)
 
-    # El agente oficial anuncia su resolución nada más conectar; vdagentd lo
-    # usa para saber que hay una sesión gráfica viva detrás.
+    # The official agent announces its resolution as soon as it connects; vdagentd uses
+    # it to know that there is a live graphical session behind.
     # struct vdagentd_guest_xorg_resolution = 5 ints: width, height, x, y,
-    # display_id (vdagentd-proto.h:51). Si el tamaño no cuadra exactamente,
-    # vdagentd desconecta al agente sin más (vdagentd.c:1088).
+    # display_id (vdagentd-proto.h:51). If the size does not match exactly,
+    # vdagentd disconnects the agent without further notice (vdagentd.c:1088).
     ancho, alto = resolucion()
     ag.enviar(GUEST_XORG_RESOLUTION, ancho, alto,
               struct.pack("<iiiii", ancho, alto, 0, 0, 0))
@@ -2709,16 +2728,16 @@ chmod +x "$W/provision/vdagent.py"
 cat > "$W/provision/share.sh" <<'__PAYLOAD_PROVISION_SHARE_SH__'
 #!/bin/bash
 #
-#  omarchy-arm-share — monta la carpeta que compartes desde UTM.
+# omarchy-arm-share — mounts the folder shared from UTM.
 #
-#  UTM tiene dos modos y el usuario elige uno en Ajustes de la VM → Compartir:
+# UTM has two modes and the user selects one in VM Settings → Sharing:
 #
-#    VirtFS       dispositivo 9p con mount_tag "share". Se monta directo.
-#    SPICE WebDAV puerto virtio org.spice-space.webdav.0. spice-webdavd lo
-#                 sirve en http://localhost:9843/ y se monta con davfs2.
+#    VirtFS       9p device with mount_tag "share". Mounted directly.
+#    SPICE WebDAV virtio port org.spice-space.webdav.0. spice-webdavd serves
+#                 it at http://localhost:9843/ and is mounted using davfs2.
 #
-#  Este script detecta cuál está activo y hace lo que toque. Sin argumentos
-#  monta; con --umount desmonta; con --status dice qué hay.
+# This script detects which one is active and performs the appropriate action. Without arguments
+# it mounts; with --umount it unmounts; with --status it shows the current state.
 #
 set -uo pipefail
 PUNTO="${OMARCHY_SHARE_MNT:-/mnt/share}"
@@ -2745,7 +2764,7 @@ montar() {
   montado && { echo "ya está montado en $PUNTO"; return 0; }
   sudo mkdir -p "$PUNTO"
 
-  # 1) VirtFS: lo más simple, si el dispositivo está
+  # 1) VirtFS: the simplest option, if the device is
   if sudo mount -t 9p -o trans=virtio,version=9p2000.L,rw,msize=512000 "$TAG" "$PUNTO" 2>/dev/null; then
     echo "montado por VirtFS (9p) en $PUNTO"; return 0
   fi
@@ -2762,7 +2781,7 @@ montar() {
       echo "  systemctl status spice-webdavd" >&2
       return 1
     fi
-    # davfs2 pregunta usuario y contraseña: aquí no hacen falta
+    # davfs2 prompts for username and password: not needed here
     if printf '\n\n' | sudo mount -t davfs -o rw,uid=$(id -u),gid=$(id -g) "$URL" "$PUNTO" 2>/dev/null; then
       echo "montado por SPICE WebDAV en $PUNTO"; return 0
     fi
@@ -2789,7 +2808,7 @@ chmod +x "$W/provision/share.sh"
 mkdir -p "$W/scripts"
 cat > "$W/scripts/build.exp" <<'__PAYLOAD_SCRIPTS_BUILD_EXP__'
 #!/usr/bin/expect -f
-# Conduce la construcción por consola serie del live de Alpine.
+# Drives the console-based construction of the Alpine live image.
 set timeout 900
 log_user 1
 match_max 400000
@@ -2804,16 +2823,16 @@ proc wait_for {pat code msg {t 900}} {
     }
 }
 
-# write_payloads sustituye @OMARM_ROOT@ al desplegar este fichero. Si el
-# marcador sigue ahi es que se esta ejecutando desde un clon del repositorio:
-# entonces la raiz viene de OMARM_ROOT o del directorio actual.
+# write_payloads replaces @OMARM_ROOT@ when deploying this file. If the
+# marker is still present, it means it is running from a repository clone:
+# then the root comes from OMARM_ROOT or the current directory.
 set ROOT "@OMARM_ROOT@"
 if {[string match "@*@" $ROOT]} {
   set ROOT [expr {[info exists env(OMARM_ROOT)] ? $env(OMARM_ROOT) : [pwd]}]
 }
 spawn -noecho $ROOT/scripts/qemu-build.sh
 
-# --- login del live de Alpine (root sin contraseña)
+# --- Alpine live login (root without password)
 wait_for "localhost login:" 10 "el live de Alpine no llegó al login" 300
 send "root\r"
 wait_for "localhost:~#" 11 "no hay shell de root en Alpine" 120
@@ -2821,17 +2840,17 @@ wait_for "localhost:~#" 11 "no hay shell de root en Alpine" 120
 send "export PS1='RDY> '; echo TOK_SH_\$?\r"
 wait_for "TOK_SH_0" 12 "no se pudo fijar el prompt" 60
 
-# --- localizar y montar el ISO de aprovisionamiento
+# --- locate and mount the provisioning ISO
 send "mkdir -p /media/prov; for d in /dev/vd? /dev/sr?; do mount -t iso9660 -o ro \$d /media/prov 2>/dev/null && \[ -f /media/prov/stage1.sh \] && break; umount /media/prov 2>/dev/null; done; ls /media/prov; echo TOK_PROV_\$?\r"
 wait_for "TOK_PROV_0" 13 "no se encontró el ISO de aprovisionamiento" 120
 
 send "test -s /media/prov/alarm-rootfs.tgz; echo TOK_TGZ_\$?\r"
 wait_for "TOK_TGZ_0" 14 "falta el rootfs de Arch Linux ARM en el ISO" 60
 
-# --- construcción completa (particionado + chroot + paquetes + dotfiles)
+# --- complete build (partitioning + chroot + packages + dotfiles)
 set timeout -1
-# stage1.sh emite el token TOK_BUILD_<rc> por si mismo (un pipe a tee
-# enmascararia el codigo de retorno).
+# stage1.sh emits the token TOK_BUILD_<rc> itself (a pipe to tee
+# would mask the return code).
 send "export DISK=/dev/vda; sh /media/prov/stage1.sh 2>&1 | tee /tmp/build.log\r"
 
 expect {
@@ -2850,7 +2869,7 @@ expect {
     eof { die 16 "EOF durante la construcción" }
 }
 
-# --- verificación del disco resultante
+# --- verify the resulting disk
 set timeout 600
 send "mount -o subvol=@ /dev/vda2 /mnt 2>/dev/null || mount /dev/vda2 /mnt; mount /dev/vda1 /mnt/boot 2>/dev/null; echo '==== VERIFICACION ===='; echo '-- ESP --'; find /mnt/boot -maxdepth 3 | head -40; echo '-- kernel --'; ls -la /mnt/boot/Image* /mnt/boot/initramfs* 2>/dev/null; echo '-- usuario --'; ls -la /mnt/home/; echo '-- dotfiles --'; for h in /mnt/home/*/; do echo \"  \$h:\"; ls \"\$h/.config\" 2>/dev/null | tr '\\n' ' '; echo; done; echo; echo '-- hyprland --'; ls -la /mnt/usr/bin/Hyprland 2>/dev/null; echo TOK_VERIFY_\$?\r"
 catch { wait_for "TOK_VERIFY_" 17 "verificación" 600 }
@@ -2865,8 +2884,8 @@ chmod +x "$W/scripts/build.exp"
 mkdir -p "$W/scripts"
 cat > "$W/scripts/repair.exp" <<'__PAYLOAD_SCRIPTS_REPAIR_EXP__'
 #!/usr/bin/expect -f
-# Uso: scripts/repair.exp <script-dentro-del-ISO.sh>
-# Arranca Alpine con el disco YA instalado y ejecuta ese script en el chroot.
+# Usage: scripts/repair.exp <script-inside-the-ISO.sh>
+# Start Alpine with the disk already installed and run that script in the chroot.
 set timeout 900
 log_user 1
 match_max 400000
@@ -2878,9 +2897,9 @@ proc wait_for {pat code msg {t 900}} {
     expect { -ex $pat {} timeout { puts "\n!! TIMEOUT: $msg"; exit $code }
              eof { puts "\n!! EOF: $msg"; exit [expr {$code+40}] } }
 }
-# write_payloads sustituye @OMARM_ROOT@ al desplegar este fichero. Si el
-# marcador sigue ahi es que se esta ejecutando desde un clon del repositorio:
-# entonces la raiz viene de OMARM_ROOT o del directorio actual.
+# write_payloads replaces @OMARM_ROOT@ when deploying this file. If the
+# marker is still there, it means it is running from a repository clone:
+# then the root comes from OMARM_ROOT or the current directory.
 set ROOT "@OMARM_ROOT@"
 if {[string match "@*@" $ROOT]} {
   set ROOT [expr {[info exists env(OMARM_ROOT)] ? $env(OMARM_ROOT) : [pwd]}]
@@ -2911,10 +2930,10 @@ chmod +x "$W/scripts/repair.exp"
 mkdir -p "$W/scripts"
 cat > "$W/scripts/qemu.sh" <<'__PAYLOAD_SCRIPTS_QEMU_SH__'
 #!/bin/bash
-# VM de construcción: aarch64 NATIVO con HVF (sin emulación) sobre Apple Silicon.
-# Live de Alpine por consola serie + ISO de aprovisionamiento con el rootfs de ALARM.
+# Build VM: NATIVE aarch64 with HVF (no emulation) on Apple Silicon.
+# Alpine live via serial console + provisioning ISO with the ALARM rootfs.
 set -e
-# La raiz la fija write_payloads al desplegar este fichero.
+# The root is set by write_payloads when deploying this file.
 ROOT=@OMARM_ROOT@
 cd "$ROOT"
 : "${VM_SMP:=8}"
@@ -2946,17 +2965,17 @@ chmod +x "$W/scripts/qemu.sh"
 mkdir -p "$W/scripts"
 cat > "$W/scripts/make-utm.sh" <<'__PAYLOAD_SCRIPTS_MAKE-UTM_SH__'
 #!/bin/bash
-# Crea el bundle .utm a mano y lo registra en UTM.
+# Manually create the .utm bundle and register it in UTM.
 #
-# UTM 4.7 sólo escanea ~/Library/Containers/com.utmapp.UTM/Data/Documents/ una
-# vez, al arrancar la app (listRefresh() se llama desde ContentView.onAppear),
-# así que hay que cerrar UTM, escribir el bundle y volver a abrirlo.
-# El config.plist requiere las DIEZ claves de primer nivel: se decodifican con
-# decode(), no decodeIfPresent(), y omitir cualquiera hace que UTM lo rechace.
+# UTM 4.7 only scans ~/Library/Containers/com.utmapp.UTM/Data/Documents/ once
+# upon app launch (listRefresh() is called from ContentView.onAppear),
+# so you must close UTM, write the bundle, and reopen it.
+# The config.plist requires all TEN top-level keys: they are decoded with
+# decode(), not decodeIfPresent(), and omitting any causes UTM to reject it.
 set -euo pipefail
 
-# La raiz se deduce de la ubicacion del propio script: asi el repo se puede
-# clonar en cualquier sitio sin editar nada.
+# The root is inferred from the script's own location: thus the repo can be
+# cloned anywhere without editing anything.
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 DOCS="$HOME/Library/Containers/com.utmapp.UTM/Data/Documents"
 NAME="${1:-Omarchy ARM}"
@@ -2971,14 +2990,14 @@ VARS_TPL=/Applications/UTM.app/Contents/Resources/qemu/edk2-arm-vars.fd
 [ -f "$VARS_TPL" ] || { echo "!! falta la plantilla de NVRAM UEFI $VARS_TPL"; exit 1; }
 
 VM_UUID=$(uuidgen)
-# Quien reciba el bundle lee estas notas en UTM antes de arrancar: tienen que
-# decir las credenciales reales, no las del que lo construyo.
+# Anyone receiving the bundle reads these notes in UTM before launching: they must
+# state the actual credentials, not those of the builder.
 NOTES_USER="${NOTES_USER:-omarchy}"
 NOTES_PASS="${NOTES_PASS:-$NOTES_USER}"
-# Estos dos van dentro de XML. Un '&' o un '<' en la contrasena rompia el
-# config.plist, y como el `plutil -lint` esta al final, el fallo llegaba DESPUES
-# de copiar el disco entero: nueve gigas gastados para morir con un mensaje que
-# no mencionaba la contrasena por ningun lado.
+# These two go inside XML. An '&' or a '<' in the password used to break the
+# config.plist, and since `plutil -lint` is at the end, the error occurred AFTER
+# copying the entire disk: nine gigabytes wasted to die with a message that
+# did not mention the password anywhere.
 xmlq() { printf "%s" "${1-}" | sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g'; }
 NOTES_USER=$(xmlq "$NOTES_USER")
 NOTES_PASS=$(xmlq "$NOTES_PASS")
@@ -2986,9 +3005,9 @@ NOTES_PASS=$(xmlq "$NOTES_PASS")
 DISK_UUID=$(uuidgen)
 MAC=$(printf '02:%02X:%02X:%02X:%02X:%02X' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)))
 
-# UTM solo escanea Documents al arrancar la app, asi que para que reconozca el
-# bundle hay que reiniciarla. Pero cerrarla a la fuerza se lleva por delante las
-# VMs que el usuario tenga corriendo, asi que primero se comprueba.
+# UTM only scans Documents upon app launch, so to recognize the
+# bundle you must restart it. But force-closing it wipes out any
+# VMs the user has running, so check first.
 if [ "$DEST_DIR" = "$DOCS" ] && pgrep -x UTM >/dev/null; then
   UTMCTL=/Applications/UTM.app/Contents/MacOS/utmctl
   CORRIENDO=$("$UTMCTL" list 2>/dev/null | awk '$2=="started"{print $3" "$4}' | grep -v "^$" || true)
@@ -3021,8 +3040,8 @@ rm -rf "$BUNDLE"
 mkdir -p "$BUNDLE/Data"
 echo "    copiando disco ($(du -h "$SRC_QCOW" | cut -f1))"
 cp -c "$SRC_QCOW" "$BUNDLE/Data/$DISK_UUID.qcow2" 2>/dev/null || cp "$SRC_QCOW" "$BUNDLE/Data/$DISK_UUID.qcow2"
-# La mitad VARS del UEFI aarch64 usa la plantilla edk2-ARM-vars.fd (no aarch64);
-# UTM aporta edk2-aarch64-code.fd en tiempo de ejecución vía -L.
+# The VARS half of the aarch64 UEFI uses the edk2-ARM-vars.fd template (not aarch64);
+# UTM provides edk2-aarch64-code.fd at runtime via -L.
 install -m 0644 "$VARS_TPL" "$BUNDLE/Data/efi_vars.fd"
 
 cat > "$BUNDLE/config.plist" <<PLIST
@@ -3196,14 +3215,14 @@ echo "UUID:    $VM_UUID"
 echo "Arrancar: /Applications/UTM.app/Contents/MacOS/utmctl start \"$NAME\""
 __PAYLOAD_SCRIPTS_MAKE-UTM_SH__
 chmod +x "$W/scripts/make-utm.sh"
-  # Todos los valores van entrecomillados: config.env se consume con "source" y
-  # cualquiera puede llevar espacios (VM_FULLNAME es el caso obvio, pero tambien
-  # una contrasena o un nombre de VM). Sin comillas, la segunda palabra se
-  # ejecuta como comando y el chroot muere con 127.
-  # Comillas SIMPLES, no dobles. Entrecomillar con dobles solo resolvia los
-  # espacios: el invitado hace `. config.env` y vuelve a expandir lo de dentro,
-  # asi que una contrasena con '$' o con backtick llegaba cambiada (o ejecutaba
-  # algo). Con comillas simples y ' escapado como '\'' el valor viaja literal.
+  # All values are quoted: config.env is consumed with "source" and
+  # anyone can contain spaces (VM_FULLNAME is the obvious case, but also
+  # a password or a VM name). Without quotes, the second word is
+  # executed as a command and the chroot dies with 127.
+  # SINGLE quotes, not double. Using double quotes only resolved the
+  # spaces: the guest runs `. config.env` and re-expands the contents,
+  # so a password containing '$' or a backtick would arrive altered (or execute
+  # something). With single quotes and ' escaped as '\'' the value travels literally.
   cfgq() { printf "%s" "${1-}" | sed "s/'/'\\\\''/g"; }
   cat > "$W/provision/config.env" <<CFGEOF
 VM_USER='$(cfgq "$VM_USER")'
@@ -3218,20 +3237,22 @@ VM_LOCALE='$(cfgq "$VM_LOCALE")'
 VM_LOCALE_EXTRA='$(cfgq "$VM_LOCALE_EXTRA")'
 DISK='/dev/vda'
 OMARCHY_REF='$(cfgq "$OMARCHY_REF")'
+ALARM_MIRROR_PRIMARY='$(cfgq "$ALARM_MIRROR_PRIMARY")'
+ALARM_MIRROR_SECONDARY='$(cfgq "$ALARM_MIRROR_SECONDARY")'
 DIST_OLD_USER='$(cfgq "$VM_USER")'
 DIST_NEW_USER='$(cfgq "$DIST_NEW_USER")'
 HACER_TOOLS='$(cfgq "$HACER_TOOLS")'
 HACER_LIBRES='$(cfgq "$HACER_LIBRES")'
 CFGEOF
-  # Los arneses llevan la raiz como marcador @OMARM_ROOT@: se sustituye al
-  # desplegarlos. Antes era la ruta literal del Mac donde se escribieron.
+  # Harnesses carry the root as a marker @OMARM_ROOT@: it is replaced upon
+  # deployment. Previously it was the literal path on the Mac where they were written.
   sed -i '' "s#@OMARM_ROOT@#$W#g" \
     "$W/scripts/build.exp" "$W/scripts/repair.exp" "$W/scripts/qemu.sh" "$W/scripts/make-utm.sh" 2>/dev/null || true
   sed -i '' "s#scripts/qemu-build.sh#scripts/qemu.sh#g" "$W/scripts/build.exp" "$W/scripts/repair.exp" 2>/dev/null || true
   sed -i '' "s#^ROOT=.*#ROOT=$W#" "$W/scripts/qemu.sh" "$W/scripts/make-utm.sh" 2>/dev/null || true
 }
 
-make_iso() {  # make_iso <destino.iso> <fichero...>
+make_iso() {  # make_iso <destination.iso> <file...>
   local out="$1"; shift
   local d; d=$(mktemp -d)
   cp "$@" "$d"/
@@ -3240,16 +3261,16 @@ make_iso() {  # make_iso <destino.iso> <fichero...>
   rm -rf "$d"
 }
 
-# ─────────────────────────────── fase: build ───────────────────────────────
+# ─────────────────────────────── phase: build ───────────────────────────────
 ph_build() {
   phase "build · construccion del disco (headless, QEMU + HVF)"
   write_payloads
-  # Nombres cortos: hdiutil trunca los largos en el arbol ISO9660
+  # Short names: hdiutil truncates long ones in the ISO9660 tree
   make_iso "$W/provision/provision.iso" \
     "$W/provision/stage1.sh" "$W/provision/stage2.sh" "$W/provision/stage3.sh" \
     "$W/provision/config.env" "$W/provision/packages-core.txt" "$W/provision/packages-extra.txt"
   ln -f "$W/dl/alarm-rootfs.tgz" /tmp/alarm-rootfs.tgz 2>/dev/null || true
-  # el rootfs viaja dentro del ISO de aprovisionamiento
+  # the rootfs travels inside the provisioning ISO
   local d; d=$(mktemp -d)
   cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,packages-core.txt,packages-extra.txt} "$d"/
   cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
@@ -3259,8 +3280,8 @@ ph_build() {
   rm -rf "$d"
   ok "ISO de aprovisionamiento $(du -h "$W/provision/provision.iso" | cut -f1)"
 
-  # Reconstruir descarta el disco anterior, que son ~40 min de trabajo. Si hay
-  # uno y la sesion es interactiva, se pregunta; si no, se conserva una copia.
+  # Rebuilding discards the previous disk, which takes ~40 minutes of work. If there is
+  # one and the session is interactive, it asks; otherwise, it keeps a copy.
   if [[ -s $W/vm/omarchy-arm.qcow2 ]]; then
     if confirm "Ya existe un disco construido ($(du -h "$W/vm/omarchy-arm.qcow2" | cut -f1)). ¿Descartarlo y reconstruir?" no; then
       rm -f "$W/vm/omarchy-arm.qcow2"
@@ -3278,8 +3299,8 @@ ph_build() {
   VM_SMP=$BUILD_SMP VM_MEM=$BUILD_MEM PROV_ISO="$W/provision/provision.iso" \
     expect -f "$W/scripts/build.exp" > "$W/logs/build.log" 2>&1
   local rc=$?
-  # stage2 emite TOK_STAGE3_<rc>: sin comprobarlo, un stage3 que falla entero
-  # (sin dotfiles, sin herramientas, sin tema) pasaba por construccion correcta.
+  # stage2 emits TOK_STAGE3_<rc>: without checking it, a stage3 that fails entirely
+  # (without dotfiles, without tools, without theme) passed as a successful build.
   if grep -qa "TOK_STAGE3_" "$W/logs/build.log" && ! grep -qa "TOK_STAGE3_0" "$W/logs/build.log"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$W/logs/build.log" | grep -aE "^(!!|==>)" | tail -25
     die "stage3 fallo: el disco existe pero no tiene la configuracion de Omarchy. Log: $W/logs/build.log"
@@ -3291,13 +3312,13 @@ ph_build() {
   ok "disco construido: $(du -h "$W/vm/omarchy-arm.qcow2" | cut -f1)"
 }
 
-# ──────────────────────────────── fase: utm ────────────────────────────────
+# ──────────────────────────────── phase: utm ────────────────────────────────
 ph_utm() {
   phase "utm · bundle .utm"
   write_payloads
   [[ -s $W/vm/omarchy-arm.qcow2 ]] || die "no hay disco construido; ejecuta la fase build"
-  # Borrar una VM homonima destruye su disco. Si ya existe una, se pregunta;
-  # sin terminal se elige otro nombre en vez de destruir nada.
+  # Deleting a VM with the same name destroys its disk. If one already exists, it asks;
+  # without a terminal, it chooses another name instead of destroying anything.
   if "$UTMCTL" list 2>/dev/null | grep -q "  $VM_NAME$"; then
     if confirm "Ya existe una VM llamada '$VM_NAME' en UTM. ¿Borrarla y reemplazarla?" no; then
       "$UTMCTL" delete "$VM_NAME" >/dev/null 2>&1 || true; sleep 2
@@ -3318,36 +3339,36 @@ ph_utm() {
   ok "bundle creado en $DOCS/$VM_NAME.utm"
 }
 
-# ─────────────────────────────── fase: verify ──────────────────────────────
+# ─────────────────────────────── phase: verify ──────────────────────────────
 ph_verify() {
   phase "verify · arranque y comprobacion"
   "$UTMCTL" start "$VM_NAME" >/dev/null 2>&1 || true
   info "esperando al arranque..."
   sleep 60
   local pty; pty=$("$UTMCTL" attach "$VM_NAME" 2>&1 | grep -o '/dev/ttys[0-9]*' | head -1)
-  # Antes esto era "warn + return 0": sin puerto serie no hay verificacion
-  # posible, y seguir a sanitize/package empaquetaba una imagen que nadie ha
-  # mirado. Si de verdad quieres saltartelo: --from sanitize.
+  # Previously this was "warn + return 0": without a serial port there is no verification
+  # possible, and proceeding to sanitize/package would package an image that no one has
+  # looked at. If you really want to skip it: --from sanitize.
   [[ -n $pty ]] || die "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
-  # Antes esta fase recogia metricas y no las comparaba con nada, asi que
-  # terminaba en "ok" pasara lo que pasara. Ahora el invitado emite un veredicto
-  # y el anfitrion lo comprueba. Seis condiciones, todas necesarias:
+  # Previously this phase collected metrics and did not compare them with anything, so
+  # it ended in "ok" regardless of what happened. Now the guest emits a verdict
+  # and the host checks it. Six conditions, all necessary:
   #   H  Hyprland vivo
-  #   Q  quickshell vivo (si fuera waybar, seria Omarchy 3)
-  #   B  >=400 comandos omarchy-* en /usr/bin (contados por nombre, no por
-  #      total del directorio: /usr/bin tiene ~2900 ficheros del sistema y
-  #      "ls | wc -l" pasaria cualquier umbral aunque no hubiera ni uno)
-  #   R  <=5 enlaces rotos (uno es de qt6-webengine, ajeno a esto)
-  #   U  >=6 unidades de usuario instaladas: sin ellas first-run falla en bucle
-  #   V  la version del arbol empieza por 4
-  # El umbral anterior miraba /usr/local/bin, donde ya no van los comandos: era
-  # un falso positivo garantizado en cuanto se movieron a /usr/bin.
+  #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
+  #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
+  #      total directory size: /usr/bin has ~2900 system files and
+  #      "ls | wc -l" would pass any threshold even if there were none)
+  #   R  <=5 broken symlinks (one is from qt6-webengine, unrelated to this)
+  #   U  >=6 user units installed: without them first-run fails in a loop
+  #   V  the tree version starts with 4
+  # The previous threshold checked /usr/local/bin, where commands are no longer placed: it was
+  # a guaranteed false positive once they were moved to /usr/bin.
   local vlog="$W/logs/verify.log"
-  # El heredoc va ENTRECOMILLADO. Sin comillas, el bash del anfitrion expande
-  # los $(...) antes de que expect los vea, y las comprobaciones se ejecutan en
-  # el Mac en vez de dentro de la VM (pgrep con sintaxis de BSD, systemctl
-  # inexistente). Los tres valores que hacen falta entran por el entorno y se
-  # leen con $env(...), que es cosa de Tcl y no de bash.
+  # NOTE: the heredoc is QUOTED. Without quotes, the host's bash expands
+  # the $(...) before expect sees them, and the checks run on
+  # the Mac instead of inside the VM (pgrep with BSD syntax, systemctl
+  # nonexistent). The three required values are passed via the environment and
+  # read with $env(...), which is a Tcl feature, not bash.
   PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" \
   expect > "$vlog" 2>&1 <<'EXPEOF'
 set timeout 180
@@ -3363,27 +3384,27 @@ expect {
   -re {❯} {}
   timeout {}
 }
-# OJO: nada de `ls` aqui. Omarchy aliasa ls a eza en formato largo, y el alias
-# esta vivo porque esto corre en una shell interactiva por la consola serie. Con
-# formato largo la linea empieza por los permisos, asi que `grep '^omarchy-'`
-# cuenta cero y el verify declara KO una imagen perfectamente buena. find no se
-# aliasa y ademas no depende del formato de salida.
-# LIMITE CONOCIDO: esto valida el PRIMER arranque. Un fallo que solo apareciera
-# al reiniciar -como el que arregla fixes/19 en las imagenes antiguas, donde el
-# agente oficial resucitaba desde autostart.lua- no se veria aqui. Se comprobo a
-# mano que la imagen actual si sobrevive al reinicio: el agente arranca con la
-# sesion grafica. Por eso NO se anade una segunda pasada, que seria coste fijo
-# en cada construccion contra una hipotesis. Si algun dia reaparece un fallo de
-# ese tipo, este es el sitio donde reiniciar y repetir el veredicto.
+# NOTE: no `ls` here. Omarchy aliases ls to eza in long format, and the alias
+# is active because this runs in an interactive shell via the serial console. With
+# long format the line starts with permissions, so `grep '^omarchy-'`
+# returns zero matches and verify marks a perfectly good image as KO. find is not
+# aliased and does not depend on output format.
+# KNOWN LIMITATION: this validates the FIRST boot. A failure that only appeared
+# on reboot -such as the one fixed by fixes/19 in older images, where the
+# the official agent was resurrected from autostart.lua - it would not be visible here. It was verified by
+# hand that the current image does indeed survive a reboot: the agent starts with the
+# graphical session. Therefore, a second pass is NOT added, as it would be a fixed cost
+# in every build against a hypothesis. If a bug of
+# that type reappears someday, this is the place to restart and repeat the verdict.
 #
-# OJO 2: el token va PARTIDO (VERED\"ICTO_OK\"). La consola serie hace eco del
-# comando, asi que si el token viajara entero el log contendria la cadena
-# VEREDICTO_OK antes de que el invitado respondiera nada, y el `grep` del
-# anfitrion la encontraria ahi: la fase daba OK siempre, pasara lo que pasara.
-# Partido, el eco muestra VERED"ICTO_OK" y solo la respuesta real casa.
+# NOTE 2: the token is SPLIT (VERED\"ICTO_OK\"). The serial console echoes the
+# command, so if the token traveled whole, the log would contain the string
+# VEREDICTO_OK before the guest responded with anything, and the host's `grep`
+# would find it there: the phase would always return OK, regardless of what happened.
+# Split, the echo shows VERED"ICTO_OK" and only the actual response matches.
 #
-# C cuenta las cinco maneras conocidas de que el portapapeles muera. Ninguna
-# necesita un cliente SPICE conectado, asi que se puede comprobar aqui.
+# C counts the five known ways the clipboard can die. None
+# require a connected SPICE client, so it can be checked here.
 send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
@@ -3394,14 +3415,14 @@ EXPEOF
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "la VM arranca pero el escritorio no esta completo; log en $vlog"
   else
-    # Tampoco esto puede ser un aviso: si el invitado no contesta, no sabemos
-    # nada de la imagen, y lo siguiente seria empaquetarla y repartirla.
+    # This also cannot be a warning: if the guest does not respond, we know
+    # nothing about the image, and the next step would be to package and distribute it.
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "el invitado no emitio veredicto por el puerto serie; log en $vlog"
   fi
 }
 
-# ────────────────────────────── fase: sanitize ─────────────────────────────
+# ────────────────────────────── phase: sanitize ─────────────────────────────
 ph_sanitize() {
   phase "sanitize · copia limpia para distribuir"
   write_payloads
@@ -3420,10 +3441,10 @@ ph_sanitize() {
   PROV_ISO="$W/provision/repair.iso" DISK_IMG="$W/dist/dist.qcow2" \
   DIST_OLD_USER="$VM_USER" DIST_NEW_USER="$DIST_NEW_USER" \
     expect -f "$W/scripts/repair.exp" sanitize.sh > "$W/logs/sanitize.log" 2>&1
-  # TOK_REPAIR_0 solo dice que el chroot no reventó, y sanitize.sh corre sin
-  # -e: devolvia 0 aunque usermod hubiera fallado y la imagen conservara al
-  # usuario del constructor. El token con significado es SANITIZE_OK, que
-  # ahora sanitize.sh solo imprime si sus invariantes se cumplen.
+  # TOK_REPAIR_0 only indicates that the chroot did not crash, and sanitize.sh runs without
+  # -e: it returned 0 even if usermod had failed and the image retained the
+  # builder's user. The meaningful token is SANITIZE_OK, which
+  # now causes sanitize.sh to print only if its invariants are met.
   if grep -qa "SANITIZE_FALLO" "$W/logs/sanitize.log"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$W/logs/sanitize.log" | grep -aE "✗|SANITIZE_FALLO" | tail -20
     die "la imagen no paso los invariantes de distribucion; revisa $W/logs/sanitize.log"
@@ -3439,31 +3460,31 @@ ph_sanitize() {
   ok "imagen sanitizada y con los invariantes de distribucion comprobados"
 }
 
-# ────────────────────────────── fase: package ──────────────────────────────
+# ────────────────────────────── phase: package ──────────────────────────────
 ph_package() {
   phase "package · compactar y comprimir"
   [[ -s $W/dist/dist.qcow2 ]] || die "no hay imagen sanitizada; ejecuta la fase sanitize"
   info "compactando y comprimiendo los clusters del qcow2..."
   rm -f "$W/dist/slim.qcow2"
-  # -c comprime dentro del propio qcow2: la imagen ocupa la mitad tambien ya
-  # descomprimida en el disco de quien la recibe. Se descomprime al leer.
+  # -c compresses within the qcow2 itself: the image occupies half the space even when
+  # decompressed on the recipient's disk. It decompresses upon reading.
   qemu-img convert -c -O qcow2 "$W/dist/dist.qcow2" "$W/dist/slim.qcow2" || die "qemu-img convert fallo"
   qemu-img check "$W/dist/slim.qcow2" >/dev/null || die "la imagen compactada no valida"
   ok "$(du -h "$W/dist/dist.qcow2" | cut -f1) → $(du -h "$W/dist/slim.qcow2" | cut -f1)"
 
-  # El bundle que se reparte NO lleva $VM_NAME. Ese nombre es del constructor y
-  # puede ser cualquier cosa ("Omarchy ARM v5" en una de las tandas), y viajaba
-  # dentro del zip como nombre de directorio y como <key>Name</key>, de modo que
-  # al importarla en UTM aparecia con el versionado interno de quien la creo.
-  # Ademas el LEEME dice «doble clic en Omarchy ARM.utm», que entonces no existia.
+  # The distributed bundle does NOT include $VM_NAME. That name is from the builder and
+  # can be anything ("Omarchy ARM v5" in one of the batches), and was carried
+  # inside the zip as both the directory name and the <key>Name</key> value, so that
+  # when importing it into UTM, it appeared with the internal versioning of whoever created it.
+  # Additionally, the README says "double-click on Omarchy ARM.utm", which did not exist at the time.
   local DNAME="${DIST_VM_NAME:-Omarchy ARM}"
   rm -rf "$W/dist/$DNAME.utm"
   SRC_QCOW="$W/dist/slim.qcow2" DEST_DIR="$W/dist" UTM_CPUS=$UTM_CPUS UTM_MEM=$UTM_MEM \
     NOTES_USER="$DIST_NEW_USER" NOTES_PASS="$DIST_NEW_USER" \
     bash "$W/scripts/make-utm.sh" "$DNAME" >/dev/null \
     || die "no se pudo crear el bundle distribuible"
-  # Ultima red: ni el plist ni el NOMBRE del bundle deben llevar rastro del
-  # usuario ni del nombre de trabajo del constructor.
+  # Final check: neither the plist nor the BUNDLE NAME should bear any trace of the
+  # user or the builder's project name.
   if grep -q "\b$VM_USER\b" "$W/dist/$DNAME.utm/config.plist" 2>/dev/null; then
     die "el config.plist del bundle menciona a '$VM_USER'; revisa make-utm.sh"
   fi
@@ -3482,11 +3503,11 @@ ph_package() {
 }
 
 write_readme() {
-  # El texto vive en provision/src/LEEME.md y se embebe tal cual (scripts/sync
-  # lo re-incrusta). Cuando eran dos copias a mano, la del script se quedo atras
-  # y viajaba dentro del zip afirmando cosas falsas -- 432 comandos cuando eran
-  # 439, «el zip ocupa 7 GB» cuando eran 3,6 -- y hasta con una nota interna
-  # para el mantenedor dentro.
+  # The text resides in provision/src/LEEME.md and is embedded as-is (scripts/sync
+  # re-embeds it). When there were two manual copies, the script's version fell behind
+  # and was carried inside the zip stating false things -- 432 commands when there were
+  # 439, "the zip takes up 7 GB" when it was 3.6 -- and even included an internal note
+  # for the maintainer inside.
   cat > "$1" <<'__PAYLOAD_LEEME_MD__'
 # Omarchy sobre Arch Linux ARM — imagen para UTM en Apple Silicon
 
@@ -3641,12 +3662,12 @@ Arch Linux ARM.
 __PAYLOAD_LEEME_MD__
 }
 
-# ──────────────────────────────────── preguntas ────────────────────────────
-# Solo se pregunta lo que es de verdad una decision y sale caro equivocar.
-# Todo lo demas (version de Alpine, URL del rootfs, rama de Omarchy, tamano del
-# disco, locales) se queda como variable de entorno: son detalles de
-# implementacion, no decisiones.
-# Con ':=' para que se puedan fijar desde el entorno, igual que el resto:
+# ──────────────────────────────────── questions ────────────────────────────
+# Only what is truly a decision is asked, and getting it wrong is costly.
+# Everything else (Alpine version, rootfs URL, Omarchy branch, disk size, and
+# locales) remains configurable through environment variables: these are
+# implementation details, not decisions.
+# Use ':=' so they can be set from the environment, just like the rest:
 #   HACER_LIBRES=no ./build-omarchy-arm.sh --yes
 : "${HACER_TOOLS:=si}"
 : "${HACER_LIBRES:=si}"
@@ -3655,10 +3676,10 @@ __PAYLOAD_LEEME_MD__
 cuestionario() {
   detectar_del_anfitrion
   if (( ! INTERACTIVO )); then
-    # Sin terminal: el comportamiento historico, todo automatico. Se guardan
-    # igualmente, para que un --from posterior no arranque con otros valores.
-    # Pero si ya habia respuestas de una tanda anterior, no se pisan: un
-    # `--yes` de rebote destruia lo que el usuario habia contestado a mano.
+    # No terminal: preserve the historical fully automatic behavior. Save the
+    # answers so a later --from does not start with different values.
+    # If a previous run already saved answers, do not overwrite them: a follow-up
+    # `--yes` used to destroy what the user had answered manually.
     [[ -f "$W/respuestas.env" ]] || guardar_respuestas
     return
   fi
@@ -3675,8 +3696,8 @@ cuestionario() {
   ask DISK_SIZE   "Tamano del disco"                 "$DISK_SIZE"
   echo
 
-  # ~40 min de compilaciones. Sin ellas el escritorio funciona, pero faltan el
-  # salvapantallas, el anotador de capturas y la calculadora, entre otros.
+  # About 40 minutes of compilation. The desktop works without these tools, but
+  # the screensaver, screenshot annotator, calculator, and others are missing.
   if confirm "Compilar las 17 herramientas de Omarchy que no existen para ARM (~40 min)?" si; then
     HACER_TOOLS=si
   else
@@ -3685,8 +3706,8 @@ cuestionario() {
   fi
   echo
 
-  # OBS y Pinta son lo mas caro del build. Van dentro porque son software libre
-  # y la imagen que se distribuye los lleva, pero para una VM de pruebas sobran.
+  # OBS and Pinta are the most expensive parts of the build. The distributable
+  # image includes them because they are free software, but a test VM does not need them.
   if confirm "Incluir OBS Studio y Pinta (software libre, se compilan: ~45 min)?" si; then
     HACER_LIBRES=si
   else
@@ -3695,8 +3716,7 @@ cuestionario() {
   fi
   echo
 
-  # La distincion que mas cambia el resultado: imagen para repartir frente a
-  # VM para uso propio.
+  # The most consequential choice: an image for distribution or a VM for personal use.
   info "Dos usos posibles:"
   info "  · imagen para repartir  → renombra el usuario a '$DIST_NEW_USER', borra"
   info "    claves SSH e identidad, y genera un zip de ~6,5 GB (~30 min extra)"
@@ -3718,15 +3738,15 @@ cuestionario() {
 }
 
 # ──────────────────────────────────── main ─────────────────────────────────
-# Imprime la cabecera entera, sea cual sea su longitud: fijar '2,30p' hacia que
-# --help se quedara sin la lista de fases en cuanto el banner crecia.
+# Print the full header regardless of length. A fixed '2,30p' range made --help
+# lose the phase list as soon as the banner grew.
 usage() { awk 'NR>1 && /^#/{print; next} NR>1{exit}' "$0" | sed 's/^#\{0,2\} \{0,1\}//'; }
 
 run_from=""; run_only=""
 while (($#)); do
   case "$1" in
-    # ${2:-} y no $2: con `set -u` un argumento ausente aborta con "unbound
-    # variable" y un numero de linea, en vez del mensaje util que hay abajo.
+    # Use ${2:-}, not $2: with `set -u`, a missing argument otherwise aborts
+    # with "unbound variable" and a line number instead of the useful message below.
     --from) run_from="${2:-}"; [[ -n $run_from ]] || { usage; die "--from necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --only) run_only="${2:-}"; [[ -n $run_only ]] || { usage; die "--only necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
@@ -3736,32 +3756,31 @@ while (($#)); do
   esac
 done
 
-# El nombre del usuario de construccion acaba en un `find ... -regex` del
-# sanitizado y en rutas de todo el invitado. Un nombre raro o demasiado corto
-# convierte ese barrido en una escopeta: se exige que sea un nombre de usuario
-# de verdad y que no sea subcadena del usuario de la imagen distribuible.
+# The build username ends up in a sanitizer `find ... -regex` and throughout
+# guest paths. A strange or very short name turns that sweep into a shotgun, so
+# require a valid username that is not a substring of the distributable user.
 [[ $VM_USER =~ ^[a-z_][a-z0-9_-]{2,31}$ ]] \
   || die "VM_USER='$VM_USER' no vale: minusculas, digitos, '-' y '_', empezando por letra, 3-32 caracteres"
 [[ $DIST_NEW_USER == *"$VM_USER"* ]] \
   && die "VM_USER='$VM_USER' es parte de DIST_NEW_USER='$DIST_NEW_USER'; elige otro"
 
-# Combinar los dos no ejecuta nada: si la fase de --only va ANTES que la de
-# --from en el array, el bucle nunca llega a poner started=1 y el script
-# terminaba anunciando "Completado en 0 min." con rc=0 sin hacer absolutamente
-# nada. Son excluyentes, asi que se dice y punto.
+# Combining the two does nothing: if the --only phase comes BEFORE the
+# --from phase in the array, the loop never sets started=1 and the script
+# would finish announcing "Completed in 0 min." with rc=0 without doing anything
+# at all. They are mutually exclusive, so we state it and move on.
 [[ -n $run_from && -n $run_only ]] && die "--from y --only son excluyentes: elige uno"
 
-# Un nombre de fase mal escrito no debe salir con exito sin hacer nada.
+# A misspelled phase name must not exit successfully without doing anything.
 for sel in "$run_from" "$run_only"; do
   [[ -z $sel ]] && continue
   printf '%s\n' "${PHASES[@]}" | grep -qxF "$sel" \
     || die "fase desconocida: '$sel' (validas: ${PHASES[*]})"
 done
 
-# Reanudar o ejecutar una sola fase no debe reabrir el cuestionario, pero SI
-# debe recuperar lo que se contesto la vez anterior.
+# Resuming or running a single phase must not reopen the questionnaire, but it MUST
+# retrieve what was answered the previous time.
 if [[ -z $run_from && -z $run_only ]]; then
-  cargar_respuestas          # lo ya contestado sale como valor por defecto
+  cargar_respuestas          # previous answers appear as defaults
   cuestionario
 else
   cargar_respuestas || true
@@ -3772,10 +3791,10 @@ else
   fi
 fi
 
-# El recorte de fases se decide AQUI: despues del cuestionario y de cargar las
-# respuestas, con el valor definitivo de HACER_DIST, y nunca cuando el usuario
-# ha nombrado sanitize o package a mano -- eso seria no hacer nada y salir con
-# exito, que es exactamente lo que se acaba de quitar en otros dos sitios.
+# Phase trimming is decided HERE: after the questionnaire and loading the
+# answers, with the final value of HACER_DIST, and never when the user
+# has manually named sanitize or package -- that would mean doing nothing and exiting
+# successfully, which is exactly what was just removed in two other places.
 if [[ ${HACER_DIST:-si} == no \
       && $run_from != sanitize && $run_from != package \
       && $run_only != sanitize && $run_only != package ]]; then

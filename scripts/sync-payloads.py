@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Re-incrusta provision/src/* en los heredocs __PAYLOAD_*__ de build-omarchy-arm.sh."""
+"""Re-embed provision/src/* in build-omarchy-arm.sh __PAYLOAD_*__ heredocs."""
 import sys, os
-RAIZ="/Users/gabriel/Development/2026/omarchy_ai"
+RAIZ=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CHECK=sys.argv[1:] == ["--check"]
+if sys.argv[1:] not in ([], ["--check"]):
+    raise SystemExit("usage: scripts/sync-payloads.py [--check]")
 MAPA={
  "__PAYLOAD_PROVISION_STAGE1_SH__":"provision/src/stage1.sh",
  "__PAYLOAD_PROVISION_STAGE2_SH__":"provision/src/stage2.sh",
@@ -31,11 +34,14 @@ for marca,rel in MAPA.items():
     lineas[ini+1:fin]=nuevo
     cambios+=1
     print(f"  re-incrustado {os.path.basename(rel)} ({len(nuevo)} lineas)")
-open(p,"w").write("\n".join(lineas))
+if cambios and CHECK:
+    raise SystemExit(f"{cambios} payload(s) desincronizados")
+if not CHECK:
+    open(p,"w").write("\n".join(lineas))
 print(f"  {cambios} payload(s) actualizados" if cambios else "  todo ya estaba sincronizado")
 
-# Un payload sin entrada en MAPA es un fichero que nadie vuelve a sincronizar:
-# se edita la fuente, no pasa nada, y el constructor sigue desplegando lo viejo.
+# A payload without a MAPA entry is a file that no one will ever sync again:
+# you edit the source, nothing happens, and the build continues deploying the old version.
 import re
 todas=set(re.findall(r"<<'(__PAYLOAD_[A-Z0-9_.-]+__)'", "\n".join(lineas)))
 huerfanas=sorted(todas - set(MAPA))

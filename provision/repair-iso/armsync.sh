@@ -1,18 +1,18 @@
 #!/bin/bash
-# Hook post-update para instalaciones ARM.
+# Post-update hook for ARM installations.
 #
-# En esta instalacion Omarchy no viene de su paquete pacman (que solo existe
-# para x86_64) sino de un checkout de git. omarchy-update-dev solo hace `git
-# pull` cuando OMARCHY_PATH apunta FUERA de /usr/share/omarchy, y aqui apunta
-# justo ahi, asi que sin este hook el arbol de Omarchy no se actualizaria nunca:
-# el sistema recibiria paquetes nuevos pero los scripts, temas y configuracion
-# de Omarchy se quedarian congelados en la version clonada.
+# In this installation, Omarchy does not come from its pacman package (which only exists
+# for x86_64) but from a git checkout. omarchy-update-dev only performs `git
+# pull` when OMARCHY_PATH points OUTSIDE of /usr/share/omarchy, and here it points
+# exactly there, so without this hook the Omarchy tree would never be updated:
+# the system would receive new packages but Omarchy's scripts, themes, and configuration
+# would remain frozen at the cloned version.
 set -uo pipefail
 TREE=/usr/share/omarchy
 
 git -C "$TREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
-# El arbol puede ser del usuario (VM de desarrollo) o de root (imagen distribuida)
+# The tree can belong to the user (development VM) or to root (distributed image)
 if [ -w "$TREE/.git" ]; then GIT=(git -C "$TREE"); else GIT=(sudo git -C "$TREE"); fi
 
 echo -e "\e[32m\nActualizar el árbol de Omarchy (checkout git)\e[0m"
@@ -25,8 +25,8 @@ after=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
 if [ "$before" = "$after" ]; then echo "  ya estaba al día ($after)"; exit 0; fi
 echo "  $before → $after"
 
-# Enlazar los binarios nuevos, respetando los envoltorios propios de ARM
-# (omarchy-pkg-add es un fichero real, no un enlace: no debe pisarse).
+# Link the new binaries, respecting ARM-specific wrappers
+# (omarchy-pkg-add is a real file, not a symlink: it must not be overwritten).
 n=0
 for f in "$TREE"/bin/*; do
   [ -f "$f" ] || continue

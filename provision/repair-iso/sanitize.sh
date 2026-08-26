@@ -1,6 +1,6 @@
 #!/bin/bash
-# Sanitizado para distribucion: quita todo lo identificativo del sistema y deja
-# un usuario generico. Se ejecuta como ROOT dentro del chroot.
+# Sanitization for distribution: removes all system-identifying information and leaves
+# a generic user. It runs as ROOT inside the chroot.
 set -uo pipefail
 OLD="${DIST_OLD_USER:-gabriel}"
 NEW="${DIST_NEW_USER:-omarchy}"
@@ -8,9 +8,9 @@ log()  { echo ""; echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 
 log "1/10 desanclando /usr/share/omarchy del home del usuario"
-# Era un symlink a /home/gabriel/.local/share/omarchy, lo que ata el sistema a
-# ese usuario. Se convierte en directorio real (como haria el paquete pacman) y
-# el home pasa a apuntar ahi.
+# It was a symlink to /home/gabriel/.local/share/omarchy, which ties the system to
+# that user. It is converted into a real directory (as pacman would do) and
+# the home directory is updated to point there.
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
@@ -29,7 +29,7 @@ if id -u "$OLD" >/dev/null 2>&1; then
   echo "root:$NEW"  | chpasswd
 fi
 id "$NEW"
-# el home del usuario apunta al arbol del sistema
+# the user's home directory points to the system tree
 install -d -o "$NEW" -g "$NEW" "/home/$NEW/.local/share"
 rm -rf "/home/$NEW/.local/share/omarchy"
 ln -sfn /usr/share/omarchy "/home/$NEW/.local/share/omarchy"
@@ -46,7 +46,7 @@ cat /etc/sddm.conf.d/20-autologin.conf
 
 log "4/10 credenciales y claves"
 rm -rf "/home/$NEW/.ssh"
-rm -f /etc/ssh/ssh_host_*        # se regeneran solas en el primer arranque
+rm -f /etc/ssh/ssh_host_*        # regenerated automatically on first boot
 systemctl disable sshd.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/sshd.service
 rm -f /etc/sudoers.d/99-fix /etc/sudoers.d/99-install
@@ -74,9 +74,9 @@ rm -rf "/home/$NEW/shots" "/home/$NEW"/*.sh "/home/$NEW/config.env" 2>/dev/null 
 rm -f /etc/NetworkManager/system-connections/* 2>/dev/null || true
 
 log "7b/10 apps propietarias fuera de la imagen distribuible"
-# Estas se instalan con omarchy-arm-extras en la maquina del usuario final.
-# Empaquetarlas en un .zip que se reparte seria redistribuir binarios de
-# terceros, asi que se retiran aunque estuvieran en la VM de origen.
+# These are installed with omarchy-arm-extras on the end-user's machine.
+# Packaging them in a .zip for distribution would constitute redistributing third-party
+# binaries, so they are removed even if they were present in the source VM.
 for pkg in 1password 1password-cli typora localsend-bin google-chrome obsidian-bin; do
   pacman -Q "$pkg" >/dev/null 2>&1 && { pacman -Rns --noconfirm "$pkg" >/dev/null 2>&1 && echo "  retirado $pkg"; }
 done
@@ -84,9 +84,9 @@ for d in /opt/1Password /opt/obsidian /opt/typora; do
   [ -e "$d" ] && { rm -rf "$d"; echo "  retirado $d"; }
 done
 rm -f /usr/local/bin/obsidian /usr/local/share/applications/obsidian.desktop 2>/dev/null || true
-# Los rastros que dejan al instalarse: si se retira Chrome hay que retirar
-# tambien el atajo y el lanzador de la webapp de Spotify, que lo invocan. Si no,
-# la imagen sale con un SUPER+SHIFT+M que apunta a un binario inexistente.
+# Traces left upon installation: if Chrome is removed, you must also remove
+# the shortcut and the webapp launcher for Spotify, which invoke it. Otherwise,
+# the image will contain a SUPER+SHIFT+M shortcut pointing to a non-existent binary.
 BIND="/home/$NEW/.config/hypr/bindings.lua"
 if [ -f "$BIND" ] && grep -q "open.spotify.com" "$BIND"; then
   sed -i '/^-- Spotify no tiene cliente nativo/,/^o.bind("SUPER + SHIFT + M", "Spotify"/d' "$BIND"
@@ -128,22 +128,22 @@ cp /etc/motd "/home/$NEW/Desktop/LEEME.txt"
 chown "$NEW:$NEW" "/home/$NEW/Desktop/LEEME.txt"
 
 log "8a/10 hook de actualizacion para ARM"
-# omarchy-update-dev no actualiza el arbol cuando OMARCHY_PATH es
-# /usr/share/omarchy, que es nuestro caso: sin este hook Omarchy se congela.
+# omarchy-update-dev does not update the tree when OMARCHY_PATH is
+# /usr/share/omarchy, which is our case: without this hook, Omarchy freezes.
 if [ -f /root/prov/10-arm-sync ]; then
   install -Dm755 /root/prov/10-arm-sync "/home/$NEW/.config/omarchy/hooks/post-update.d/10-arm-sync"
   chown -R "$NEW:$NEW" "/home/$NEW/.config/omarchy/hooks" 2>/dev/null || true
   echo "  post-update.d/10-arm-sync"
 fi
-# El checkout no debe ensuciarse por cambios de permisos, o el pull fallara
+# The checkout must not be polluted by permission changes, or the pull will fail
 git -C /usr/share/omarchy config core.fileMode false 2>/dev/null || true
 git -C /usr/share/omarchy checkout -- . 2>/dev/null || true
 echo "  checkout limpio: $(git -C /usr/share/omarchy status --porcelain 2>/dev/null | wc -l) ficheros"
 
 log "8b/10 instalador de apps opcionales"
-# repair.sh copia extras.sh como omarchy-arm-extras, pero si esa copia no
-# ocurriera el bloque entero se saltaba en silencio y la imagen salia sin la
-# entrada de menu. Se aceptan los dos nombres y se avisa si falta.
+# repair.sh copies extras.sh as omarchy-arm-extras, but if that copy
+# does not occur, the entire block would be silently skipped and the image would lack the
+# menu entry. Both names are accepted, and a warning is issued if one is missing.
 EXTRAS_SRC=""
 for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
@@ -212,11 +212,12 @@ for f in /home/$NEW/.config/user-dirs.dirs; do
 done
 
 log "symlinks que apuntan al home antiguo"
-# grep -rl solo mira el CONTENIDO de los ficheros: el destino de un enlace
-# simbolico no es contenido, asi que el barrido de texto los da por limpios.
-# Omarchy guarda el tema y el fondo activos como enlaces
-# (~/.local/state/omarchy/current/{theme,background}), de modo que un enlace
-# colgado deja el escritorio en gris y sin estilo, sin ningun error visible.
+# grep -rl only checks the CONTENT of files: the target of a symbolic
+# link is not content, so text scanning treats them as clean.
+# Omarchy stores the active theme and background as symlinks
+# (~/.local/state/omarchy/current/{theme,background}), so a broken symlink
+# leaves the desktop gray and unstyled with no visible error.
+#
 mapfile -t BADLINKS < <(find /home/$NEW /etc /usr/local /opt -xdev -type l \
   -lname "*/home/$OLD/*" 2>/dev/null)
 echo "  encontrados: ${#BADLINKS[@]}"

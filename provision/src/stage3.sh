@@ -1,7 +1,7 @@
 #!/bin/bash
-# Etapa 3 — como usuario normal dentro del chroot.
-# Dotfiles de Omarchy, tema, y las piezas que solo existen en AUR.
-set -uo pipefail   # sin -e: esta etapa es best-effort por partes
+# Stage 3 — as a normal user inside the chroot.
+# Omarchy dotfiles, theme, and the components that exist only in the AUR.
+set -uo pipefail   # no -e: this stage is best-effort in sections
 . ~/config.env
 
 log()  { echo ""; echo "==> [stage3] $*"; }
@@ -12,13 +12,13 @@ export OMARCHY_INSTALL="$OMARCHY_PATH/install"
 export PATH="$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin"
 export OMARCHY_CHROOT_INSTALL=1
 
-# ------------------------------------------------------------ repo de Omarchy
+# ------------------------------------------------------------ Omarchy repository
 log "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
 rm -rf "$OMARCHY_PATH"
 mkdir -p "$(dirname "$OMARCHY_PATH")"
 git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone fallido"; exit 1; }
-# core.fileMode=false ANTES del chmod: si no, los cambios de permiso dejan el
-# checkout sucio y `git pull --ff-only` se niega a actualizarlo despues.
+# core.fileMode=false BEFORE chmod: otherwise, permission changes leave the
+# checkout dirty and `git pull --ff-only` refuses to update it afterwards.
 git -C "$OMARCHY_PATH" config core.fileMode false
 find "$OMARCHY_PATH/bin" -type f -exec chmod +x {} \; 2>/dev/null
 echo "  version: $(cat "$OMARCHY_PATH/version" 2>/dev/null)"
@@ -45,39 +45,39 @@ aur_install() {
 }
 
 AUR_OK=(); AUR_KO=()
-# xdg-terminal-exec resuelve $TERMINAL. walker y elephant NO se instalan:
-# quattro los jubila (ver bin/omarchy-upgrade-to-quattro), el lanzador y el
-# menu son paneles de quickshell (`omarchy-shell shell toggle omarchy.menu`).
+# xdg-terminal-exec resolves $TERMINAL. walker and elephant are NOT installed:
+# quattro retires them (see bin/omarchy-upgrade-to-quattro), the launcher and the
+# menu are quickshell panels (`omarchy-shell shell toggle omarchy.menu`).
 for p in yay xdg-terminal-exec; do
   if aur_install "$p"; then AUR_OK+=("$p"); else AUR_KO+=("$p"); fi
 done
 echo "  AUR ok:    ${AUR_OK[*]:-ninguno}"
 echo "  AUR falló: ${AUR_KO[*]:-ninguno}"
 
-# Sustituto si xdg-terminal-exec no compiló: Omarchy usa $TERMINAL=xdg-terminal-exec
+# Fallback if xdg-terminal-exec failed to compile: Omarchy uses $TERMINAL=xdg-terminal-exec
 if ! command -v xdg-terminal-exec >/dev/null 2>&1; then
   warn "xdg-terminal-exec ausente: instalando un envoltorio sobre alacritty"
   sudo install -m 0755 /dev/stdin /usr/local/bin/xdg-terminal-exec <<'EOF'
 #!/bin/sh
-# Envoltorio minimo: Omarchy exporta TERMINAL=xdg-terminal-exec.
-# El respaldo es foot, que si esta en omarchy-base.packages de quattro
-# (alacritty no lo esta: apuntar ahi dejaba $TERMINAL roto).
+# Minimal wrapper: Omarchy exports TERMINAL=xdg-terminal-exec.
+# The fallback is foot, which is included in quattro's omarchy-base.packages
+# (alacritty is not: pointing there left $TERMINAL broken).
 T=$(command -v foot || command -v alacritty || command -v xterm) || exit 127
 if [ "$#" -eq 0 ]; then exec "$T"; fi
 exec "$T" -e "$@"
 EOF
 fi
 
-# Terminal por defecto: Omarchy prefiere ghostty, que no existe en aarch64.
-# El respaldo es foot, que SI viene en omarchy-base.packages de quattro (y
-# alacritty NO: no esta ni en esa lista ni en la de infra). Nombrar
-# Alacritty.desktop aqui apuntaba a un .desktop que no existe en la imagen, y
-# xdg-terminal-exec acababa eligiendo por descarte. Se listan por preferencia
-# y solo los que de verdad estan instalados.
+# Default terminal: Omarchy prefers ghostty, which does not exist for aarch64.
+# The fallback is foot, which IS included in quattro's omarchy-base.packages (and
+# alacritty is NOT: it is not in that list nor in the infrastructure list. Naming
+# Alacritty.desktop here pointed to a .desktop file that does not exist in the image, and
+# xdg-terminal-exec ended up choosing a fallback. Entries are listed by preference
+# and only those that are actually installed.
 : > ~/.config/xdg-terminals.list
-# Nombres literales, sin ${t^}: eso es bash 4 y aunque aqui dentro haya bash 5,
-# no merece la pena dejar un bash-4-ismo en un payload que tambien se lee en un
-# Mac con bash 3.2.
+# Literal names, without ${t^}: that is bash 4 and although bash 5 is present here,
+# it is not worth leaving a bash-4-ism in a payload that is also read in a
+# Mac with bash 3.2.
 for f in com.mitchellh.ghostty.desktop ghostty.desktop \
          foot.desktop Alacritty.desktop alacritty.desktop xterm.desktop; do
   for d in /usr/share/applications /usr/local/share/applications "$HOME/.local/share/applications"; do
@@ -87,27 +87,27 @@ done
 [ -s ~/.config/xdg-terminals.list ] || printf 'foot.desktop\n' > ~/.config/xdg-terminals.list
 echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
 
-# ------------------------------------------------ integracion de sistema
-# Omarchy 4 se distribuye como paquete pacman que coloca el arbol en
-# /usr/share/omarchy, los binarios en el PATH del sistema y hooks en
-# /etc/profile.d y /usr/share/uwsm/env.d. Ese paquete solo existe para x86_64,
-# asi que aqui se replica a mano. Sin esto OMARCHY_PATH queda vacio y Hyprland
-# arranca en modo emergencia por no encontrar default/hypr/bootstrap.lua.
+# ------------------------------------------------ system integration
+# Omarchy 4 is distributed as a pacman package that places the tree in
+# /usr/share/omarchy, binaries in the system PATH, and hooks in
+# /etc/profile.d and /usr/share/uwsm/env.d. This package only exists for x86_64,
+# so it is manually replicated here. Without this, OMARCHY_PATH remains empty and Hyprland
+# starts in emergency mode because it cannot find default/hypr/bootstrap.lua.
 log "integrando Omarchy en las rutas de sistema (sustituye al paquete pacman)"
 sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
-# Los comandos van a /usr/bin, que es donde los pone el package() de upstream.
-# Ponerlos en /usr/local/bin parecia mas limpio (no choca con pacman) pero
-# rompe cosas: el arbol lleva 13 rutas /usr/bin/omarchy-* cableadas, cinco de
-# ellas en ficheros .service. enable-user-units.sh fallaba por eso, y como
-# first-run solo se marca hecho si NINGUN paso falla, se repetia en cada login
-# reenviando el aviso "Update System" para siempre.
-# Comprobado: ninguno de los 433 nombres colisiona con un paquete de ALARM.
+# Commands go to /usr/bin, which is where the upstream package() places them.
+# Placing them in /usr/local/bin seemed cleaner (does not conflict with pacman) but
+# breaks things: the tree has 13 hardcoded /usr/bin/omarchy-* paths, five of
+# which are in .service files. enable-user-units.sh failed because of this, and since
+# first-run is only marked as done if NO step fails, it repeated on every login
+# perpetually showing the "Update System" notification.
+# Verified: none of the 433 names collide with any ALARM package.
 sudo mkdir -p /usr/bin
-# Los enlaces apuntan a /usr/share/omarchy, NO a $OMARCHY_PATH. Aqui son la
-# misma cosa (el primero es un symlink al segundo), pero el sanitizador
-# convierte /usr/share/omarchy en directorio real y renombra al usuario: un
-# enlace a /home/<constructor>/... queda colgado y se lleva por delante los 433
-# comandos. /usr/share/omarchy es la unica ruta estable de las dos.
+# The symlinks point to /usr/share/omarchy, NOT to $OMARCHY_PATH. Here they are the
+# same thing (the first is a symlink to the second), but the sanitizer
+# converts /usr/share/omarchy into a real directory and renames it for the user: a
+# symlink to /home/<builder>/... becomes dangling and takes the 433
+# commands with it. /usr/share/omarchy is the only stable path of the two.
 n=0
 for f in "$OMARCHY_PATH"/bin/*; do
   [ -f "$f" ] || continue
@@ -115,12 +115,12 @@ for f in "$OMARCHY_PATH"/bin/*; do
   sudo ln -sfn "/usr/share/omarchy/bin/$(basename "$f")" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
 echo "  $n binarios en /usr/bin -> /usr/share/omarchy/bin"
-# Las unidades de usuario van a /usr/lib/systemd/user/, que es donde systemd las
-# busca. Las instala el paquete omarchy-settings, que tampoco existe para ARM.
-# Sin esto, install/user/first-run/enable-user-units.sh falla en cada login, y
-# como omarchy-provision-first-run solo se marca hecho si NINGUN paso falla, el
-# first-run se repite indefinidamente reenviando el aviso "Update System".
-# Fuente: docs/file-layout.md, "systemd/user/*.service → /usr/lib/systemd/user/".
+# User units go to /usr/lib/systemd/user/, which is where systemd looks for them.
+# The omarchy-settings package installs them upstream, but it does not exist for ARM.
+# Without this, install/user/first-run/enable-user-units.sh fails on every login, and
+# since omarchy-provision-first-run is only marked as done if NO step fails, the
+# first-run repeats indefinitely, resending the "Update System" notification.
+# Source: docs/file-layout.md, "systemd/user/*.service → /usr/lib/systemd/user/".
 if [ -d "$OMARCHY_PATH/default/systemd/user" ]; then
   sudo install -d /usr/lib/systemd/user
   sudo cp -a "$OMARCHY_PATH/default/systemd/user/." /usr/lib/systemd/user/
@@ -139,12 +139,12 @@ for d in system.conf.d user.conf.d logind.conf.d oomd.conf.d; do
 done
 [ -d "$OMARCHY_PATH/etc/fastfetch" ] && sudo cp -a "$OMARCHY_PATH/etc/fastfetch" /etc/ 2>/dev/null || true
 [ -d "$OMARCHY_PATH/etc/gnupg" ] && sudo cp -a "$OMARCHY_PATH/etc/gnupg/." /etc/gnupg/ 2>/dev/null || true
-# systemd-oomd viene configurado en etc/systemd/oomd.conf.d pero hay que
-# habilitarlo; NetworkManager-wait-online retrasa el arranque sin aportar nada
-# en una VM con red de usuario.
+# systemd-oomd is configured in etc/systemd/oomd.conf.d but it must be
+# enabled; NetworkManager-wait-online delays boot without providing any
+# benefit in a VM with user-mode networking.
 sudo systemctl enable systemd-oomd.service 2>/dev/null || true
 sudo systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
-# gnome-keyring en el PAM de SDDM bloquea el autologin sin llavero configurado
+# gnome-keyring in SDDM's PAM configuration blocks autologin without a configured keyring
 for pf in /etc/pam.d/sddm /etc/pam.d/sddm-autologin /etc/pam.d/sddm-greeter; do
   [ -f "$pf" ] && sudo sed -i '/-auth.*pam_gnome_keyring\.so/d;/-password.*pam_gnome_keyring\.so/d' "$pf"
 done
@@ -171,75 +171,75 @@ if [ ! -e ~/.config/omarchy/current/theme ]; then
   mkdir -p ~/.config/omarchy/current
   ln -snf "$OMARCHY_PATH/themes/tokyo-night" ~/.config/omarchy/current/theme
 fi
-# Enlaces de tema por app. En quattro el tema activo vive en
-# ~/.local/state/omarchy/current/theme (bin/omarchy-theme-set:12), no en
-# ~/.config/omarchy/current, que es la ruta de Omarchy 3 y aqui no existe.
-# No hay enlace de mako: quattro no tiene demonio de notificaciones externo.
+# Per-app theme links. In quattro, the active theme resides in
+# ~/.local/state/omarchy/current/theme (bin/omarchy-theme-set:12), not in
+# ~/.config/omarchy/current, which is the Omarchy 3 path and does not exist here.
+# There is no mako link: quattro has no external notification daemon.
 mkdir -p ~/.config/btop/themes
 ln -snf ~/.local/state/omarchy/current/theme/btop.theme ~/.config/btop/themes/current.theme
 ls -l ~/.local/state/omarchy/current/ 2>/dev/null
 
-# ------------------------------------------------------------ ajustes de VM
+# ------------------------------------------------------------ VM adjustments
 log "ajustes para máquina virtual"
-# quattro usa configuracion Lua: escribir monitors.conf no serviria de nada.
+# quattro uses Lua configuration: writing monitors.conf would be useless.
 cat > ~/.config/hypr/monitors.lua <<'LUA'
 -- See https://wiki.hypr.land/Configuring/Basics/Monitors/
--- Modos disponibles:  hyprctl monitors all
+-- Available modes: hyprctl monitors all
 --
--- VM en UTM/QEMU con virtio-gpu. Dos ajustes respecto a los valores de Omarchy:
+-- VM in UTM/QEMU with virtio-gpu. Two adjustments compared to Omarchy's values:
 --
---  1. Escala 1 (Omarchy asume pantallas retina 2x; en la VM deja todo gigante).
---  2. Resolucion fija 1920x1200 en vez de "preferred", que da 1280x800.
+--  1. Scale 1 (Omarchy assumes 2x retina screens; in the VM, everything would be huge).
+--  2. Fixed resolution 1920x1200 instead of "preferred", which yields 1280x800.
 --
--- IMPORTANTE: cambiar el modo EN CALIENTE (hyprctl / recarga de config) rompe
--- el renderizado bajo virgl: el escritorio se queda en blanco hasta reiniciar.
--- Aplicado desde el arranque funciona bien. Si tocas esto, reinicia la VM.
+-- IMPORTANT: changing the mode at runtime (hyprctl / config reload) breaks
+-- rendering under virgl: the desktop remains blank until reboot.
+-- Applying at boot works fine. If you modify this, restart the VM.
 --
--- Para que la resolucion siga al tamano de la ventana de UTM:
---   hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
+-- To make the resolution follow the UTM window size:
+--  hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 hl.env("GDK_SCALE", "1")
 hl.monitor({ output = "Virtual-1", mode = "1920x1200@60", position = "0x0", scale = 1 })
 LUA
 rm -f ~/.config/hypr/monitors.conf ~/.config/hypr/autostart.conf
 
-# Portapapeles compartido con el host de UTM
+# Shared clipboard with the UTM host
 cat > ~/.config/hypr/autostart.lua <<'LUA'
--- Procesos extra al iniciar la sesion.
+-- Extra processes launched at session start.
 hl.on("hyprland.start", function()
-  -- spice-vdagent NO se lanza: su portapapeles es X11 y bajo Hyprland muere
-  -- con "cannot open display". Peor aun, si arranca, vdagentd ve dos agentes
-  -- en la misma sesion y desconecta a los dos ("multiple agents in one
-  -- session"). El portapapeles lo lleva omarchy-arm-vdagent, como servicio
-  -- de usuario.
+  -- spice-vdagent is NOT launched: its clipboard is X11-only and under Hyprland it fails
+  -- with "cannot open display". Worse, if it starts, vdagentd detects two agents
+  -- in the same session and disconnects both ("multiple agents in one
+  -- session"). The clipboard is handled by omarchy-arm-vdagent, as a user
+  -- service.
 end)
 LUA
 
-# --- sellar migraciones: un install limpio nace con el estado final -------
-# Sin esto omarchy-update intenta reproducir ~80 migraciones historicas y muere
-# en la primera que instale un paquete propio de Omarchy (x86_64 only).
+# --- seal migrations: a clean install starts with the final state -------
+# Without this, omarchy-update attempts to replay ~80 historical migrations and dies
+# on the first one that installs an Omarchy-specific package (x86_64 only).
 mkdir -p ~/.local/state/omarchy/migrations
 for f in "$OMARCHY_PATH"/migrations/*.sh; do
   [ -f "$f" ] && : > ~/.local/state/omarchy/migrations/"$(basename "$f")"
 done
 echo "  migraciones selladas: $(ls -1 ~/.local/state/omarchy/migrations | wc -l)"
 
-# --- branding (about + salvapantallas) -----------------------------------
+# --- branding (about + screensaver) --------------------------------------
 mkdir -p ~/.config/omarchy/branding
 cp "$OMARCHY_PATH/icon.txt" ~/.config/omarchy/branding/about.txt 2>/dev/null || true
 cp "$OMARCHY_PATH/logo.txt" ~/.config/omarchy/branding/screensaver.txt 2>/dev/null || true
 
-# --- omarchy-pkg-add tolerante con lo que no existe en ARM ---------------
-# CRITICO: /usr/local/bin/omarchy-pkg-add es un symlink al arbol. Escribir con
-# `tee` lo seguiria y reemplazaria el script ORIGINAL de Omarchy por este
-# envoltorio, cuyo REAL apuntaria entonces a si mismo: bucle infinito. Hay que
-# borrar el symlink y crear un fichero real.
+# --- omarchy-pkg-add tolerant of what does not exist on ARM ---------------
+# CRITICAL: /usr/local/bin/omarchy-pkg-add is a symlink to the tree. Writing with
+# `tee` would follow and replace the ORIGINAL Omarchy script with this
+# wrapper, whose REAL target would then point to itself: infinite loop. You must
+# delete the symlink and create a real file.
 sudo rm -f /usr/local/bin/omarchy-pkg-add
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-pkg-add <<'WRAP'
 #!/bin/bash
-# Envoltorio para Arch Linux ARM: los paquetes propios de Omarchy (tensaku,
-# omarchy-nvim, ttfx...) y varias apps propietarias solo existen para x86_64.
-# El original aborta si falta alguno, lo que tumba omarchy-update entero y deja
-# las migraciones a medias. Aqui se omiten con un aviso y se instala el resto.
+# Wrapper for Arch Linux ARM: Omarchy's own packages (tensaku,
+# omarchy-nvim, ttfx...) and several proprietary apps only exist for x86_64.
+# The original aborts if any are missing, which crashes omarchy-update entirely and leaves
+# migrations incomplete. Here they are skipped with a warning and the rest are installed.
 REAL=/usr/share/omarchy/bin/omarchy-pkg-add
 avail=(); skip=()
 for p in "$@"; do
@@ -254,22 +254,22 @@ done
 exec "$REAL" "${avail[@]}"
 WRAP
 
-# --- herramientas de Omarchy que no se publican para aarch64 -------------
-# Casi ninguna es incompatible: son Rust, Go o Qt/C++ y solo les falta que
-# alguien las construya. Varias declaran arch=(x86_64) por omision, no porque
-# el codigo no sea portable; en esos casos basta con anadir la arquitectura.
-# Se compilan en orden de coste creciente y ninguna es fatal si falla.
+# --- Omarchy tools not published for aarch64 -------------
+# Almost none are incompatible: they are Rust, Go, or Qt/C++ and only lack
+# someone to build them. Several declare arch=(x86_64) by default, not because
+# the code is not portable; in those cases, simply add the architecture.
+# They are compiled in order of increasing cost, and none is fatal if it fails.
 build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
-  # Un unico `local` expande todos los valores antes de asignar ninguno,
-  # asi que $pkg no existe aun al construir $dir. Hay que separarlos.
+  # A single `local` expands all values before assigning any,
+  # so $pkg does not yet exist when building $dir. They must be separated.
   local src="$1" pkg="$2"
   local dir="/tmp/omabuild/$pkg"
   pacman -Q "$pkg" >/dev/null 2>&1 && return 0
   rm -rf "$dir"; mkdir -p "$dir"
   case "$src" in
     aur)
-      # Las URL de AUR usan el PackageBase, que no siempre es el nombre del
-      # paquete (yaru-icon-theme vive en el repo "yaru").
+      # AUR URLs use the PackageBase, which is not always the name of the
+      # package (yaru-icon-theme lives in the "yaru" repo).
       local base
       base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
              | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
@@ -283,30 +283,30 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
       rm -rf "$dir/repo" ;;
   esac
   [ -f "$dir/PKGBUILD" ] || return 1
-  # 'any' puede venir sin comillas; mezclarlo con arquitecturas concretas es un
-  # error de makepkg, asi que solo se parchea cuando no es 'any' ni trae aarch64.
+  # 'any' may come without quotes; mixing it with specific architectures is a
+  # makepkg error, so it is only patched when it is not 'any' and does not include aarch64.
   grep -qE "^arch=\(.*\b(aarch64|any)\b" "$dir/PKGBUILD" || \
     sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" "$dir/PKGBUILD"
-  # Un PKGBUILD puede generar varios subpaquetes y que solo uno de ellos tenga
-  # una dependencia ausente en ARM (yaru-gtk-theme necesita gtk-engine-murrine).
-  # Se compila sin instalar y despues se instala solo el subpaquete pedido.
-  # -s instala las dependencias de compilacion. Sin el, la mayoria de estos
-  # PKGBUILD fallan en el primer paso por makedepends ausentes. No se usa -i
-  # porque la instalacion se hace despues, subpaquete a subpaquete.
-  # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
-  # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
-  # decia "no compilaron: X" y no habia forma de averiguar nada mas.
-  # El limite de velocidad lo quita DisableDownloadTimeout en /etc/pacman.conf
-  # (lo pone stage2): asi lo hereda tambien el pacman que lanza makepkg -s para
-  # sus dependencias. Pasarlo por la variable PACMAN no vale, porque makepkg la
-  # invoca entrecomillada y una cadena con argumentos se busca como si fuera el
-  # nombre del ejecutable.
+  # A PKGBUILD can generate several subpackages, with only one of them having
+  # a missing dependency on ARM (yaru-gtk-theme needs gtk-engine-murrine).
+  # It is compiled without installing, and then only the requested subpackage is installed.
+  # -s installs build dependencies. Without it, most of these
+  # PKGBUILDs fail at the first step due to missing makedepends. -i is not used
+  # because installation is done afterwards, subpackage by subpackage.
+  # If it fails, the log is the only thing that explains why, and until now it was lost
+  # with the `rm -rf /tmp/omabuild` two lines below: the build
+  # said "did not compile: X" and there was no way to find out anything else.
+  # The speed limit is removed by DisableDownloadTimeout in /etc/pacman.conf
+  # (it is set in stage2): so it is also inherited by the pacman that runs makepkg -s for
+  # its dependencies. Passing it via the PACMAN variable does not work, because makepkg invokes it
+  # quoted, and a string with arguments is searched as if it were the
+  # executable name.
   if ( cd "$dir" && makepkg -s --noconfirm --needed --noprogressbar --nocheck ) >"$dir/build.log" 2>&1; then
     local built
     built=$(ls "$dir/$pkg"-*.pkg.tar.* 2>/dev/null | head -1)
     [ -n "$built" ] || built=$(ls "$dir"/*.pkg.tar.* 2>/dev/null | head -1)
-    # theme-system.sh ya creo symlinks dentro de /usr/share/icons/Yaru porque el
-    # tema no estaba: el paquete real choca con ellos. --overwrite lo resuelve.
+    # theme-system.sh already created symlinks inside /usr/share/icons/Yaru because the
+    # theme was missing: the real package conflicts with them. --overwrite resolves this.
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
   else
@@ -319,8 +319,8 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   fi
 }
 
-# Algunos PKGBUILD invocan zig por ruta fija y versionada (/opt/zig0.15/zig).
-# En ARM solo hay una version de zig, asi que se enlaza donde la buscan.
+# Some PKGBUILDs invoke zig via a fixed, versioned path (/opt/zig0.15/zig).
+# On ARM there is only one zig version, so link it at the path these builds expect.
 if pacman -Si zig >/dev/null 2>&1; then
   sudo pacman -S --noconfirm --needed --disable-download-timeout zig >/dev/null 2>&1 || true
   for v in zig0.15 zig0.14; do
@@ -348,47 +348,47 @@ echo "  compiladas: ${TOOLS_OK[*]:-ninguna}"
 [ ${#TOOLS_KO[@]} -gt 0 ] && warn "no compilaron: ${TOOLS_KO[*]}"
 rm -rf /tmp/omabuild
 fi
-# Omarchy sustituye a proposito dos iconos de Yaru por los de Adwaita; si Yaru
-# se acaba de instalar hay que volver a aplicarlo.
+# Omarchy intentionally replaces two Yaru icons with Adwaita ones; if Yaru
+# has just been installed, it needs to be reapplied.
 sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" >/dev/null 2>&1 || true
 
-# herdr queda fuera: su PKGBUILD usa `zig fetch` con la semantica de Zig 0.15 y
-# Arch Linux ARM solo empaqueta 0.16 ("no build.zig file found"). Construir
-# zig0.15 desde fuente son horas y es una herramienta de desarrollo, no del
-# escritorio.
+# herdr is left out: its PKGBUILD uses `zig fetch` with Zig 0.15 semantics and
+# Arch Linux ARM only packages 0.16 ("no build.zig file found"). Building
+# Building zig 0.15 from source takes hours, and it is a development tool rather than a
+# desktop runtime dependency.
 
-# --- el aviso de reinicio por kernel, que en ARM no se apaga nunca -------
-# omarchy-update-restart decide si el kernel cambio buscando un vmlinuz dentro
-# de /usr/lib/modules/<version>/ que pertenezca a un paquete. En Arch x86_64 el
-# paquete linux lo instala ahi; en Arch Linux ARM, linux-aarch64 deja la imagen
-# en /boot/Image y NO crea ese vmlinuz. El bucle no encuentra nada, la variable
-# se queda en "true" y pide reiniciar en cada actualizacion, para siempre.
-# Este envoltorio compara lo que de verdad toca: uname -r contra el directorio
-# de modulos que posee el paquete del kernel. /usr/local/bin va antes que
-# /usr/bin en el PATH, asi que sustituye al original sin tocar el arbol.
+# --- The kernel restart warning, which on ARM never shuts down -------
+# omarchy-update-restart decides whether the kernel changed by looking for a vmlinuz inside
+# /usr/lib/modules/<version>/ that belongs to a package. On x86_64 Arch the
+# linux package installs it there; on Arch Linux ARM, linux-aarch64 leaves the image
+# in /boot/Image and DOES NOT create that vmlinuz. The loop finds nothing, the variable
+# remains "true" and requests a restart on every update, forever.
+# This wrapper compares what actually matters: uname -r against the directory
+# of modules owned by the kernel package. /usr/local/bin comes before
+# /usr/bin in the PATH, so it replaces the original without touching the tree.
 log "envoltorio de omarchy-update-restart (aviso de kernel en ALARM)"
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-update-restart <<'KRN'
 #!/bin/bash
-# En Arch Linux ARM el kernel no deja vmlinuz en /usr/lib/modules/<ver>/, que es
-# lo que busca el original: sin eso pide reiniciar siempre. Se compara uname -r
-# con el directorio de modulos que pertenece al paquete del kernel.
+# On Arch Linux ARM the kernel does not leave a vmlinuz in /usr/lib/modules/<ver>/, which is
+# what the original looks for: without it, it always requests a restart. It compares uname -r
+# with the module directory belonging to the kernel package.
 if [ -z "${OMARCHY_SKIP_KERNEL_CHECK:-}" ]; then
-  # modules.dep lo genera depmod y no pertenece a ningun paquete. modules.builtin
-  # si lo trae linux-aarch64, asi que sirve para saber si el directorio de
-  # modulos del kernel en ejecucion es el del paquete instalado.
+  # modules.dep is generated by depmod and does not belong to any package. modules.builtin
+  # is provided by linux-aarch64, so it serves to determine whether the directory of
+  # modules for the running kernel is the one from the installed package.
   pkg=$(pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.builtin 2>/dev/null \
         || pacman -Qoq /usr/lib/modules/"$(uname -r)"/modules.order 2>/dev/null || true)
   if [ -n "$pkg" ]; then
-    # El directorio de modulos del kernel en ejecucion pertenece al paquete
-    # instalado: no hay kernel nuevo esperando un reinicio.
+    # The module directory for the running kernel belongs to the installed
+    # package: there is no new kernel waiting for a restart.
     export OMARCHY_KERNEL_CURRENT=1
   fi
 fi
 REAL=/usr/bin/omarchy-update-restart
 [ -x "$REAL" ] || exit 0
 if [ -n "${OMARCHY_KERNEL_CURRENT:-}" ]; then
-  # Se omite solo el bloque del kernel; el resto (Hyprland, servicios, shell)
-  # se deja intacto ejecutando el original con esa comprobacion ya resuelta.
+  # Only the kernel block is omitted; the rest (Hyprland, services, shell)
+  # is left intact by running the original with that check already resolved.
   sed 's#^kernel_updated=true$#kernel_updated=false#' "$REAL" | bash -s -- "$@"
 else
   exec "$REAL" "$@"
@@ -396,16 +396,14 @@ fi
 KRN
 echo "  /usr/local/bin/omarchy-update-restart"
 
-# --- ttfx: efectos de texto del salvapantallas (Rust, ~12 min) -----------
+# --- ttfx: screensaver text effects (Rust, ~12 min) ----------------------
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   log "compilando ttfx desde fuente (no existe para aarch64)"
   rm -rf /tmp/ttfx-src
-  # La ruta de compilacion se queda DENTRO del binario: Rust mete la ruta del
-  # fuente en los mensajes de panic (.rodata), y ahi strip no llega. Si se
-  # compila desde $HOME, la imagen que se reparte acaba diciendo quien la
-  # construyo. Se compila en /tmp, con CARGO_HOME en /tmp para que las rutas de
-  # las dependencias tampoco pasen por el home, y con --remap-path-prefix por si
-  # alguna se cuela igualmente.
+  # Rust embeds the source path in panic messages (.rodata), beyond strip's
+  # reach. Compiling from $HOME would reveal who built the distributed image.
+  # Build in /tmp, keep CARGO_HOME there so dependency paths avoid the home
+  # directory, and use --remap-path-prefix in case any paths still slip through.
   if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
      && ( cd /tmp/ttfx-src \
           && CARGO_HOME=/tmp/cargo-ttfx \
@@ -419,10 +417,10 @@ if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   rm -rf /tmp/ttfx-src /tmp/cargo-ttfx
 fi
 
-# --- teclado: layout es y Super utilizable desde macOS -------------------
-# macOS intercepta Cmd antes de que UTM lo vea (Cmd+Space abre Spotlight), asi
-# que los atajos SUPER de Omarchy serian inalcanzables. altwin:swap_lalt_lwin
-# intercambia Alt y Super: la tecla Option (⌥) del Mac actua como SUPER.
+# --- keyboard: layout is y and Super usable from macOS -------------------
+# macOS intercepts Cmd before UTM sees it (Cmd+Space opens Spotlight), making
+# Omarchy's SUPER shortcuts unreachable. altwin:swap_lalt_lwin swaps Alt and
+# Super, so the Mac's Option (⌥) key acts as SUPER.
 cat > ~/.config/hypr/input.lua <<LUA
 hl.config({
   input = {
@@ -432,7 +430,7 @@ hl.config({
 })
 LUA
 
-# --- sin blur: el render va por llvmpipe (ver 90-vm-graphics.conf) --------
+# --- no blur: rendering goes through llvmpipe (see 90-vm-graphics.conf) --------
 cat > ~/.config/hypr/looknfeel.lua <<'LUA'
 hl.config({
   decoration = {
@@ -442,21 +440,21 @@ hl.config({
 })
 LUA
 
-# --- refuerzo del entorno para apps lanzadas por uwsm --------------------
+# --- reinforcement of the environment for apps launched by uwsm --------------------
 mkdir -p ~/.config/uwsm/env.d
 cat > ~/.config/uwsm/env.d/20-vm-graphics <<'ENVEOF'
 export LIBGL_ALWAYS_SOFTWARE=1
 ENVEOF
 
-# Directorios de usuario
+# User directories
 xdg-user-dirs-update 2>/dev/null || true
 mkdir -p ~/Pictures/Screenshots ~/Videos ~/Desktop ~/Documents ~/Downloads
 
 # ------------------------------------------------------------ git
-# --- instalador opcional de apps que no vienen en la imagen ---------------
-# Varias apps (1Password, Obsidian, Typora, LocalSend) SI tienen build arm64
-# oficial, pero son propietarias: incluirlas en una imagen que se distribuye
-# seria redistribuir binarios de terceros. Se deja el instalador a mano.
+# --- optional installer for apps not included in the image ---------------
+# Several apps (1Password, Obsidian, Typora, LocalSend) DO have official arm64
+# builds, but they are proprietary. Including them in a distributed image would
+# redistribute third-party binaries, so the installer is left for manual use.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
   log "instalador de apps opcionales (omarchy-arm-extras)"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-extras" /usr/local/bin/omarchy-arm-extras
@@ -473,24 +471,24 @@ DESK
   echo "  disponible como comando y en el menu de aplicaciones"
 fi
 
-# --- portapapeles compartido con el anfitrion ---------------------------
-# El portapapeles de SPICE va en tres saltos:
-#   cliente SPICE (UTM) <-virtio-> spice-vdagentd <-socket unix-> agente
-# El demonio habla con el anfitrion; el agente de sesion solo habla con el
-# demonio. El agente OFICIAL entrega el portapapeles a X11 (vdagent.c:421 ->
+# --- shared clipboard with the host ---------------------------
+# The SPICE clipboard goes through three hops:
+#   SPICE client (UTM) <-virtio-> spice-vdagentd <-unix socket-> agent
+# The daemon communicates with the host; the session agent only communicates with the
+# daemon. The OFFICIAL agent hands off the clipboard to X11 (vdagent.c:421 ->
 # vdagent_clipboards_new(vdagent_display_get_x11(...)), cero referencias a
-# wlr-data-control) y bajo Hyprland muere con "cannot open display".
+# wlr-data-control) and under Hyprland it dies with "cannot open display".
 #
-# omarchy-arm-vdagent ocupa ese hueco: mismo protocolo udscs con el demonio,
-# pero al otro lado wl-copy/wl-paste. El demonio se queda como esta (con -X,
-# ver stage2): sustituimos el agente, NO el demonio. Intentar hablar por el
-# puerto virtio directamente deja al demonio sin canal ("Device or resource
-# busy") y el anfitrion ignora todo.
+# omarchy-arm-vdagent fills that gap: same udscs protocol with the daemon,
+# but on the other side wl-copy/wl-paste. The daemon remains as is (with -X,
+# see stage2): we replace the agent, NOT the daemon. Attempting to communicate via the
+# virtio port directly leaves the daemon without a channel ("Device or resource
+# busy") and the host ignores everything.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
   log "agente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
-  # El agente oficial no debe arrancar: vdagentd desconecta a los dos si ve
-  # dos agentes en la misma sesion ("multiple agents in one session").
+  # The official agent must not start: vdagentd disconnects both if it sees
+  # two agents in the same session ("multiple agents in one session").
   sudo systemctl --global mask spice-vdagent.service 2>/dev/null || true
   mkdir -p ~/.config/systemd/user
   cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
@@ -502,7 +500,7 @@ ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
 Type=simple
-# El socket lo crea spice-vdagentd al arrancar; si aun no esta, se reintenta.
+# The socket is created by spice-vdagentd at startup; if it is not yet present, it retries.
 ExecStartPre=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/spice-vdagentd/spice-vdagent-sock ] && exit 0; sleep 2; done; exit 1'
 ExecStart=/usr/local/bin/omarchy-arm-vdagent
 Restart=on-failure
@@ -515,8 +513,8 @@ UNIT
   systemctl --user enable omarchy-arm-vdagent.service 2>/dev/null || true
   echo "  /usr/local/bin/omarchy-arm-vdagent + servicio de usuario"
 fi
-# Puente por carpeta compartida, como alternativa si el canal SPICE no esta
-# disponible (por ejemplo con el backend de virtualizacion de Apple).
+# Shared folder bridge, as an alternative if the SPICE channel is not
+# available (for example with Apple's virtualization backend).
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
   echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
@@ -525,11 +523,11 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-share" /usr/local/bin/omarchy-arm-share
   echo "  /usr/local/bin/omarchy-arm-share (monta la carpeta, sea VirtFS o WebDAV)"
 
-  # OBS Studio y Pinta son software libre: pueden viajar dentro de la imagen, y
-  # asi es como se distribuye. Se instalan con el mismo instalador para no
-  # duplicar su logica (OBS necesita quitar el plugin de navegador, cuyo CEF es
-  # x86-only; Pinta necesita el .NET arm64 de Microsoft, que Arch no empaqueta).
-  # Es lo mas caro del build: ~45 min. HACER_LIBRES=no lo omite.
+  # OBS Studio and Pinta are free software: they can be included in the image, and
+  # that is how they are distributed. They are installed with the same installer to avoid
+  # duplicating their logic (OBS needs to remove the browser plugin, whose CEF is
+  # x86-only; Pinta needs Microsoft's .NET arm64, which Arch does not package).
+  # This is the most expensive part of the build: ~45 min. HACER_LIBRES=no skips it.
   if [ "${HACER_LIBRES:-si}" = "si" ]; then
     log "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
@@ -544,13 +542,13 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   fi
 fi
 
-# --- actualizaciones: que "Update System" funcione y sea reversible --------
-# a) snapper: sin el, omarchy-snapshot devuelve 127 y cada actualizacion se hace
-#    sin instantanea previa, es decir sin posibilidad de volver atras.
-# b) hook post-update: omarchy-update-dev solo hace `git pull` cuando
-#    OMARCHY_PATH apunta FUERA de /usr/share/omarchy, y aqui apunta justo ahi.
-#    Sin el hook, el sistema recibe paquetes pero el arbol de Omarchy (scripts,
-#    temas, configuracion) se queda congelado en la version clonada.
+# --- updates: ensure "Update System" works and is reversible --------
+# a) snapper: without it, omarchy-snapshot returns 127 and each update becomes
+#    without a previous snapshot, i.e., without the ability to go back.
+# b) post-update hook: omarchy-update-dev only performs `git pull` when
+#    OMARCHY_PATH points OUTSIDE of /usr/share/omarchy, and here it points exactly there.
+#    Without the hook, the system receives packages but the Omarchy tree (scripts,
+#    themes, configuration) remains frozen at the cloned version.
 log "actualizaciones: snapper + hook post-update"
 sudo pacman -S --noconfirm --needed --disable-download-timeout snapper >/dev/null 2>&1 || warn "snapper no disponible"
 if command -v snapper >/dev/null 2>&1; then

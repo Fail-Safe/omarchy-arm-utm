@@ -1,15 +1,15 @@
 #!/bin/bash
-# Prepara la imagen para distribuirla a terceros: quita todo lo identificativo
-# y deja un usuario generico. Se ejecuta como ROOT dentro del chroot.
+# Prepare the image for distribution to third parties: remove all identifiable information
+# and leave a generic user. It runs as ROOT inside the chroot.
 set -uo pipefail
 OLD=gabriel
 NEW=omarchy
 log() { echo ""; echo "==> $*"; }
 
 log "1/10 desanclando /usr/share/omarchy del home del usuario"
-# Era un symlink a /home/gabriel/.local/share/omarchy, lo que ata el sistema a
-# ese usuario. Se convierte en directorio real (como haria el paquete pacman) y
-# el home pasa a apuntar ahi.
+# It was a symlink to /home/gabriel/.local/share/omarchy, which ties the system to
+# that user. It is converted into a real directory (as the pacman package would do) and
+# the home directory now points there.
 if [ -L /usr/share/omarchy ]; then
   TARGET=$(readlink -f /usr/share/omarchy)
   rm -f /usr/share/omarchy
@@ -28,7 +28,7 @@ if id -u "$OLD" >/dev/null 2>&1; then
   echo "root:$NEW"  | chpasswd
 fi
 id "$NEW"
-# el home del usuario apunta al arbol del sistema
+# the user's home directory points to the system tree
 install -d -o "$NEW" -g "$NEW" "/home/$NEW/.local/share"
 rm -rf "/home/$NEW/.local/share/omarchy"
 ln -sfn /usr/share/omarchy "/home/$NEW/.local/share/omarchy"
@@ -45,7 +45,7 @@ cat /etc/sddm.conf.d/20-autologin.conf
 
 log "4/10 credenciales y claves"
 rm -rf "/home/$NEW/.ssh"
-rm -f /etc/ssh/ssh_host_*        # se regeneran solas en el primer arranque
+rm -f /etc/ssh/ssh_host_*        # regenerated automatically on first boot
 systemctl disable sshd.service 2>/dev/null || true
 rm -f /etc/systemd/system/multi-user.target.wants/sshd.service
 rm -f /etc/sudoers.d/99-fix /etc/sudoers.d/99-install

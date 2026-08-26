@@ -1,6 +1,6 @@
 #!/bin/bash
-# Fleco 2: revertir el acceso SSH que habilite solo para aprovisionar.
-# Se ejecuta como ROOT dentro del chroot.
+# Fleco 2: revert the SSH access that was enabled only for provisioning.
+# Runs as ROOT inside the chroot.
 set -uo pipefail
 USR=gabriel
 log() { echo ""; echo "==> $*"; }
@@ -16,7 +16,7 @@ ls -l /etc/sudoers.d/
 visudo -c -q && echo "  sudoers valido"
 
 log "la clave publica del host se conserva"
-# Reactivar el acceso: sudo systemctl enable --now sshd
+# Restore access: sudo systemctl enable --now sshd
 ls -l /home/$USR/.ssh/authorized_keys 2>&1
 
 log "limpieza de restos de aprovisionamiento"
