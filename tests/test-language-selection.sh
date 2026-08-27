@@ -98,6 +98,14 @@ MOCK
 chmod +x "$TMP/bin/git" "$TMP/bin/sudo"
 
 for hook in provision/src/hooks/10-arm-sync provision/repair-iso/armsync.sh; do
+  env -u OMARCHY_LANG PATH="$TMP/bin:$PATH" bash "$ROOT/$hook" > "$TMP/hook-default.out"
+  grep -q 'Update the Omarchy tree (Git checkout)' "$TMP/hook-default.out"
+  grep -q 'already up to date (83881e9)' "$TMP/hook-default.out"
+  if grep -Eq 'Actualizar|ya estaba|binarios|árbol' "$TMP/hook-default.out"; then
+    echo "$hook emitted Spanish text with no configured language" >&2
+    exit 1
+  fi
+
   OMARCHY_LANG=en PATH="$TMP/bin:$PATH" bash "$ROOT/$hook" > "$TMP/hook-en.out"
   grep -q 'Update the Omarchy tree (Git checkout)' "$TMP/hook-en.out"
   grep -q 'already up to date (83881e9)' "$TMP/hook-en.out"
