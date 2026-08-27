@@ -131,7 +131,7 @@ Measured on an M3 Max, tools compiled, without OBS/Pinta:
 |---|---|---|
 | `deps` | host checks, installs qemu/expect/aria2 | ~10 s |
 | `fetch` | pinned Alpine ISO + ALARM rootfs, SHA-256 verified | 2 min |
-| `prepare` | package list, computed against Omarchy's live branch | ~10 s |
+| `prepare` | package list, computed against the pinned Omarchy source | ~10 s |
 | `build` | Alpine headless → partition → rootfs → three chroot stages | **40 min** |
 | `utm` | writes the `.utm` bundle and registers it | 1 min |
 | `verify` | boots and checks *inside the guest* that the desktop is up | 4 min |

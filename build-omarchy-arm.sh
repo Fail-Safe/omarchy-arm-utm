@@ -323,27 +323,70 @@ ph_fetch() {
     "$(ui_text 'Arch Linux ARM rootfs' 'rootfs de Arch Linux ARM')"
 }
 
+# ───────────────────────────── core Git source lock ─────────────────────────
+CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+
+write_core_source_lock() {
+  mkdir -p "$W/provision"
+  cat > "$W/provision/core-git-sources.tsv" <<'__PAYLOAD_CORE_GIT_SOURCES_TSV__'
+# key  repository  refresh-ref  reviewed-commit
+#
+# The build fetches only the commit in column 4. Column 3 is used by the
+# maintainer refresh tool and, for Omarchy, by the post-install update hook.
+omarchy https://github.com/basecamp/omarchy.git refs/heads/quattro 83881e979b35468c3e7d60b171e319ede61a88fd
+omarchy-pkgs https://github.com/omacom-io/omarchy-pkgs.git HEAD dbb5e720510695381dbc7a23195f99b570a2479f
+ttfx https://github.com/omacom-io/ttfx.git HEAD 7203e354498462064b7c0a89375051f65cf2ce99
+yay https://aur.archlinux.org/yay.git HEAD cb43f84828ab4f9700f7c6f9c6d7a923d4cfaff0
+xdg-terminal-exec https://aur.archlinux.org/xdg-terminal-exec.git HEAD a52e8f23c0be7d482b944c6cf5ddee172da171e4
+yaru-icon-theme https://aur.archlinux.org/yaru.git HEAD 7206d6736121b4564998262d99d6afdbc28b1563
+ttf-ia-writer https://aur.archlinux.org/ttf-ia-writer.git HEAD e9aa94080338d7a7f83a561ce64bf30ab4fb24e4
+tzupdate https://aur.archlinux.org/tzupdate.git HEAD 1b3c3bdf6289a348da09eed57d653d3f6dce1956
+ufw-docker https://aur.archlinux.org/ufw-docker.git HEAD 76e18ac8c40a4e8f018f4b35289718a29eca3d6d
+mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fbc7f1904ba6f88
+aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
+cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
+herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
+__PAYLOAD_CORE_GIT_SOURCES_TSV__
+}
+
+validate_core_source_lock() {
+  local lock="$1" line key url ref commit extra expected seen=" "
+  [[ -s $lock ]] || die "missing core Git source lock: $lock" "falta el bloqueo de fuentes Git principales: $lock"
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    read -r key url ref commit extra <<< "$line"
+    [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
+        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+      || die "invalid core Git source-lock record: $line" "registro invalido en el bloqueo de fuentes Git: $line"
+    [[ $seen != *" $key "* ]] || die "duplicate core Git source-lock key: $key" "clave duplicada en el bloqueo de fuentes Git: $key"
+    seen="$seen$key "
+  done < "$lock"
+  for expected in "${CORE_SOURCE_KEYS[@]}"; do
+    [[ $seen == *" $expected "* ]] || die "missing core Git source-lock key: $expected" "falta la clave del bloqueo de fuentes Git: $expected"
+  done
+  read -r key url ref commit < <(awk '$1 == "omarchy" { print; exit }' "$lock")
+  [[ $url == https://github.com/basecamp/omarchy.git && $ref == "refs/heads/$OMARCHY_REF" ]] \
+    || die "the Omarchy source lock is incompatible with OMARCHY_REF='$OMARCHY_REF'" "el bloqueo de Omarchy no es compatible con OMARCHY_REF='$OMARCHY_REF'"
+}
+
+core_source_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$2"
+}
+
 # ────────────────────────────── phase: prepare ──────────────────────────────
 ph_prepare() {
   phase "prepare · package list" "prepare · lista de paquetes"
-  # quattro is a pre-release branch: when it is merged or deleted, everything that
-  # follows fails without stating why. It is checked beforehand and falls back to the
-  # repository's default branch, with a warning.
-  if ! git ls-remote --exit-code --heads https://github.com/basecamp/omarchy.git "$OMARCHY_REF" >/dev/null 2>&1; then
-    local defref
-    defref=$(git ls-remote --symref https://github.com/basecamp/omarchy.git HEAD 2>/dev/null \
-             | sed -n 's#^ref: refs/heads/\([^\t ]*\).*#\1#p' | head -1)
-    [[ -n $defref ]] || die "branch '$OMARCHY_REF' does not exist and the default Omarchy branch could not be read" "la rama '$OMARCHY_REF' no existe y no pude leer la rama por defecto de Omarchy"
-    warn "branch '$OMARCHY_REF' no longer exists in Omarchy; using '$defref'" "la rama '$OMARCHY_REF' ya no existe en Omarchy; se usa '$defref'"
-    warn "check that the structure has not changed: this build assumes Omarchy 4" "revisa que la estructura no haya cambiado: este build asume Omarchy 4"
-    OMARCHY_REF="$defref"
-  fi
-  # The list is computed against the VIVA branch of Omarchy intersected with what
+  write_core_source_lock
+  validate_core_source_lock "$W/provision/core-git-sources.tsv"
+  local omarchy_commit
+  omarchy_commit=$(core_source_record omarchy "$W/provision/core-git-sources.tsv" | awk '{ print $4 }')
+  # The list is computed against the REVIEWED commit of Omarchy intersected with what
   # exists in Arch Linux ARM. Doing it here, rather than with a fixed list, prevents the
-  # build from breaking when Omarchy changes packages.
+  # package selection from disagreeing with the source tree installed in stage 3.
   local base=/tmp/om-base.$$ core=/tmp/alarm-core.$$ extra=/tmp/alarm-extra.$$
   curl -fsSL --max-time 60 \
-    "https://raw.githubusercontent.com/basecamp/omarchy/$OMARCHY_REF/install/omarchy-base.packages" \
+    "https://raw.githubusercontent.com/basecamp/omarchy/$omarchy_commit/install/omarchy-base.packages" \
     -o "$base" || die "could not read Omarchy's package list" "no se pudo leer la lista de paquetes de Omarchy"
   validate_fetch_url "$ALARM_MIRROR_PRIMARY" "$(ui_text 'primary Arch Linux ARM mirror' 'mirror primario de Arch Linux ARM')"
   validate_fetch_url "$ALARM_MIRROR_SECONDARY" "$(ui_text 'secondary Arch Linux ARM mirror' 'mirror secundario de Arch Linux ARM')"
@@ -401,8 +444,8 @@ PYEOF
   # Without this, a write error would go unnoticed and the build would die later,
   # far from the cause.
   [ -s "$W/provision/packages-core.txt" ] || die "could not write the package lists" "no se pudieron escribir las listas de paquetes"
-  ok "lists generated against branch '$OMARCHY_REF': $(grep -cvE '^#|^$' "$W/provision/packages-core.txt") core, $(grep -cvE '^#|^$' "$W/provision/packages-extra.txt") extras" \
-     "listas generadas contra la rama '$OMARCHY_REF': $(grep -cvE '^#|^$' "$W/provision/packages-core.txt") en el nucleo, $(grep -cvE '^#|^$' "$W/provision/packages-extra.txt") extras"
+  ok "lists generated against pinned Omarchy ${omarchy_commit:0:12}: $(grep -cvE '^#|^$' "$W/provision/packages-core.txt") core, $(grep -cvE '^#|^$' "$W/provision/packages-extra.txt") extras" \
+     "listas generadas contra Omarchy fijado ${omarchy_commit:0:12}: $(grep -cvE '^#|^$' "$W/provision/packages-core.txt") en el nucleo, $(grep -cvE '^#|^$' "$W/provision/packages-extra.txt") extras"
 }
 
 # ─────────────────────────── payloads (written to $W) ──────────────────
@@ -410,6 +453,7 @@ write_payloads() {
   # Provision files and expect harnesses are materialized here so that
   # this script is self-contained: a single file reproduces the entire process.
 mkdir -p "$W/provision"
+write_core_source_lock
 cat > "$W/provision/stage1.sh" <<'__PAYLOAD_PROVISION_STAGE1_SH__'
 #!/bin/sh
 # Stage 1 — runs on the Alpine live environment (busybox ash).
@@ -521,7 +565,7 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
-cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" \
+cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" \
    "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
@@ -833,6 +877,7 @@ usermod -aG docker "$VM_USER" 2>/dev/null || true
 # ---------------------------------------------------------------- dotfiles
 log "stage 3: Omarchy dotfiles as $VM_USER" "etapa 3: dotfiles de Omarchy como $VM_USER"
 chmod +x /root/prov/stage3.sh
+install -Dm644 /root/prov/core-git-sources.tsv /usr/share/omarchy-arm/core-git-sources.tsv
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # stage3 runs as a normal user and /root is 0750: any test you perform on
 # /root/prov returns false without error. A readable copy is left in their home.
@@ -935,16 +980,86 @@ ui_text() { if [[ ${OMARCHY_LANG:-en} == es ]]; then printf '%s' "${2:-$1}"; els
 log()  { local text; text=$(ui_text "$1" "${2:-$1}"); echo ""; echo "==> [stage3] $text"; }
 warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage3] $text"; }
 
+SOURCE_LOCK=/usr/share/omarchy-arm/core-git-sources.tsv
+CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+
+# CORE_SOURCE_LOCK_HELPERS_BEGIN
+source_lock_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$SOURCE_LOCK"
+}
+
+validate_core_source_lock() {
+  local line key url ref commit extra expected seen=" "
+  [[ -s $SOURCE_LOCK ]] || { warn "missing core Git source lock: $SOURCE_LOCK"; return 1; }
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    read -r key url ref commit extra <<< "$line"
+    [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
+        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+      || { warn "invalid core Git source-lock record: $line"; return 1; }
+    [[ $seen != *" $key "* ]] || { warn "duplicate core Git source-lock key: $key"; return 1; }
+    seen="$seen$key "
+  done < "$SOURCE_LOCK"
+  for expected in "${CORE_SOURCE_KEYS[@]}"; do
+    [[ $seen == *" $expected "* ]] || { warn "missing core Git source-lock key: $expected"; return 1; }
+  done
+  read -r key url ref commit <<< "$(source_lock_record omarchy)"
+  [[ $url == https://github.com/basecamp/omarchy.git && $ref == "refs/heads/${OMARCHY_REF:-quattro}" ]] \
+    || { warn "the Omarchy source lock is incompatible with OMARCHY_REF='${OMARCHY_REF:-quattro}'"; return 1; }
+}
+
+clone_pinned() { # clone_pinned <lock-key> <destination> [sparse-path]
+  local key="$1" dir="$2" sparse="${3:-}" record url ref commit actual
+  record=$(source_lock_record "$key") || return 1
+  read -r key url ref commit <<< "$record"
+  [[ -n $commit ]] || { warn "missing source pin: $1"; return 1; }
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  git -C "$dir" init -q || return 1
+  git -C "$dir" remote add origin "$url" || return 1
+  if [[ -n $sparse ]]; then
+    git -C "$dir" sparse-checkout init --cone >/dev/null 2>&1 || return 1
+    git -C "$dir" sparse-checkout set "$sparse" >/dev/null 2>&1 || return 1
+  fi
+  git -C "$dir" -c protocol.version=2 fetch -q --filter=blob:none --depth 1 origin "$commit" \
+    || git -C "$dir" fetch -q --depth 1 origin "$commit" \
+    || { warn "could not fetch pinned $key commit $commit"; return 1; }
+  git -C "$dir" checkout -q --detach FETCH_HEAD || return 1
+  actual=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+  [[ $actual == "$commit" ]] || { warn "$key checked out $actual instead of $commit"; return 1; }
+  echo "  pinned $key ${commit:0:12}"
+}
+
+track_locked_branch() { # preserve Omarchy's normal post-install fast-forward updates
+  local key="$1" dir="$2" record url ref commit branch
+  record=$(source_lock_record "$key") || return 1
+  read -r key url ref commit <<< "$record"
+  [[ $ref == refs/heads/* ]] || return 1
+  branch=${ref#refs/heads/}
+  git -C "$dir" fetch -q origin "$ref:refs/remotes/origin/$branch" || return 1
+  git -C "$dir" merge-base --is-ancestor "$commit" "refs/remotes/origin/$branch" \
+    || { warn "$key commit $commit is not on $ref"; return 1; }
+  git -C "$dir" checkout -q -B "$branch" "$commit" || return 1
+  git -C "$dir" config "branch.$branch.remote" origin
+  git -C "$dir" config "branch.$branch.merge" "$ref"
+}
+# CORE_SOURCE_LOCK_HELPERS_END
+
+# Fail the whole stage before any source is fetched, built, or installed. Optional
+# builds may still fail independently later, but they never fall back to a moving ref.
+validate_core_source_lock || exit 1
+
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 export OMARCHY_INSTALL="$OMARCHY_PATH/install"
 export PATH="$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin"
 export OMARCHY_CHROOT_INSTALL=1
 
 # ------------------------------------------------------------ Omarchy repository
-log "cloning basecamp/omarchy (branch ${OMARCHY_REF:-quattro} = Omarchy 4; master is 3.8.5)" "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
-rm -rf "$OMARCHY_PATH"
+log "fetching reviewed Omarchy source (${OMARCHY_REF:-quattro} compatibility line)" "obteniendo fuente revisada de Omarchy (linea compatible ${OMARCHY_REF:-quattro})"
 mkdir -p "$(dirname "$OMARCHY_PATH")"
-git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone failed" "clone fallido"; exit 1; }
+clone_pinned omarchy "$OMARCHY_PATH" || { warn "Omarchy pinned clone failed" "fallo el clone fijado de Omarchy"; exit 1; }
+track_locked_branch omarchy "$OMARCHY_PATH" || { warn "could not configure Omarchy update branch" "no se pudo configurar la rama de actualizacion de Omarchy"; exit 1; }
 # core.fileMode=false BEFORE chmod: otherwise, permission changes leave the
 # checkout dirty and `git pull --ff-only` refuses to update it afterwards.
 git -C "$OMARCHY_PATH" config core.fileMode false
@@ -966,7 +1081,7 @@ aur_install() {
   local p="$1"
   echo "  --- $p"
   rm -rf "/tmp/aur/$p"
-  git clone --depth 1 -q "https://aur.archlinux.org/$p.git" "/tmp/aur/$p" || { warn "clone $p"; return 1; }
+  clone_pinned "$p" "/tmp/aur/$p" || { warn "clone $p"; return 1; }
   ( cd "/tmp/aur/$p" && makepkg -si --noconfirm --needed --noprogressbar ) >"/tmp/aur/$p.log" 2>&1 \
     || { warn "makepkg $p failed (log: /tmp/aur/$p.log)" "makepkg $p falló (log: /tmp/aur/$p.log)"; tail -15 "/tmp/aur/$p.log"; return 1; }
   echo "  ok: $p"
@@ -1196,17 +1311,11 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   rm -rf "$dir"; mkdir -p "$dir"
   case "$src" in
     aur)
-      # AUR URLs use the PackageBase, which is not always the name of the
-      # package (yaru-icon-theme lives in the "yaru" repo).
-      local base
-      base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
-             | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
-      [ -n "$base" ] || base="$pkg"
-      git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null || return 1 ;;
+      # The lock maps package names to their reviewed PackageBase repository;
+      # for example, yaru-icon-theme deliberately resolves to the yaru repo.
+      clone_pinned "$pkg" "$dir" || return 1 ;;
     omapkgs)
-      git clone --depth 1 --filter=blob:none --sparse -q \
-        https://github.com/omacom-io/omarchy-pkgs.git "$dir/repo" || return 1
-      ( cd "$dir/repo" && git sparse-checkout set "pkgbuilds/$pkg" >/dev/null 2>&1 )
+      clone_pinned omarchy-pkgs "$dir/repo" "pkgbuilds/$pkg" || return 1
       cp -a "$dir/repo/pkgbuilds/$pkg/." "$dir/" 2>/dev/null || return 1
       rm -rf "$dir/repo" ;;
   esac
@@ -1334,11 +1443,11 @@ if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   # reach. Compiling from $HOME would reveal who built the distributed image.
   # Build in /tmp, keep CARGO_HOME there so dependency paths avoid the home
   # directory, and use --remap-path-prefix in case any paths still slip through.
-  if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
+  if clone_pinned ttfx /tmp/ttfx-src \
      && ( cd /tmp/ttfx-src \
           && CARGO_HOME=/tmp/cargo-ttfx \
              RUSTFLAGS="--remap-path-prefix=/tmp/ttfx-src=ttfx --remap-path-prefix=/tmp/cargo-ttfx=cargo --remap-path-prefix=$HOME=." \
-             cargo build --release -q ); then
+             cargo build --release --locked -q ); then
     sudo install -Dm755 /tmp/ttfx-src/target/release/ttfx /usr/local/bin/ttfx
     echo "  ttfx $(ttfx --version 2>/dev/null | head -1)"
   else
@@ -3532,11 +3641,12 @@ ph_build() {
   # Short names: hdiutil truncates long ones in the ISO9660 tree
   make_iso "$W/provision/provision.iso" \
     "$W/provision/stage1.sh" "$W/provision/stage2.sh" "$W/provision/stage3.sh" \
-    "$W/provision/config.env" "$W/provision/packages-core.txt" "$W/provision/packages-extra.txt"
+    "$W/provision/config.env" "$W/provision/core-git-sources.tsv" \
+    "$W/provision/packages-core.txt" "$W/provision/packages-extra.txt"
   ln -f "$W/dl/alarm-rootfs.tgz" /tmp/alarm-rootfs.tgz 2>/dev/null || true
   # the rootfs travels inside the provisioning ISO
   local d; d=$(mktemp -d)
-  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,packages-core.txt,packages-extra.txt} "$d"/
+  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,packages-core.txt,packages-extra.txt} "$d"/
   cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
@@ -3643,7 +3753,7 @@ PY
   [[ -n $pty ]] || die "could not open the serial port for '$VM_NAME'; verification is impossible without it (to continue anyway: --from sanitize)" "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Previously this phase collected metrics and did not compare them with anything, so
   # it ended in "ok" regardless of what happened. Now the guest emits a verdict
-  # and the host checks it. Eight conditions, all necessary:
+  # and the host checks it. Nine conditions, all necessary:
   #   H  Hyprland running
   #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
   #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
@@ -3654,6 +3764,7 @@ PY
   #   V  the tree version starts with 4
   #   C  all five clipboard integration checks pass
   #   T  ttfx is available (the real binary or the static fallback)
+  #   P  installed Omarchy is exactly the reviewed source-lock commit
   # The previous threshold checked /usr/local/bin, where commands are no longer placed: it was
   # a guaranteed false positive once they were moved to /usr/bin.
   local vlog="$W/logs/verify.log"
@@ -3700,13 +3811,13 @@ expect {
 #
 # C counts the five known ways the clipboard can die. None
 # require a connected SPICE client, so it can be checked here.
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
 set timeout 60
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
   if grep -qa "^VEREDICTO_OK" "$vlog"; then
-    ok "VM '$VM_NAME' verified: Omarchy 4, Hyprland + Quickshell running, commands and units in place, clipboard operational" "VM '$VM_NAME' verificada: Omarchy 4, Hyprland + quickshell vivos, comandos y unidades en su sitio, portapapeles operativo"
+    ok "VM '$VM_NAME' verified: reviewed Omarchy source, Hyprland + Quickshell running, commands and units in place, clipboard operational" "VM '$VM_NAME' verificada: fuente revisada de Omarchy, Hyprland + quickshell vivos, comandos y unidades en su sitio, portapapeles operativo"
   elif grep -qa "^VEREDICTO_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "the VM boots but the desktop is incomplete; log at $vlog" "la VM arranca pero el escritorio no esta completo; log en $vlog"
@@ -4083,6 +4194,7 @@ while (($#)); do
     --only) run_only="${2:-}"; [[ -n $run_only ]] || { usage; die "--only requires a phase (${PHASES[*]})" "--only necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
     --print-language) printf '%s\n' "$OMARCHY_LANG"; exit 0 ;;
+    --check-core-source-lock) ensure_dirs; write_core_source_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; ok "core Git source lock is valid" "el bloqueo de fuentes Git principales es valido"; exit 0 ;;
     --yes|-y|--sin-preguntas) ASSUME_YES=1; INTERACTIVO=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" "opcion desconocida: $1" ;;

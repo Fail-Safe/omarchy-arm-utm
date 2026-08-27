@@ -19,3 +19,17 @@ The pins recorded on 2026-08-26 were established as follows:
 Run `scripts/update-base-image-pins.sh` to verify current upstream artifacts and
 print proposed pins. Pass `--write` only after reviewing the verification
 output; it updates the manifest and the standalone builder together.
+
+# Core Git sources
+
+`core-git-sources.tsv` pins every Git repository whose contents are built or
+installed during the privileged provisioning path. Builds fetch column 4 only;
+they never fall back to the branch or `HEAD` in column 3.
+
+Run `scripts/update-core-source-pins.sh --verify` to resolve current upstream
+refs, verify that every recorded commit remains directly fetchable, and print a
+reviewable diff. After reviewing the source changes, pass `--write` to update
+the manifest and re-embed it in the standalone builder.
+
+This locks source selection, not all binary inputs: Arch Linux ARM repositories
+and language package registries remain live dependency sources.

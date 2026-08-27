@@ -9,16 +9,86 @@ ui_text() { if [[ ${OMARCHY_LANG:-en} == es ]]; then printf '%s' "${2:-$1}"; els
 log()  { local text; text=$(ui_text "$1" "${2:-$1}"); echo ""; echo "==> [stage3] $text"; }
 warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage3] $text"; }
 
+SOURCE_LOCK=/usr/share/omarchy-arm/core-git-sources.tsv
+CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+
+# CORE_SOURCE_LOCK_HELPERS_BEGIN
+source_lock_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$SOURCE_LOCK"
+}
+
+validate_core_source_lock() {
+  local line key url ref commit extra expected seen=" "
+  [[ -s $SOURCE_LOCK ]] || { warn "missing core Git source lock: $SOURCE_LOCK"; return 1; }
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    read -r key url ref commit extra <<< "$line"
+    [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
+        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+      || { warn "invalid core Git source-lock record: $line"; return 1; }
+    [[ $seen != *" $key "* ]] || { warn "duplicate core Git source-lock key: $key"; return 1; }
+    seen="$seen$key "
+  done < "$SOURCE_LOCK"
+  for expected in "${CORE_SOURCE_KEYS[@]}"; do
+    [[ $seen == *" $expected "* ]] || { warn "missing core Git source-lock key: $expected"; return 1; }
+  done
+  read -r key url ref commit <<< "$(source_lock_record omarchy)"
+  [[ $url == https://github.com/basecamp/omarchy.git && $ref == "refs/heads/${OMARCHY_REF:-quattro}" ]] \
+    || { warn "the Omarchy source lock is incompatible with OMARCHY_REF='${OMARCHY_REF:-quattro}'"; return 1; }
+}
+
+clone_pinned() { # clone_pinned <lock-key> <destination> [sparse-path]
+  local key="$1" dir="$2" sparse="${3:-}" record url ref commit actual
+  record=$(source_lock_record "$key") || return 1
+  read -r key url ref commit <<< "$record"
+  [[ -n $commit ]] || { warn "missing source pin: $1"; return 1; }
+  rm -rf "$dir"
+  mkdir -p "$dir"
+  git -C "$dir" init -q || return 1
+  git -C "$dir" remote add origin "$url" || return 1
+  if [[ -n $sparse ]]; then
+    git -C "$dir" sparse-checkout init --cone >/dev/null 2>&1 || return 1
+    git -C "$dir" sparse-checkout set "$sparse" >/dev/null 2>&1 || return 1
+  fi
+  git -C "$dir" -c protocol.version=2 fetch -q --filter=blob:none --depth 1 origin "$commit" \
+    || git -C "$dir" fetch -q --depth 1 origin "$commit" \
+    || { warn "could not fetch pinned $key commit $commit"; return 1; }
+  git -C "$dir" checkout -q --detach FETCH_HEAD || return 1
+  actual=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+  [[ $actual == "$commit" ]] || { warn "$key checked out $actual instead of $commit"; return 1; }
+  echo "  pinned $key ${commit:0:12}"
+}
+
+track_locked_branch() { # preserve Omarchy's normal post-install fast-forward updates
+  local key="$1" dir="$2" record url ref commit branch
+  record=$(source_lock_record "$key") || return 1
+  read -r key url ref commit <<< "$record"
+  [[ $ref == refs/heads/* ]] || return 1
+  branch=${ref#refs/heads/}
+  git -C "$dir" fetch -q origin "$ref:refs/remotes/origin/$branch" || return 1
+  git -C "$dir" merge-base --is-ancestor "$commit" "refs/remotes/origin/$branch" \
+    || { warn "$key commit $commit is not on $ref"; return 1; }
+  git -C "$dir" checkout -q -B "$branch" "$commit" || return 1
+  git -C "$dir" config "branch.$branch.remote" origin
+  git -C "$dir" config "branch.$branch.merge" "$ref"
+}
+# CORE_SOURCE_LOCK_HELPERS_END
+
+# Fail the whole stage before any source is fetched, built, or installed. Optional
+# builds may still fail independently later, but they never fall back to a moving ref.
+validate_core_source_lock || exit 1
+
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 export OMARCHY_INSTALL="$OMARCHY_PATH/install"
 export PATH="$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin"
 export OMARCHY_CHROOT_INSTALL=1
 
 # ------------------------------------------------------------ Omarchy repository
-log "cloning basecamp/omarchy (branch ${OMARCHY_REF:-quattro} = Omarchy 4; master is 3.8.5)" "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
-rm -rf "$OMARCHY_PATH"
+log "fetching reviewed Omarchy source (${OMARCHY_REF:-quattro} compatibility line)" "obteniendo fuente revisada de Omarchy (linea compatible ${OMARCHY_REF:-quattro})"
 mkdir -p "$(dirname "$OMARCHY_PATH")"
-git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone failed" "clone fallido"; exit 1; }
+clone_pinned omarchy "$OMARCHY_PATH" || { warn "Omarchy pinned clone failed" "fallo el clone fijado de Omarchy"; exit 1; }
+track_locked_branch omarchy "$OMARCHY_PATH" || { warn "could not configure Omarchy update branch" "no se pudo configurar la rama de actualizacion de Omarchy"; exit 1; }
 # core.fileMode=false BEFORE chmod: otherwise, permission changes leave the
 # checkout dirty and `git pull --ff-only` refuses to update it afterwards.
 git -C "$OMARCHY_PATH" config core.fileMode false
@@ -40,7 +110,7 @@ aur_install() {
   local p="$1"
   echo "  --- $p"
   rm -rf "/tmp/aur/$p"
-  git clone --depth 1 -q "https://aur.archlinux.org/$p.git" "/tmp/aur/$p" || { warn "clone $p"; return 1; }
+  clone_pinned "$p" "/tmp/aur/$p" || { warn "clone $p"; return 1; }
   ( cd "/tmp/aur/$p" && makepkg -si --noconfirm --needed --noprogressbar ) >"/tmp/aur/$p.log" 2>&1 \
     || { warn "makepkg $p failed (log: /tmp/aur/$p.log)" "makepkg $p falló (log: /tmp/aur/$p.log)"; tail -15 "/tmp/aur/$p.log"; return 1; }
   echo "  ok: $p"
@@ -270,17 +340,11 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   rm -rf "$dir"; mkdir -p "$dir"
   case "$src" in
     aur)
-      # AUR URLs use the PackageBase, which is not always the name of the
-      # package (yaru-icon-theme lives in the "yaru" repo).
-      local base
-      base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
-             | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
-      [ -n "$base" ] || base="$pkg"
-      git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null || return 1 ;;
+      # The lock maps package names to their reviewed PackageBase repository;
+      # for example, yaru-icon-theme deliberately resolves to the yaru repo.
+      clone_pinned "$pkg" "$dir" || return 1 ;;
     omapkgs)
-      git clone --depth 1 --filter=blob:none --sparse -q \
-        https://github.com/omacom-io/omarchy-pkgs.git "$dir/repo" || return 1
-      ( cd "$dir/repo" && git sparse-checkout set "pkgbuilds/$pkg" >/dev/null 2>&1 )
+      clone_pinned omarchy-pkgs "$dir/repo" "pkgbuilds/$pkg" || return 1
       cp -a "$dir/repo/pkgbuilds/$pkg/." "$dir/" 2>/dev/null || return 1
       rm -rf "$dir/repo" ;;
   esac
@@ -408,11 +472,11 @@ if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
   # reach. Compiling from $HOME would reveal who built the distributed image.
   # Build in /tmp, keep CARGO_HOME there so dependency paths avoid the home
   # directory, and use --remap-path-prefix in case any paths still slip through.
-  if git clone --depth 1 -q https://github.com/omacom-io/ttfx.git /tmp/ttfx-src \
+  if clone_pinned ttfx /tmp/ttfx-src \
      && ( cd /tmp/ttfx-src \
           && CARGO_HOME=/tmp/cargo-ttfx \
              RUSTFLAGS="--remap-path-prefix=/tmp/ttfx-src=ttfx --remap-path-prefix=/tmp/cargo-ttfx=cargo --remap-path-prefix=$HOME=." \
-             cargo build --release -q ); then
+             cargo build --release --locked -q ); then
     sudo install -Dm755 /tmp/ttfx-src/target/release/ttfx /usr/local/bin/ttfx
     echo "  ttfx $(ttfx --version 2>/dev/null | head -1)"
   else

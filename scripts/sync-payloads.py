@@ -29,6 +29,7 @@ CHECK=sys.argv[1:] == ["--check"]
 if sys.argv[1:] not in ([], ["--check"]):
     raise SystemExit("usage: scripts/sync-payloads.py [--check]")
 MAPA={
+ "__PAYLOAD_CORE_GIT_SOURCES_TSV__":"checksums/core-git-sources.tsv",
  "__PAYLOAD_PROVISION_STAGE1_SH__":"provision/src/stage1.sh",
  "__PAYLOAD_PROVISION_STAGE2_SH__":"provision/src/stage2.sh",
  "__PAYLOAD_PROVISION_STAGE3_SH__":"provision/src/stage3.sh",
