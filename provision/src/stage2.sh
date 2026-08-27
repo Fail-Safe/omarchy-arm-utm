@@ -6,13 +6,14 @@ set -euo pipefail
 . /root/prov/fsinfo.env
 export LANG=C LC_ALL=C
 
-log()  { echo ""; echo "==> [stage2] $*"; }
-warn() { echo "!!  [stage2] $*"; }
+ui_text() { if [[ ${OMARCHY_LANG:-en} == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
+log()  { local text; text=$(ui_text "$1" "${2:-$1}"); echo ""; echo "==> [stage2] $text"; }
+warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage2] $text"; }
 
-trap 'warn "fallo en la linea $LINENO"; exit 1' ERR
+trap 'warn "failed at line $LINENO" "fallo en la linea $LINENO"; exit 1' ERR
 
 # ---------------------------------------------------------------- pacman
-log "inicializando el llavero de Arch Linux ARM"
+log "initializing the Arch Linux ARM keyring" "inicializando el llavero de Arch Linux ARM"
 pacman-key --init
 pacman-key --populate archlinuxarm
 
@@ -21,8 +22,8 @@ pacman-key --populate archlinuxarm
 # availability. Two official mirrors with valid certificates are set.
 : "${ALARM_MIRROR_PRIMARY:=https://ca.us.mirror.archlinuxarm.org}"
 : "${ALARM_MIRROR_SECONDARY:=https://fl.us.mirror.archlinuxarm.org}"
-case "$ALARM_MIRROR_PRIMARY" in https://*) ;; *) warn "el mirror primario debe usar HTTPS"; exit 1 ;; esac
-case "$ALARM_MIRROR_SECONDARY" in https://*) ;; *) warn "el mirror secundario debe usar HTTPS"; exit 1 ;; esac
+case "$ALARM_MIRROR_PRIMARY" in https://*) ;; *) warn "the primary mirror must use HTTPS" "el mirror primario debe usar HTTPS"; exit 1 ;; esac
+case "$ALARM_MIRROR_SECONDARY" in https://*) ;; *) warn "the secondary mirror must use HTTPS" "el mirror secundario debe usar HTTPS"; exit 1 ;; esac
 {
   printf 'Server = %s/$arch/$repo\n' "$ALARM_MIRROR_PRIMARY"
   printf 'Server = %s/$arch/$repo\n' "$ALARM_MIRROR_SECONDARY"
@@ -41,18 +42,18 @@ pac() {
   local intento
   for intento in 1 2 3; do
     if pacman -S --noconfirm --needed --disable-download-timeout "$@"; then return 0; fi
-    warn "pacman fallo (intento $intento/3); reintentando en ${intento}0 s"
+    warn "pacman failed (attempt $intento/3); retrying in ${intento}0 seconds" "pacman fallo (intento $intento/3); reintentando en ${intento}0 s"
     sleep "${intento}0"
     pacman -Sy --noconfirm --disable-download-timeout >/dev/null 2>&1 || true
   done
   return 1
 }
 
-log "actualizando el sistema (el tarball es de agosto, los repos van al dia)"
+log "updating the system (the tarball is from August; repositories are current)" "actualizando el sistema (el tarball es de agosto, los repos van al dia)"
 pacman -Syu --noconfirm --needed --disable-download-timeout \
   || pacman -Syu --noconfirm --needed --disable-download-timeout
 
-log "sistema base"
+log "base system" "sistema base"
 # linux-firmware is intentionally omitted: ~800 MB useless in a VM
 pac base base-devel linux-aarch64 \
   sudo git vim networkmanager openssh which man-db man-pages less \
@@ -60,7 +61,7 @@ pac base base-devel linux-aarch64 \
   rsync wget curl unzip zip
 
 # ---------------------------------------------------------------- localization
-log "zona horaria, locales, teclado, hostname"
+log "timezone, locales, keyboard, and hostname" "zona horaria, locales, teclado, hostname"
 ln -sf "/usr/share/zoneinfo/$VM_TIMEZONE" /etc/localtime
 sed -i "s/^#\(${VM_LOCALE} \)/\1/; s/^#\(${VM_LOCALE_EXTRA} \)/\1/" /etc/locale.gen
 grep -q "^${VM_LOCALE} " /etc/locale.gen || echo "${VM_LOCALE} UTF-8" >> /etc/locale.gen
@@ -69,6 +70,7 @@ echo "LANG=$VM_LOCALE" > /etc/locale.conf
 # Hyprland reads XKBLAYOUT from here (default/hypr/input.lua); KEYMAP only
 # covers the text console.
 printf 'KEYMAP=%s\nXKBLAYOUT=%s\n' "$VM_KEYMAP" "$VM_XKB" > /etc/vconsole.conf
+printf "OMARCHY_LANG='%s'\n" "${OMARCHY_LANG:-en}" > /etc/omarchy-arm.conf
 echo "$VM_HOSTNAME" > /etc/hostname
 cat > /etc/hosts <<EOF
 127.0.0.1   localhost
@@ -96,7 +98,7 @@ fi
 cat /etc/fstab
 
 # ---------------------------------------------------------------- user
-log "usuario $VM_USER"
+log "user $VM_USER" "usuario $VM_USER"
 userdel -r alarm 2>/dev/null || true
 if ! id -u "$VM_USER" >/dev/null 2>&1; then
   useradd -m -G wheel,video,audio,input,storage,network,lp -s /bin/bash -c "$VM_FULLNAME" "$VM_USER"
@@ -108,14 +110,14 @@ install -m 0440 /dev/stdin /etc/sudoers.d/10-wheel <<<'%wheel ALL=(ALL:ALL) ALL'
 install -m 0440 /dev/stdin /etc/sudoers.d/99-install <<<"$VM_USER ALL=(ALL:ALL) NOPASSWD: ALL"
 
 # ---------------------------------------------------------------- initramfs
-log "mkinitcpio (modulos virtio + btrfs)"
+log "mkinitcpio (virtio + btrfs modules)" "mkinitcpio (modulos virtio + btrfs)"
 sed -i 's/^MODULES=.*/MODULES=(virtio virtio_pci virtio_blk virtio_scsi virtio_net virtio_gpu 9p 9pnet 9pnet_virtio btrfs ext4)/' /etc/mkinitcpio.conf
 grep -q '^MODULES=' /etc/mkinitcpio.conf || echo 'MODULES=(virtio virtio_pci virtio_blk virtio_gpu 9p 9pnet_virtio btrfs)' >> /etc/mkinitcpio.conf
 mkinitcpio -P
 echo "  /boot:"; ls -la /boot
 
 # ---------------------------------------------------------------- UEFI boot
-log "systemd-boot en la ESP"
+log "systemd-boot on the ESP" "systemd-boot en la ESP"
 # --no-variables: we do not write to NVRAM; UTM boots via the fallback path
 # \EFI\BOOT\BOOTAA64.EFI, which bootctl installs as well.
 bootctl --esp-path=/boot --no-variables install
@@ -124,22 +126,22 @@ bootctl --esp-path=/boot --no-variables install
 # "pacman -S --needed" does not reinstall it if the installed version already matches
 # the one in the repository, so the package reinstall is forced.
 if [ ! -f /boot/Image ] && [ ! -f /boot/vmlinuz-linux-aarch64 ]; then
-  echo "  /boot vacio: reinstalando linux-aarch64 para repoblarlo"
-  pacman -S --noconfirm --disable-download-timeout linux-aarch64 || warn "no se pudo reinstalar el kernel"
-  mkinitcpio -P || warn "mkinitcpio fallo tras reinstalar"
+  echo "  $(ui_text '/boot is empty: reinstalling linux-aarch64 to populate it' '/boot vacio: reinstalando linux-aarch64 para repoblarlo')"
+  pacman -S --noconfirm --disable-download-timeout linux-aarch64 || warn "could not reinstall the kernel" "no se pudo reinstalar el kernel"
+  mkinitcpio -P || warn "mkinitcpio failed after reinstalling" "mkinitcpio fallo tras reinstalar"
 fi
 
 KERNEL_IMG=""
 for c in /boot/Image /boot/vmlinuz-linux-aarch64 /boot/Image.gz; do
   [ -f "$c" ] && { KERNEL_IMG="/$(basename "$c")"; break; }
 done
-[ -n "$KERNEL_IMG" ] || { warn "no encuentro la imagen del kernel en /boot"; ls -la /boot; exit 1; }
+[ -n "$KERNEL_IMG" ] || { warn "kernel image not found in /boot" "no encuentro la imagen del kernel en /boot"; ls -la /boot; exit 1; }
 
 INITRD=""
 for c in /boot/initramfs-linux-aarch64.img /boot/initramfs-linux.img; do
   [ -f "$c" ] && { INITRD="/$(basename "$c")"; break; }
 done
-[ -n "$INITRD" ] || { warn "no encuentro el initramfs"; ls -la /boot; exit 1; }
+[ -n "$INITRD" ] || { warn "initramfs not found" "no encuentro el initramfs"; ls -la /boot; exit 1; }
 
 mkdir -p /boot/loader/entries
 cat > /boot/loader/loader.conf <<EOF
@@ -155,7 +157,7 @@ initrd   $INITRD
 options  root=LABEL=OMROOT $KERNEL_ROOTFLAGS rw quiet loglevel=3
 EOF
 cat > /boot/loader/entries/omarchy-verbose.conf <<EOF
-title    Arch Linux ARM — Omarchy (verboso)
+title    Arch Linux ARM — Omarchy ($(ui_text 'verbose' 'verboso'))
 linux    $KERNEL_IMG
 initrd   $INITRD
 options  root=LABEL=OMROOT $KERNEL_ROOTFLAGS rw
@@ -164,7 +166,7 @@ echo "  kernel=$KERNEL_IMG initrd=$INITRD"
 echo "  ESP:"; find /boot/EFI /boot/loader -maxdepth 3 | sort
 
 # ---------------------------------------------------------------- networking
-log "red: NetworkManager (se desactiva systemd-networkd del tarball)"
+log "network: NetworkManager (disabling systemd-networkd from the tarball)" "red: NetworkManager (se desactiva systemd-networkd del tarball)"
 systemctl disable systemd-networkd.service systemd-networkd.socket 2>/dev/null || true
 systemctl disable systemd-resolved.service 2>/dev/null || true
 rm -f /etc/systemd/network/*.network 2>/dev/null || true
@@ -172,13 +174,13 @@ systemctl enable NetworkManager.service
 systemctl enable systemd-timesyncd.service 2>/dev/null || true
 
 # ---------------------------------------------------------------- desktop
-log "instalando el stack de escritorio (Hyprland + herramientas de Omarchy)"
+log "installing the desktop stack (Hyprland + Omarchy tools)" "instalando el stack de escritorio (Hyprland + herramientas de Omarchy)"
 install_list() {
   local file="$1" label="$2" fatal="$3"
   mapfile -t PKGS < <(grep -vE '^\s*#|^\s*$' "$file")
-  echo "  $label: ${#PKGS[@]} paquetes"
+  echo "  $label: ${#PKGS[@]} $(ui_text 'packages' 'paquetes')"
   if pac "${PKGS[@]}"; then return 0; fi
-  warn "$label: instalacion en bloque fallida tras 3 intentos; probando uno a uno"
+  warn "$label: bulk installation failed after 3 attempts; trying packages individually" "$label: instalacion en bloque fallida tras 3 intentos; probando uno a uno"
   local FAILED=()
   for p in "${PKGS[@]}"; do
     pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 && continue
@@ -187,19 +189,19 @@ install_list() {
     pacman -S --noconfirm --needed --disable-download-timeout "$p" >/dev/null 2>&1 || FAILED+=("$p")
   done
   if [ ${#FAILED[@]} -gt 0 ]; then
-    warn "$label no instalados: ${FAILED[*]}"
+    warn "$label not installed: ${FAILED[*]}" "$label no instalados: ${FAILED[*]}"
     printf '%s\n' "${FAILED[@]}" >> /root/failed-packages.txt
     [ "$fatal" = fatal ] && return 1
   fi
   return 0
 }
-install_list /root/prov/packages-core.txt  "nucleo" fatal
+install_list /root/prov/packages-core.txt  "$(ui_text 'core' 'nucleo')" fatal
 set +e
 install_list /root/prov/packages-extra.txt "extras" soft
 set -e
 
-log "servicios de sistema"
-systemctl enable sddm.service 2>/dev/null || warn "sddm no disponible"
+log "system services" "servicios de sistema"
+systemctl enable sddm.service 2>/dev/null || warn "sddm is unavailable" "sddm no disponible"
 # UTM integration: utmctl ip-address/exec/file require the guest agent
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # The Arch Linux ARM rootfs comes with sshd started, and here we install
@@ -229,7 +231,7 @@ ExecStart=/usr/bin/spice-vdagentd -X -x -f
 OVR
 systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
-echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
+echo "  $(ui_text 'spice-vdagentd with -X (required under Hyprland)' 'spice-vdagentd con -X (necesario bajo Hyprland)')"
 
 # No udev rule is installed for /dev/virtio-ports/com.redhat.spice.0.
 # There was one, and it was wrong in two ways: omarchy-arm-vdagent never opens that
@@ -246,7 +248,7 @@ echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
 #     spice-webdavd (phodav package) at http://localhost:9843/
 # Both are prepared: each activates only if its device exists.
 systemctl enable spice-webdavd.service 2>/dev/null || true
-echo "  spice-webdavd habilitado (modo SPICE WebDAV de UTM)"
+echo "  $(ui_text 'spice-webdavd enabled (UTM SPICE WebDAV mode)' 'spice-webdavd habilitado (modo SPICE WebDAV de UTM)')"
 
 # UTM shared folder. The bundle declares DirectoryShareMode=VirtFS, but
 # this only exposes the device: the guest must mount it. The tag is
@@ -266,13 +268,13 @@ if ! grep -q '^share ' /etc/fstab; then
 share  /mnt/share  9p  trans=virtio,version=9p2000.L,rw,nofail,x-systemd.automount,_netdev,msize=512000  0  0
 FSTAB
 fi
-echo "  /mnt/share preparado (VirtFS por fstab, WebDAV con omarchy-arm-share)"
+echo "  $(ui_text '/mnt/share prepared (VirtFS through fstab, WebDAV through omarchy-arm-share)' '/mnt/share preparado (VirtFS por fstab, WebDAV con omarchy-arm-share)')"
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable docker.service 2>/dev/null || true
 usermod -aG docker "$VM_USER" 2>/dev/null || true
 
 # ---------------------------------------------------------------- dotfiles
-log "etapa 3: dotfiles de Omarchy como $VM_USER"
+log "stage 3: Omarchy dotfiles as $VM_USER" "etapa 3: dotfiles de Omarchy como $VM_USER"
 chmod +x /root/prov/stage3.sh
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # stage3 runs as a normal user and /root is 0750: any test you perform on
@@ -285,7 +287,7 @@ done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
 chown -R "$VM_USER:$VM_USER" "$PROVDIR"
 chown "$VM_USER:$VM_USER" "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
-echo "  disponible para stage3: $(ls "$PROVDIR" | tr '\n' ' ')"
+echo "  $(ui_text 'available to stage3' 'disponible para stage3'): $(ls "$PROVDIR" | tr '\n' ' ')"
 # The result of stage3 must reach the host: previously it degraded to a
 # warn and stage2 emitted its success token anyway, so a completely failed stage3
 # produced a disk with not a single Omarchy dotfile declared OK.
@@ -296,13 +298,13 @@ echo "  disponible para stage3: $(ls "$PROVDIR" | tr '\n' ' ')"
 # in a tested context, so set -e does not trigger.
 STAGE3_RC=0
 su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
-[ $STAGE3_RC -eq 0 ] || warn "stage3 termino con errores (rc=$STAGE3_RC)"
+[ $STAGE3_RC -eq 0 ] || warn "stage3 finished with errors (rc=$STAGE3_RC)" "stage3 termino con errores (rc=$STAGE3_RC)"
 echo "TOK_STAGE3_$STAGE3_RC"
 rm -f "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
 rm -rf "$PROVDIR"
 
 # ---------------------------------------------------------------- login SDDM
-log "SDDM: sesion Omarchy con autologin"
+log "SDDM: Omarchy session with autologin" "SDDM: sesion Omarchy con autologin"
 OM="/home/$VM_USER/.local/share/omarchy"
 mkdir -p /usr/local/share/wayland-sessions /etc/sddm.conf.d /usr/share/sddm
 if [ -f "$OM/default/wayland-sessions/omarchy.desktop" ]; then
@@ -322,11 +324,11 @@ User=$VM_USER
 Session=$SESSION
 EOF
 sed -i '/-auth.*pam_gnome_keyring\.so/d;/-password.*pam_gnome_keyring\.so/d' /etc/pam.d/sddm 2>/dev/null || true
-echo "  sesion=$SESSION"
+echo "  $(ui_text 'session' 'sesion')=$SESSION"
 ls /usr/local/share/wayland-sessions /usr/share/wayland-sessions 2>/dev/null
 
 # ---------------------------------------------------------------- VM settings
-log "ajustes propios de maquina virtual"
+log "virtual-machine-specific settings" "ajustes propios de maquina virtual"
 # The hardware cursor and DRM modifiers cause issues over virtio-gpu
 mkdir -p /etc/environment.d
 cat > /etc/environment.d/90-vm-graphics.conf <<'EOF'
@@ -344,19 +346,19 @@ EOF
 # serial console useful for debugging from the host
 systemctl enable serial-getty@ttyAMA0.service 2>/dev/null || true
 
-log "limpieza"
+log "cleanup" "limpieza"
 rm -f /etc/sudoers.d/99-install
 paccache -rk1 2>/dev/null || true
 rm -rf /var/cache/pacman/pkg/* 2>/dev/null || true
 
-log "resumen"
+log "summary" "resumen"
 echo "  kernel:    $(pacman -Q linux-aarch64 2>/dev/null || echo '?')"
 echo "  hyprland:  $(pacman -Q hyprland 2>/dev/null || echo 'NO INSTALADO')"
 echo "  sddm:      $(pacman -Q sddm 2>/dev/null || echo 'NO INSTALADO')"
 echo "  mesa:      $(pacman -Q mesa 2>/dev/null || echo '?')"
-echo "  usuario:   $(id "$VM_USER")"
-echo "  dotfiles:  $(ls -d /home/$VM_USER/.config/hypr 2>/dev/null || echo 'FALTAN')"
+echo "  $(ui_text 'user' 'usuario'):   $(id "$VM_USER")"
+echo "  dotfiles:  $(ls -d /home/$VM_USER/.config/hypr 2>/dev/null || ui_text 'MISSING' 'FALTAN')"
 sync
 touch /root/STAGE2_OK
 echo ""
-echo "==> [stage2] COMPLETADO"
+echo "==> [stage2] $(ui_text 'COMPLETED' 'COMPLETADO')"

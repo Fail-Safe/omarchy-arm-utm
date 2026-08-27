@@ -2,7 +2,8 @@
 # Fleco 2: revert the SSH access that was enabled only for provisioning.
 # Runs as ROOT inside the chroot.
 set -uo pipefail
-USR=gabriel
+[ -f /root/prov/config.env ] && . /root/prov/config.env
+USR="${VM_USER:-builder}"
 log() { echo ""; echo "==> $*"; }
 
 log "desactivando sshd"

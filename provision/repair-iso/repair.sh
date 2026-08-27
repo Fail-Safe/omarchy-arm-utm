@@ -3,24 +3,28 @@
 # without repartitioning or downloading anything. To iterate after a specific failure.
 set -eu
 PROV=/media/prov
-log() { echo ""; echo "==> [repair] $*"; }
+. "$PROV/config.env" 2>/dev/null || true
+: "${OMARCHY_LANG:=en}"
+ui_text() { if [ "$OMARCHY_LANG" = es ]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
+log() { text=$(ui_text "$1" "${2:-$1}"); echo ""; echo "==> [repair] $text"; }
+warn() { text=$(ui_text "$1" "${2:-$1}"); echo "!!  [repair] $text" >&2; }
 trap 'rc=$?; [ "$rc" -ne 0 ] && echo "TOK_REPAIR_$rc"' EXIT
 
-log "modulos del kernel"
+log "kernel modules" "modulos del kernel"
 # Mounting btrfs/vfat only requires the kernel module, not the user-space utilities:
 # this stage does NOT depend on having network access.
 for m in btrfs vfat fat nls_cp437 nls_iso8859-1 nls_utf8 crc32c-generic xxhash_generic; do
   modprobe "$m" 2>/dev/null || true
 done
-grep -qw btrfs /proc/filesystems || { echo "!! el kernel del live no soporta btrfs"; exit 1; }
+grep -qw btrfs /proc/filesystems || { warn "the live kernel does not support btrfs" "el kernel del live no soporta btrfs"; exit 1; }
 echo "  filesystems: $(tr '\n' ' ' < /proc/filesystems | tr -s ' ')"
 
-log "red (best-effort, solo por comodidad)"
+log "network (best effort; convenience only)" "red (best-effort, solo por comodidad)"
 ip link set eth0 up 2>/dev/null || true
 udhcpc -i eth0 -q -n -t 8 >/dev/null 2>&1 || true
-ip -4 addr show eth0 2>/dev/null | grep -o 'inet [0-9.]*' || echo "  (sin red; se continua igualmente)"
+ip -4 addr show eth0 2>/dev/null | grep -o 'inet [0-9.]*' || echo "  $(ui_text '(no network; continuing anyway)' '(sin red; se continua igualmente)')"
 
-log "montando el sistema instalado"
+log "mounting the installed system" "montando el sistema instalado"
 umount -R /mnt 2>/dev/null || true
 if mount -t btrfs -o rw,noatime,compress=zstd:3,subvol=@ /dev/vda2 /mnt 2>/dev/null; then
   mount -t btrfs -o rw,noatime,compress=zstd:3,subvol=@home /dev/vda2 /mnt/home
@@ -37,10 +41,12 @@ mount -t tmpfs none /mnt/run
 mount -t tmpfs -o size=4G none /mnt/tmp
 mkdir -p /mnt/dev/pts && mount -t devpts none /mnt/dev/pts 2>/dev/null || true
 rm -f /mnt/etc/resolv.conf
-printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /mnt/etc/resolv.conf
+grep -Eq '^[[:space:]]*nameserver[[:space:]]+' /etc/resolv.conf \
+  || { warn "DHCP did not provide a DNS resolver" "el DHCP no proporciono un resolver DNS"; exit 1; }
+cp /etc/resolv.conf /mnt/etc/resolv.conf
 df -h /mnt /mnt/boot
 
-log "ejecutando $FIXSCRIPT dentro del chroot"
+log "running $FIXSCRIPT inside the chroot" "ejecutando $FIXSCRIPT dentro del chroot"
 mkdir -p /mnt/root/prov
 cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/config.env" ] && cp "$PROV/config.env" /mnt/root/prov/
@@ -61,11 +67,11 @@ set -e
 
 # The working directory must not be left inside the system: scripts accumulate there
 # from all the repair scripts of previous runs.
-log "retirando /root/prov del sistema instalado"
+log "removing /root/prov from the installed system" "retirando /root/prov del sistema instalado"
 ls /mnt/root/prov 2>/dev/null | tr '\n' ' '; echo
 rm -rf /mnt/root/prov
 
-log "desmontando"
+log "unmounting" "desmontando"
 sync
 umount -R /mnt/tmp /mnt/run /mnt/dev /mnt/sys /mnt/proc 2>/dev/null || true
 umount -R /mnt/boot 2>/dev/null || true

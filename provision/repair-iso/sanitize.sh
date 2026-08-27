@@ -2,13 +2,14 @@
 # Sanitization for distribution: removes all system-identifying information and leaves
 # a generic user. It runs as ROOT inside the chroot.
 set -uo pipefail
-OLD="${DIST_OLD_USER:-gabriel}"
+[ -f /root/prov/config.env ] && . /root/prov/config.env
+OLD="${DIST_OLD_USER:-${VM_USER:-builder}}"
 NEW="${DIST_NEW_USER:-omarchy}"
 log()  { echo ""; echo "==> $*"; }
 warn() { echo "!!  $*" >&2; }
 
 log "1/10 desanclando /usr/share/omarchy del home del usuario"
-# It was a symlink to /home/gabriel/.local/share/omarchy, which ties the system to
+# It was a symlink to /home/<user>/.local/share/omarchy, which ties the system to
 # that user. It is converted into a real directory (as pacman would do) and
 # the home directory is updated to point there.
 if [ -L /usr/share/omarchy ]; then

@@ -7,11 +7,15 @@ set -e
 #
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$ROOT"
-: "${DISK_IMG:?falta DISK_IMG}"
+: "${OMARCHY_LANG:=$(bash "$ROOT/build-omarchy-arm.sh" --print-language)}"
+ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
+[[ -n ${DISK_IMG:-} ]] || { echo "$(ui_text 'DISK_IMG is required' 'falta DISK_IMG')" >&2; exit 1; }
 : "${OUT:=shots/qemu-shot.png}"
 : "${WAIT:=150}"
 FW=$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd
-SCRATCH=/private/tmp/claude-501/-Users-gabriel-Development-2026-omarchy-ai/01fc00c5-70c0-41f7-9583-26c2a6f46809/scratchpad
+: "${OMARCHY_SHOT_TMP:=${TMPDIR:-/tmp}/omarchy-qemu-shot}"
+SCRATCH="$OMARCHY_SHOT_TMP"
+mkdir -p "$SCRATCH"
 VARS="$SCRATCH/shotvars.fd"
 MON="/tmp/omshot.sock"
 rm -f "$VARS" "$MON"
@@ -32,8 +36,8 @@ qemu-system-aarch64 \
 QPID=$!
 trap 'kill -TERM $QPID 2>/dev/null; rm -f "$VARS"' EXIT
 
-for i in $(seq 1 30); do [ -S "$MON" ] && break; sleep 1; done
-echo "arrancando, esperando ${WAIT}s al escritorio..."
+for _ in $(seq 1 30); do [ -S "$MON" ] && break; sleep 1; done
+echo "$(ui_text 'booting; waiting' 'arrancando, esperando') ${WAIT}s $(ui_text 'for the desktop...' 'al escritorio...')"
 sleep "$WAIT"
 
 # Wakes up the session: after ~2 minutes, hypridle triggers the screensaver and the
@@ -45,4 +49,4 @@ printf 'screendump %s\nquit\n' "$PPM" | nc -U "$MON" >/dev/null
 sleep 3
 sips -s format png "$PPM" --out "$OUT" >/dev/null
 rm -f "$PPM"
-echo "captura: $OUT"
+echo "$(ui_text 'capture' 'captura'): $OUT"

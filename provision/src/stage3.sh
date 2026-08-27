@@ -2,10 +2,12 @@
 # Stage 3 — as a normal user inside the chroot.
 # Omarchy dotfiles, theme, and the components that exist only in the AUR.
 set -uo pipefail   # no -e: this stage is best-effort in sections
+# shellcheck disable=SC1090 # Generated per-build configuration in the guest home.
 . ~/config.env
 
-log()  { echo ""; echo "==> [stage3] $*"; }
-warn() { echo "!!  [stage3] $*"; }
+ui_text() { if [[ ${OMARCHY_LANG:-en} == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
+log()  { local text; text=$(ui_text "$1" "${2:-$1}"); echo ""; echo "==> [stage3] $text"; }
+warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage3] $text"; }
 
 export OMARCHY_PATH="$HOME/.local/share/omarchy"
 export OMARCHY_INSTALL="$OMARCHY_PATH/install"
@@ -13,10 +15,10 @@ export PATH="$OMARCHY_PATH/bin:$PATH:$HOME/.local/bin"
 export OMARCHY_CHROOT_INSTALL=1
 
 # ------------------------------------------------------------ Omarchy repository
-log "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
+log "cloning basecamp/omarchy (branch ${OMARCHY_REF:-quattro} = Omarchy 4; master is 3.8.5)" "clonando basecamp/omarchy (rama ${OMARCHY_REF:-quattro} = Omarchy 4; master es 3.8.5)"
 rm -rf "$OMARCHY_PATH"
 mkdir -p "$(dirname "$OMARCHY_PATH")"
-git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone fallido"; exit 1; }
+git clone --depth 1 --branch "${OMARCHY_REF:-quattro}" https://github.com/basecamp/omarchy.git "$OMARCHY_PATH" || { warn "clone failed" "clone fallido"; exit 1; }
 # core.fileMode=false BEFORE chmod: otherwise, permission changes leave the
 # checkout dirty and `git pull --ff-only` refuses to update it afterwards.
 git -C "$OMARCHY_PATH" config core.fileMode false
@@ -25,14 +27,14 @@ echo "  version: $(cat "$OMARCHY_PATH/version" 2>/dev/null)"
 
 # ------------------------------------------------------------ dotfiles
 # Equivalente a install/config/config.sh
-log "copiando dotfiles a ~/.config"
+log "copying dotfiles to ~/.config" "copiando dotfiles a ~/.config"
 mkdir -p ~/.config
 cp -R "$OMARCHY_PATH"/config/* ~/.config/
 cp "$OMARCHY_PATH/default/bashrc" ~/.bashrc
 ls ~/.config | tr '\n' ' '; echo
 
 # ------------------------------------------------------------ AUR
-log "AUR: piezas de Omarchy que no están en los repos de Arch Linux ARM"
+log "AUR: Omarchy components missing from Arch Linux ARM repositories" "AUR: piezas de Omarchy que no están en los repos de Arch Linux ARM"
 mkdir -p /tmp/aur
 aur_install() {
   local p="$1"
@@ -40,7 +42,7 @@ aur_install() {
   rm -rf "/tmp/aur/$p"
   git clone --depth 1 -q "https://aur.archlinux.org/$p.git" "/tmp/aur/$p" || { warn "clone $p"; return 1; }
   ( cd "/tmp/aur/$p" && makepkg -si --noconfirm --needed --noprogressbar ) >"/tmp/aur/$p.log" 2>&1 \
-    || { warn "makepkg $p falló (log: /tmp/aur/$p.log)"; tail -15 "/tmp/aur/$p.log"; return 1; }
+    || { warn "makepkg $p failed (log: /tmp/aur/$p.log)" "makepkg $p falló (log: /tmp/aur/$p.log)"; tail -15 "/tmp/aur/$p.log"; return 1; }
   echo "  ok: $p"
 }
 
@@ -51,12 +53,12 @@ AUR_OK=(); AUR_KO=()
 for p in yay xdg-terminal-exec; do
   if aur_install "$p"; then AUR_OK+=("$p"); else AUR_KO+=("$p"); fi
 done
-echo "  AUR ok:    ${AUR_OK[*]:-ninguno}"
-echo "  AUR falló: ${AUR_KO[*]:-ninguno}"
+echo "  AUR ok:     ${AUR_OK[*]:-$(ui_text 'none' 'ninguno')}"
+echo "  $(ui_text 'AUR failed' 'AUR falló'): ${AUR_KO[*]:-$(ui_text 'none' 'ninguno')}"
 
 # Fallback if xdg-terminal-exec failed to compile: Omarchy uses $TERMINAL=xdg-terminal-exec
 if ! command -v xdg-terminal-exec >/dev/null 2>&1; then
-  warn "xdg-terminal-exec ausente: instalando un envoltorio sobre alacritty"
+  warn "xdg-terminal-exec is missing: installing a terminal wrapper" "xdg-terminal-exec ausente: instalando un envoltorio sobre alacritty"
   sudo install -m 0755 /dev/stdin /usr/local/bin/xdg-terminal-exec <<'EOF'
 #!/bin/sh
 # Minimal wrapper: Omarchy exports TERMINAL=xdg-terminal-exec.
@@ -85,7 +87,7 @@ for f in com.mitchellh.ghostty.desktop ghostty.desktop \
   done
 done
 [ -s ~/.config/xdg-terminals.list ] || printf 'foot.desktop\n' > ~/.config/xdg-terminals.list
-echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
+echo "  $(ui_text 'preferred terminal' 'terminal preferido'): $(head -1 ~/.config/xdg-terminals.list)"
 
 # ------------------------------------------------ system integration
 # Omarchy 4 is distributed as a pacman package that places the tree in
@@ -93,7 +95,7 @@ echo "  terminal preferido: $(head -1 ~/.config/xdg-terminals.list)"
 # /etc/profile.d and /usr/share/uwsm/env.d. This package only exists for x86_64,
 # so it is manually replicated here. Without this, OMARCHY_PATH remains empty and Hyprland
 # starts in emergency mode because it cannot find default/hypr/bootstrap.lua.
-log "integrando Omarchy en las rutas de sistema (sustituye al paquete pacman)"
+log "integrating Omarchy into system paths (replaces the pacman package)" "integrando Omarchy en las rutas de sistema (sustituye al paquete pacman)"
 sudo ln -sfn "$OMARCHY_PATH" /usr/share/omarchy
 # Commands go to /usr/bin, which is where the upstream package() places them.
 # Placing them in /usr/local/bin seemed cleaner (does not conflict with pacman) but
@@ -114,7 +116,7 @@ for f in "$OMARCHY_PATH"/bin/*; do
   chmod +x "$f"
   sudo ln -sfn "/usr/share/omarchy/bin/$(basename "$f")" "/usr/bin/$(basename "$f")" && n=$((n+1))
 done
-echo "  $n binarios en /usr/bin -> /usr/share/omarchy/bin"
+echo "  $n $(ui_text 'binaries' 'binarios') in /usr/bin -> /usr/share/omarchy/bin"
 # User units go to /usr/lib/systemd/user/, which is where systemd looks for them.
 # The omarchy-settings package installs them upstream, but it does not exist for ARM.
 # Without this, install/user/first-run/enable-user-units.sh fails on every login, and
@@ -124,7 +126,7 @@ echo "  $n binarios en /usr/bin -> /usr/share/omarchy/bin"
 if [ -d "$OMARCHY_PATH/default/systemd/user" ]; then
   sudo install -d /usr/lib/systemd/user
   sudo cp -a "$OMARCHY_PATH/default/systemd/user/." /usr/lib/systemd/user/
-  echo "  $(ls "$OMARCHY_PATH/default/systemd/user"/*.service 2>/dev/null | wc -l) unidades de usuario en /usr/lib/systemd/user"
+  echo "  $(ls "$OMARCHY_PATH/default/systemd/user"/*.service 2>/dev/null | wc -l) $(ui_text 'user units' 'unidades de usuario') in /usr/lib/systemd/user"
 fi
 for d in system-sleep zram-generator.conf.d; do
   [ -d "$OMARCHY_PATH/default/systemd/$d" ] && \
@@ -149,7 +151,7 @@ for pf in /etc/pam.d/sddm /etc/pam.d/sddm-autologin /etc/pam.d/sddm-greeter; do
   [ -f "$pf" ] && sudo sed -i '/-auth.*pam_gnome_keyring\.so/d;/-password.*pam_gnome_keyring\.so/d' "$pf"
 done
 
-log "SDDM: tema Omarchy y sesion"
+log "SDDM: Omarchy theme and session" "SDDM: tema Omarchy y sesion"
 sudo mkdir -p /usr/share/sddm/themes /usr/local/share/wayland-sessions
 sudo cp -a "$OMARCHY_PATH/default/sddm/omarchy" /usr/share/sddm/themes/ 2>/dev/null || true
 [ -f "$OMARCHY_PATH/default/sddm/hyprland.lua" ] && sudo cp -a "$OMARCHY_PATH/default/sddm/hyprland.lua" /usr/share/sddm/hyprland.lua
@@ -162,7 +164,7 @@ export OMARCHY_PATH=/usr/share/omarchy
 export PATH="/usr/local/bin:$PATH"
 
 # ------------------------------------------------------------ tema
-log "aplicando el tema Tokyo Night"
+log "applying the Tokyo Night theme" "aplicando el tema Tokyo Night"
 mkdir -p ~/.config/omarchy/themes
 if command -v omarchy-theme-set >/dev/null 2>&1; then
   omarchy-theme-set "Tokyo Night" || warn "omarchy-theme-set falló; enlazando a mano"
@@ -180,7 +182,7 @@ ln -snf ~/.local/state/omarchy/current/theme/btop.theme ~/.config/btop/themes/cu
 ls -l ~/.local/state/omarchy/current/ 2>/dev/null
 
 # ------------------------------------------------------------ VM adjustments
-log "ajustes para máquina virtual"
+log "virtual machine settings" "ajustes para máquina virtual"
 # quattro uses Lua configuration: writing monitors.conf would be useless.
 cat > ~/.config/hypr/monitors.lua <<'LUA'
 -- See https://wiki.hypr.land/Configuring/Basics/Monitors/
@@ -221,7 +223,7 @@ mkdir -p ~/.local/state/omarchy/migrations
 for f in "$OMARCHY_PATH"/migrations/*.sh; do
   [ -f "$f" ] && : > ~/.local/state/omarchy/migrations/"$(basename "$f")"
 done
-echo "  migraciones selladas: $(ls -1 ~/.local/state/omarchy/migrations | wc -l)"
+echo "  $(ui_text 'sealed migrations' 'migraciones selladas'): $(ls -1 ~/.local/state/omarchy/migrations | wc -l)"
 
 # --- branding (about + screensaver) --------------------------------------
 mkdir -p ~/.config/omarchy/branding
@@ -307,14 +309,15 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
     [ -n "$built" ] || built=$(ls "$dir"/*.pkg.tar.* 2>/dev/null | head -1)
     # theme-system.sh already created symlinks inside /usr/share/icons/Yaru because the
     # theme was missing: the real package conflicts with them. --overwrite resolves this.
+    # shellcheck disable=SC2024 # The log is user-owned; only pacman needs sudo.
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
   else
     mkdir -p "$HOME/.omarchy-arm-prov/fallos"
     cp "$dir/build.log" "$HOME/.omarchy-arm-prov/fallos/$pkg.log" 2>/dev/null || true
-    echo "  --- $pkg fallo; ultimas lineas de makepkg ---"
+    echo "  --- $pkg $(ui_text 'failed; last makepkg lines' 'fallo; ultimas lineas de makepkg') ---"
     tail -20 "$dir/build.log" 2>/dev/null | sed 's/^/      /'
-    echo "  --- (log completo en ~/.omarchy-arm-prov/fallos/$pkg.log) ---"
+    echo "  --- ($(ui_text 'full log at' 'log completo en') ~/.omarchy-arm-prov/fallos/$pkg.log) ---"
     return 1
   fi
 }
@@ -329,11 +332,12 @@ if pacman -Si zig >/dev/null 2>&1; then
 fi
 
 if [ "${HACER_TOOLS:-si}" != "si" ]; then
-  warn "compilacion de herramientas desactivada: faltaran ttfx, tensaku, omacalc,"
-  warn "omacut, omawrite, aether, cliamp y omarchy-nvim (se pueden anadir despues"
-  warn "con: yay -S <paquete>)"
+  warn "tool compilation disabled: ttfx will use the static screensaver fallback;" "compilacion de herramientas desactivada: ttfx usara el salvapantallas estatico;"
+  warn "tensaku, omacalc, omacut, omawrite, aether, cliamp, and omarchy-nvim" "faltaran tensaku, omacalc, omacut, omawrite, aether, cliamp y omarchy-nvim"
+  warn "will be missing (they can be added later" "(se pueden anadir despues"
+  warn "with: yay -S <package>)" "con: yay -S <paquete>)"
 else
-log "compilando las herramientas de Omarchy ausentes en aarch64"
+log "building Omarchy tools unavailable on aarch64" "compilando las herramientas de Omarchy ausentes en aarch64"
 TOOLS_OK=(); TOOLS_KO=()
 for spec in \
   "aur:yaru-icon-theme" "aur:ttf-ia-writer" "aur:tzupdate" "aur:ufw-docker" \
@@ -344,7 +348,7 @@ for spec in \
   src=${spec%%:*}; pkg=${spec#*:}
   if build_omarchy_tool "$src" "$pkg"; then TOOLS_OK+=("$pkg"); else TOOLS_KO+=("$pkg"); fi
 done
-echo "  compiladas: ${TOOLS_OK[*]:-ninguna}"
+echo "  $(ui_text 'built' 'compiladas'): ${TOOLS_OK[*]:-$(ui_text 'none' 'ninguna')}"
 [ ${#TOOLS_KO[@]} -gt 0 ] && warn "no compilaron: ${TOOLS_KO[*]}"
 rm -rf /tmp/omabuild
 fi
@@ -366,7 +370,7 @@ sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" >/dev/null 2>&1 || true
 # This wrapper compares what actually matters: uname -r against the directory
 # of modules owned by the kernel package. /usr/local/bin comes before
 # /usr/bin in the PATH, so it replaces the original without touching the tree.
-log "envoltorio de omarchy-update-restart (aviso de kernel en ALARM)"
+log "omarchy-update-restart wrapper (kernel notice on ALARM)" "envoltorio de omarchy-update-restart (aviso de kernel en ALARM)"
 sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-update-restart <<'KRN'
 #!/bin/bash
 # On Arch Linux ARM the kernel does not leave a vmlinuz in /usr/lib/modules/<ver>/, which is
@@ -398,7 +402,7 @@ echo "  /usr/local/bin/omarchy-update-restart"
 
 # --- ttfx: screensaver text effects (Rust, ~12 min) ----------------------
 if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
-  log "compilando ttfx desde fuente (no existe para aarch64)"
+  log "building ttfx from source (unavailable for aarch64)" "compilando ttfx desde fuente (no existe para aarch64)"
   rm -rf /tmp/ttfx-src
   # Rust embeds the source path in panic messages (.rodata), beyond strip's
   # reach. Compiling from $HOME would reveal who built the distributed image.
@@ -412,9 +416,57 @@ if ! command -v ttfx >/dev/null 2>&1 && command -v cargo >/dev/null 2>&1; then
     sudo install -Dm755 /tmp/ttfx-src/target/release/ttfx /usr/local/bin/ttfx
     echo "  ttfx $(ttfx --version 2>/dev/null | head -1)"
   else
-    warn "ttfx no compilo; el salvapantallas mostrara el logo sin efectos"
+    warn "ttfx did not build; the screensaver will show the logo without effects" "ttfx no compilo; el salvapantallas mostrara el logo sin efectos"
   fi
   rm -rf /tmp/ttfx-src /tmp/cargo-ttfx
+fi
+
+# Upstream omarchy-screensaver unconditionally starts ttfx inside an infinite
+# loop. If ttfx is absent, the loop becomes a busy error loop that floods the
+# fullscreen terminal. Lightweight builds intentionally skip the Rust toolchain,
+# so provide a compatible static-logo process. The parent screensaver continues
+# to handle keyboard/mouse exit and kills this process by its ttfx command name.
+if ! command -v ttfx >/dev/null 2>&1; then
+  log "installing the static ttfx screensaver fallback" "instalando la alternativa estatica para ttfx"
+  sudo install -Dm755 /dev/stdin /usr/local/bin/ttfx <<'TTFX_FALLBACK'
+#!/bin/bash
+# OMARCHY_TTFX_FALLBACK=1
+set -uo pipefail
+
+input="$HOME/.config/omarchy/branding/screensaver.txt"
+while (($#)); do
+  case "$1" in
+    -i) input="${2:-$input}"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+
+printf '\033[2J\033[H'
+if [[ -r $input ]]; then
+  logo=()
+  while IFS= read -r line || [[ -n $line ]]; do
+    logo[${#logo[@]}]=$line
+  done < "$input"
+  rows=$(tput lines 2>/dev/null || printf '24')
+  cols=$(tput cols 2>/dev/null || printf '80')
+  top=$(( (rows - ${#logo[@]}) / 2 ))
+  (( top > 0 )) && printf '%*s' "$top" '' | tr ' ' '\n'
+  for line in "${logo[@]}"; do
+    left=$(( (cols - ${#line}) / 2 ))
+    (( left < 0 )) && left=0
+    printf '%*s%s\n' "$left" '' "$line"
+  done
+fi
+
+child=""
+stop() { [[ -n $child ]] && kill "$child" 2>/dev/null || true; exit 0; }
+trap stop INT TERM HUP QUIT
+while :; do
+  sleep 3600 & child=$!
+  wait "$child" || true
+done
+TTFX_FALLBACK
+  echo "  /usr/local/bin/ttfx ($(ui_text 'static fallback' 'alternativa estatica'))"
 fi
 
 # --- keyboard: layout is y and Super usable from macOS -------------------
@@ -456,11 +508,12 @@ mkdir -p ~/Pictures/Screenshots ~/Videos ~/Desktop ~/Documents ~/Downloads
 # builds, but they are proprietary. Including them in a distributed image would
 # redistribute third-party binaries, so the installer is left for manual use.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
-  log "instalador de apps opcionales (omarchy-arm-extras)"
+  log "optional app installer (omarchy-arm-extras)" "instalador de apps opcionales (omarchy-arm-extras)"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-extras" /usr/local/bin/omarchy-arm-extras
-  sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<'DESK'
+  EXTRAS_DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
+  sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
 [Desktop Entry]
-Name=Instalar apps que faltan (ARM)
+Name=$EXTRAS_DESKTOP_NAME
 Comment=1Password, Obsidian, Typora, LocalSend, Google Chrome
 Exec=xdg-terminal-exec omarchy-arm-extras
 Icon=system-software-install
@@ -468,7 +521,7 @@ Terminal=false
 Type=Application
 Categories=System;PackageManager;
 DESK
-  echo "  disponible como comando y en el menu de aplicaciones"
+  echo "  $(ui_text 'available as a command and in the application menu' 'disponible como comando y en el menu de aplicaciones')"
 fi
 
 # --- shared clipboard with the host ---------------------------
@@ -485,15 +538,16 @@ fi
 # virtio port directly leaves the daemon without a channel ("Device or resource
 # busy") and the host ignores everything.
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" ]; then
-  log "agente de portapapeles para Wayland"
+  log "clipboard agent for Wayland" "agente de portapapeles para Wayland"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-vdagent" /usr/local/bin/omarchy-arm-vdagent
   # The official agent must not start: vdagentd disconnects both if it sees
   # two agents in the same session ("multiple agents in one session").
   sudo systemctl --global mask spice-vdagent.service 2>/dev/null || true
   mkdir -p ~/.config/systemd/user
-  cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<'UNIT'
+  VDAGENT_DESCRIPTION=$(ui_text 'Clipboard shared with the host (SPICE over Wayland)' 'Portapapeles compartido con el anfitrion (SPICE sobre Wayland)')
+  cat > ~/.config/systemd/user/omarchy-arm-vdagent.service <<UNIT
 [Unit]
-Description=Portapapeles compartido con el anfitrion (SPICE sobre Wayland)
+Description=$VDAGENT_DESCRIPTION
 After=graphical-session.target
 PartOf=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
@@ -511,17 +565,17 @@ WantedBy=graphical-session.target
 UNIT
   systemctl --user daemon-reload 2>/dev/null || true
   systemctl --user enable omarchy-arm-vdagent.service 2>/dev/null || true
-  echo "  /usr/local/bin/omarchy-arm-vdagent + servicio de usuario"
+  echo "  /usr/local/bin/omarchy-arm-vdagent + $(ui_text 'user service' 'servicio de usuario')"
 fi
 # Shared folder bridge, as an alternative if the SPICE channel is not
 # available (for example with Apple's virtualization backend).
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-clipboard" /usr/local/bin/omarchy-arm-clipboard
-  echo "  /usr/local/bin/omarchy-arm-clipboard (alternativa por carpeta compartida)"
+  echo "  /usr/local/bin/omarchy-arm-clipboard ($(ui_text 'shared-folder fallback' 'alternativa por carpeta compartida'))"
 fi
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-share" /usr/local/bin/omarchy-arm-share
-  echo "  /usr/local/bin/omarchy-arm-share (monta la carpeta, sea VirtFS o WebDAV)"
+  echo "  /usr/local/bin/omarchy-arm-share ($(ui_text 'mounts either a VirtFS or WebDAV share' 'monta la carpeta, sea VirtFS o WebDAV'))"
 
   # OBS Studio and Pinta are free software: they can be included in the image, and
   # that is how they are distributed. They are installed with the same installer to avoid
@@ -529,16 +583,16 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   # x86-only; Pinta needs Microsoft's .NET arm64, which Arch does not package).
   # This is the most expensive part of the build: ~45 min. HACER_LIBRES=no skips it.
   if [ "${HACER_LIBRES:-si}" = "si" ]; then
-    log "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
+    log "OBS Studio and Pinta (free software included in the image; ~45 min)" "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
-      echo "  pinta: $(pacman -Q pinta 2>/dev/null || echo FALTA)"
-      echo "  obs:   $(pacman -Q obs-studio 2>/dev/null || echo FALTA)"
+      echo "  pinta: $(pacman -Q pinta 2>/dev/null || ui_text MISSING FALTA)"
+      echo "  obs:   $(pacman -Q obs-studio 2>/dev/null || ui_text MISSING FALTA)"
     else
-      warn "OBS o Pinta no se instalaron; se pueden anadir despues con:"
+      warn "OBS or Pinta was not installed; they can be added later with:" "OBS o Pinta no se instalaron; se pueden anadir despues con:"
       warn "  omarchy-arm-extras pinta obs"
     fi
   else
-    echo "  OBS y Pinta omitidos (HACER_LIBRES=no)"
+    echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (HACER_LIBRES=no)"
   fi
 fi
 
@@ -549,7 +603,7 @@ fi
 #    OMARCHY_PATH points OUTSIDE of /usr/share/omarchy, and here it points exactly there.
 #    Without the hook, the system receives packages but the Omarchy tree (scripts,
 #    themes, configuration) remains frozen at the cloned version.
-log "actualizaciones: snapper + hook post-update"
+log "updates: snapper + post-update hook" "actualizaciones: snapper + hook post-update"
 sudo pacman -S --noconfirm --needed --disable-download-timeout snapper >/dev/null 2>&1 || warn "snapper no disponible"
 if command -v snapper >/dev/null 2>&1; then
   sudo bash -euo pipefail "$OMARCHY_PATH/install/config/snapper.sh" >/dev/null 2>&1 \
@@ -558,7 +612,7 @@ if command -v snapper >/dev/null 2>&1; then
 fi
 if [ -f "$HOME/.omarchy-arm-prov/10-arm-sync" ]; then
   install -Dm755 "$HOME/.omarchy-arm-prov/10-arm-sync" ~/.config/omarchy/hooks/post-update.d/10-arm-sync
-  echo "  hook post-update instalado"
+  echo "  $(ui_text 'post-update hook installed' 'hook post-update instalado')"
 fi
 
 log "git"
@@ -567,12 +621,12 @@ git config --global user.email "$VM_EMAIL"
 git config --global init.defaultBranch master
 
 # ------------------------------------------------------------ resumen
-log "resumen"
-echo "  omarchy:   $(ls -d "$OMARCHY_PATH" 2>/dev/null || echo FALTA)"
-echo "  ~/.config: $(ls ~/.config | wc -l) entradas"
-echo "  tema:      $(readlink -f ~/.config/omarchy/current/theme 2>/dev/null || echo 'sin enlazar')"
+log "summary" "resumen"
+echo "  omarchy:   $(ls -d "$OMARCHY_PATH" 2>/dev/null || ui_text MISSING FALTA)"
+echo "  ~/.config: $(ls ~/.config | wc -l) $(ui_text 'entries' 'entradas')"
+echo "  $(ui_text 'theme' 'tema'):      $(readlink -f ~/.config/omarchy/current/theme 2>/dev/null || ui_text 'not linked' 'sin enlazar')"
 echo "  hyprland:  $(command -v Hyprland || command -v hyprland || echo 'NO')"
 echo "  omarchy-shell: $(command -v omarchy-shell || echo 'NO')"
 echo "  terminal:  $(command -v xdg-terminal-exec || echo 'NO')"
 echo ""
-echo "==> [stage3] COMPLETADO"
+echo "==> [stage3] $(ui_text 'COMPLETED' 'COMPLETADO')"

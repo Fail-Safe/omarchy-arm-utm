@@ -12,6 +12,18 @@
 # it mounts; with --umount it unmounts; with --status it shows the current state.
 #
 set -uo pipefail
+[ -r /etc/omarchy-arm.conf ] && . /etc/omarchy-arm.conf
+: "${OMARCHY_LANG:=en}"
+ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
+usage() {
+  if [[ $OMARCHY_LANG == es ]]; then
+    printf '%s\n' 'Uso: omarchy-arm-share [--status|--umount]' \
+      'Monta la carpeta compartida de UTM mediante VirtFS o SPICE WebDAV.'
+  else
+    printf '%s\n' 'Usage: omarchy-arm-share [--status|--umount]' \
+      'Mounts the UTM shared folder through VirtFS or SPICE WebDAV.'
+  fi
+}
 PUNTO="${OMARCHY_SHARE_MNT:-/mnt/share}"
 TAG=share
 PUERTO_WEBDAV=/dev/virtio-ports/org.spice-space.webdav.0
@@ -22,23 +34,23 @@ hay_webdav() { [ -e "$PUERTO_WEBDAV" ]; }
 montado()    { mountpoint -q "$PUNTO"; }
 
 estado() {
-  echo "  punto de montaje: $PUNTO"
-  echo "  montado:          $(montado && echo sí || echo no)"
-  echo "  modo VirtFS (9p): $(hay_9p && echo disponible || echo no)"
-  echo "  modo SPICE WebDAV:$(hay_webdav && echo ' disponible' || echo ' no')"
+  echo "  $(ui_text 'mount point' 'punto de montaje'): $PUNTO"
+  echo "  $(ui_text 'mounted' 'montado'):          $(montado && ui_text yes sí || ui_text no no)"
+  echo "  $(ui_text 'VirtFS (9p) mode' 'modo VirtFS (9p)'): $(hay_9p && ui_text available disponible || ui_text no no)"
+  echo "  $(ui_text 'SPICE WebDAV mode' 'modo SPICE WebDAV'):$(hay_webdav && ui_text ' available' ' disponible' || ui_text ' no' ' no')"
   if hay_webdav; then
     echo "  spice-webdavd:    $(systemctl is-active spice-webdavd 2>&1)"
   fi
-  montado && { echo "  contenido:"; ls -la "$PUNTO" 2>/dev/null | head -6 | sed 's/^/    /'; }
+  montado && { echo "  $(ui_text 'contents' 'contenido'):"; ls -la "$PUNTO" 2>/dev/null | head -6 | sed 's/^/    /'; }
 }
 
 montar() {
-  montado && { echo "ya está montado en $PUNTO"; return 0; }
+  montado && { echo "$(ui_text "already mounted at $PUNTO" "ya está montado en $PUNTO")"; return 0; }
   sudo mkdir -p "$PUNTO"
 
   # 1) VirtFS: the simplest option, if the device is
   if sudo mount -t 9p -o trans=virtio,version=9p2000.L,rw,msize=512000 "$TAG" "$PUNTO" 2>/dev/null; then
-    echo "montado por VirtFS (9p) en $PUNTO"; return 0
+    echo "$(ui_text "mounted through VirtFS (9p) at $PUNTO" "montado por VirtFS (9p) en $PUNTO")"; return 0
   fi
 
   # 2) SPICE WebDAV
@@ -49,28 +61,28 @@ montar() {
       sleep 1
     done
     if ! curl -s -m 3 -o /dev/null "$URL"; then
-      echo "spice-webdavd no responde en $URL" >&2
+      echo "$(ui_text "spice-webdavd is not responding at $URL" "spice-webdavd no responde en $URL")" >&2
       echo "  systemctl status spice-webdavd" >&2
       return 1
     fi
     # davfs2 prompts for username and password: not needed here
-    if printf '\n\n' | sudo mount -t davfs -o rw,uid=$(id -u),gid=$(id -g) "$URL" "$PUNTO" 2>/dev/null; then
-      echo "montado por SPICE WebDAV en $PUNTO"; return 0
+    if printf '\n\n' | sudo mount -t davfs -o "rw,uid=$(id -u),gid=$(id -g)" "$URL" "$PUNTO" 2>/dev/null; then
+      echo "$(ui_text "mounted through SPICE WebDAV at $PUNTO" "montado por SPICE WebDAV en $PUNTO")"; return 0
     fi
-    echo "davfs2 no pudo montar $URL" >&2
+    echo "$(ui_text "davfs2 could not mount $URL" "davfs2 no pudo montar $URL")" >&2
     return 1
   fi
 
-  echo "no encuentro ninguna carpeta compartida." >&2
-  echo "En UTM: Ajustes de la VM → Compartir → elige una ruta (VirtFS o SPICE WebDAV)," >&2
-  echo "y apaga y enciende la VM." >&2
+  echo "$(ui_text 'no shared folder was found.' 'no encuentro ninguna carpeta compartida.')" >&2
+  echo "$(ui_text 'In UTM: VM Settings → Sharing → choose a path (VirtFS or SPICE WebDAV),' 'En UTM: Ajustes de la VM → Compartir → elige una ruta (VirtFS o SPICE WebDAV),')" >&2
+  echo "$(ui_text 'then power the VM off and on.' 'y apaga y enciende la VM.')" >&2
   return 1
 }
 
 case "${1:-}" in
-  --umount|-u) sudo umount "$PUNTO" && echo "desmontado" ;;
+  --umount|-u) sudo umount "$PUNTO" && ui_text unmounted desmontado; echo ;;
   --status|-s) estado ;;
-  -h|--help)   sed -n '3,14p' "$0" | sed 's/^#\{0,2\} \{0,1\}//' ;;
+  -h|--help)   usage ;;
   "")          montar ;;
-  *)           echo "opción desconocida: $1" >&2; exit 1 ;;
+  *)           echo "$(ui_text "unknown option: $1" "opción desconocida: $1")" >&2; exit 1 ;;
 esac

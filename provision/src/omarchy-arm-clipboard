@@ -22,18 +22,42 @@
 #    omarchy-arm-clipboard --host      prints the script for the Mac
 #
 set -uo pipefail
+[ -r /etc/omarchy-arm.conf ] && . /etc/omarchy-arm.conf
+: "${OMARCHY_LANG:=en}"
+ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
 
 SHARE="${OMARCHY_CLIPBOARD_DIR:-/mnt/share}"
 FILE="$SHARE/.clipboard"
 INTERVALO="${OMARCHY_CLIPBOARD_INTERVAL:-1}"
 
-uso() { sed -n '3,26p' "$0" | sed 's/^#\{0,2\} \{0,1\}//'; }
+uso() {
+  if [[ $OMARCHY_LANG == es ]]; then
+    cat <<'EOF'
+Portapapeles compartido con el Mac mediante la carpeta compartida de UTM.
+
+Uso:
+  omarchy-arm-clipboard             vigilar cambios
+  omarchy-arm-clipboard --install   instalar e iniciar el servicio
+  omarchy-arm-clipboard --host      imprimir el script para el Mac
+EOF
+  else
+    cat <<'EOF'
+Clipboard sharing with the Mac through UTM's shared folder.
+
+Usage:
+  omarchy-arm-clipboard             monitor changes
+  omarchy-arm-clipboard --install   install and start the service
+  omarchy-arm-clipboard --host      print the companion Mac script
+EOF
+  fi
+}
 
 instalar() {
   mkdir -p ~/.config/systemd/user
-  cat > ~/.config/systemd/user/omarchy-arm-clipboard.service <<'UNIT'
+  local description; description=$(ui_text 'Clipboard shared with the host (through UTM shared folder)' 'Portapapeles compartido con el anfitrion (via carpeta compartida de UTM)')
+  cat > ~/.config/systemd/user/omarchy-arm-clipboard.service <<UNIT
 [Unit]
-Description=Portapapeles compartido con el anfitrion (via carpeta compartida de UTM)
+Description=$description
 After=graphical-session.target
 PartOf=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
@@ -48,16 +72,17 @@ RestartSec=5
 WantedBy=graphical-session.target
 UNIT
   systemctl --user daemon-reload
-  systemctl --user enable --now omarchy-arm-clipboard.service && echo "servicio activo"
+  systemctl --user enable --now omarchy-arm-clipboard.service && ui_text 'service active' 'servicio activo'; echo
   systemctl --user --no-pager status omarchy-arm-clipboard.service | head -5
 }
 
 script_anfitrion() {
-  cat <<'MACEOF'
+  if [[ $OMARCHY_LANG == es ]]; then
+    cat <<'MACEOF'
 #!/bin/bash
-# Run ON THE MAC. Synchronizes the clipboard with the VM through the
-# folder you have shared in the VM settings in UTM.
-#   ./clipboard-mac.sh ~/path/to/shared/folder
+# Ejecuta EN EL MAC. Sincroniza el portapapeles con la VM mediante la
+# carpeta compartida configurada en UTM.
+#   ./clipboard-mac.sh ~/ruta/a/la/carpeta/compartida
 set -uo pipefail
 DIR="${1:?uso: $0 <carpeta compartida con la VM>}"
 F="$DIR/.clipboard"
@@ -75,16 +100,40 @@ while :; do
   sleep 1
 done
 MACEOF
+  else
+    cat <<'MACEOF'
+#!/bin/bash
+# Run ON THE MAC. Synchronizes the clipboard with the VM through the
+# folder you have shared in the VM settings in UTM.
+#   ./clipboard-mac.sh ~/path/to/shared/folder
+set -uo pipefail
+DIR="${1:?usage: $0 <folder shared with the VM>}"
+F="$DIR/.clipboard"
+mkdir -p "$DIR"; touch "$F"
+last_local=""; last_remote="$(cat "$F" 2>/dev/null || true)"
+while :; do
+  current="$(pbpaste 2>/dev/null || true)"
+  if [ "$current" != "$last_local" ] && [ -n "$current" ]; then
+    printf '%s' "$current" > "$F"; last_local="$current"; last_remote="$current"
+  fi
+  remote="$(cat "$F" 2>/dev/null || true)"
+  if [ "$remote" != "$last_remote" ] && [ -n "$remote" ]; then
+    printf '%s' "$remote" | pbcopy; last_remote="$remote"; last_local="$remote"
+  fi
+  sleep 1
+done
+MACEOF
+  fi
 }
 
 vigilar() {
-  command -v wl-paste >/dev/null || { echo "falta wl-clipboard" >&2; exit 1; }
+  command -v wl-paste >/dev/null || { echo "$(ui_text 'wl-clipboard is missing' 'falta wl-clipboard')" >&2; exit 1; }
   if [ ! -d "$SHARE" ]; then
-    echo "no hay carpeta compartida en $SHARE." >&2
-    echo "En UTM: Ajustes de la VM -> Compartir -> elige una carpeta, y reinicia." >&2
+    echo "$(ui_text "there is no shared folder at $SHARE." "no hay carpeta compartida en $SHARE.")" >&2
+    echo "$(ui_text 'In UTM: VM Settings -> Sharing -> choose a folder, then restart.' 'En UTM: Ajustes de la VM -> Compartir -> elige una carpeta, y reinicia.')" >&2
     exit 1
   fi
-  touch "$FILE" 2>/dev/null || { echo "no puedo escribir en $FILE" >&2; exit 1; }
+  touch "$FILE" 2>/dev/null || { echo "$(ui_text "cannot write to $FILE" "no puedo escribir en $FILE")" >&2; exit 1; }
   local ultimo_local ultimo_remoto actual remoto
   ultimo_local="$(wl-paste --no-newline 2>/dev/null || true)"
   ultimo_remoto="$(cat "$FILE" 2>/dev/null || true)"
@@ -110,5 +159,5 @@ case "${1:-}" in
   --host)    script_anfitrion ;;
   -h|--help) uso ;;
   "")        vigilar ;;
-  *)         echo "opcion desconocida: $1" >&2; uso >&2; exit 1 ;;
+  *)         echo "$(ui_text "unknown option: $1" "opcion desconocida: $1")" >&2; uso >&2; exit 1 ;;
 esac

@@ -7,7 +7,8 @@
 #
 # Executed as ROOT inside the chroot (without sudo).
 set -uo pipefail
-USR=gabriel
+[ -f /root/prov/config.env ] && . /root/prov/config.env
+USR="${VM_USER:-builder}"
 OM=/home/$USR/.local/share/omarchy
 log() { echo ""; echo "==> $*"; }
 

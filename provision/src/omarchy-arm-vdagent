@@ -30,6 +30,20 @@ HOW THE SPICE CLIPBOARD WORKS, AND WHY THIS EXISTS
 import os, sys, socket, struct, subprocess, threading, time, signal
 
 SOCK = os.environ.get("VDAGENTD_SOCK", "/run/spice-vdagentd/spice-vdagent-sock")
+LANGUAGE = os.environ.get("OMARCHY_LANG", "")
+if not LANGUAGE:
+    try:
+        with open("/etc/omarchy-arm.conf", encoding="utf-8") as config:
+            for line in config:
+                if line.startswith("OMARCHY_LANG="):
+                    LANGUAGE = line.split("=", 1)[1].strip().strip("'\"")
+                    break
+    except OSError:
+        pass
+LANGUAGE = "es" if LANGUAGE == "es" else "en"
+
+def ui_text(english, spanish):
+    return spanish if LANGUAGE == "es" else english
 
 # vdagentd-proto.h
 GUEST_XORG_RESOLUTION = 0
@@ -77,7 +91,7 @@ class Agente:
                 tipo, a1, a2, size = struct.unpack("<IIII", self._leer(16))
                 datos = self._leer(size) if size else b""
             except (EOFError, OSError) as e:
-                log("socket cerrado:", e); return
+                log(ui_text("socket closed:", "socket cerrado:"), e); return
             log("←", tipo, a1, a2, size)
 
             if tipo == CLIPBOARD_GRAB:
@@ -94,7 +108,7 @@ class Agente:
                     texto = datos.decode("utf-8", "replace")
                     escribir_portapapeles(texto)
                     self.ultimo_local = texto
-                    log("  recibido del anfitrion:", len(texto), "bytes")
+                    log(ui_text("  received from host:", "  recibido del anfitrion:"), len(texto), "bytes")
 
             elif tipo == VERSION:
                 log("  vdagentd version:", datos.decode("utf8", "replace").strip())
@@ -114,7 +128,7 @@ def escribir_portapapeles(texto):
         subprocess.run(["wl-copy", "--type", "text/plain;charset=utf-8"],
                        input=texto.encode("utf-8"), timeout=5)
     except Exception as e:
-        log("wl-copy fallo:", e)
+        log(ui_text("wl-copy failed:", "wl-copy fallo:"), e)
 
 
 def resolucion():
@@ -146,10 +160,11 @@ def main():
     for c in ("wl-paste", "wl-copy"):
         if subprocess.run(["sh", "-c", f"command -v {c}"],
                           capture_output=True).returncode != 0:
-            print(f"falta {c} (paquete wl-clipboard)", file=sys.stderr); return 1
+            print(ui_text(f"missing {c} (wl-clipboard package)", f"falta {c} (paquete wl-clipboard)"), file=sys.stderr); return 1
     if not os.path.exists(SOCK):
-        print(f"no existe {SOCK}.", file=sys.stderr)
-        print("Arranca el demonio:  sudo systemctl start spice-vdagentd",
+        print(ui_text(f"{SOCK} does not exist.", f"no existe {SOCK}."), file=sys.stderr)
+        print(ui_text("Start the daemon:  sudo systemctl start spice-vdagentd",
+                      "Arranca el demonio:  sudo systemctl start spice-vdagentd"),
               file=sys.stderr)
         return 1
 

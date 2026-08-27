@@ -5,15 +5,25 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 WRITE=0
 CACHE=""
+: "${OMARCHY_LANG:=$(bash "$ROOT/build-omarchy-arm.sh" --print-language)}"
+ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
 
 usage() {
-  cat <<'EOF'
+  if [[ $OMARCHY_LANG == es ]]; then cat <<'EOF'
+Uso: scripts/update-base-image-pins.sh [--write] [--cache DIR]
+
+Descarga y verifica la ISO actual de Alpine y el rootfs de Arch Linux ARM.
+Sin --write solo muestra los hashes propuestos. --cache reutiliza descargas
+verificadas en DIR; hacen falta unos 1,7 GB para las dos copias independientes.
+EOF
+  else cat <<'EOF'
 Usage: scripts/update-base-image-pins.sh [--write] [--cache DIR]
 
 Downloads and verifies the current Alpine ISO and Arch Linux ARM rootfs.
 Without --write it only prints the proposed pins. --cache reuses verified
 downloads in DIR; expect roughly 1.7 GB for the two independent rootfs copies.
 EOF
+  fi
 }
 
 while (($#)); do
@@ -21,12 +31,12 @@ while (($#)); do
     --write) WRITE=1; shift ;;
     --cache) CACHE="${2:-}"; [[ -n $CACHE ]] || { usage >&2; exit 2; }; shift 2 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) echo "$(ui_text "unknown option: $1" "opcion desconocida: $1")" >&2; usage >&2; exit 2 ;;
   esac
 done
 
 for command_name in curl gpg shasum cmp python3; do
-  command -v "$command_name" >/dev/null || { echo "missing command: $command_name" >&2; exit 1; }
+  command -v "$command_name" >/dev/null || { echo "$(ui_text "missing command: $command_name" "falta el comando: $command_name")" >&2; exit 1; }
 done
 
 if [[ -n $CACHE ]]; then
@@ -66,16 +76,16 @@ require_sha256() {
   local file="$1" expected="$2" got
   got=$(sha256_file "$file")
   [[ $got == "$expected" ]] || {
-    echo "sha256 mismatch for $file: expected $expected, got $got" >&2
+    echo "$(ui_text "SHA-256 mismatch for $file: expected $expected, got $got" "SHA-256 incorrecto para $file: se esperaba $expected, se obtuvo $got")" >&2
     exit 1
   }
 }
 
-echo "==> Arch Linux ARM: two official HTTPS mirrors"
+echo "==> $(ui_text 'Arch Linux ARM: two official HTTPS mirrors' 'Arch Linux ARM: dos mirrors HTTPS oficiales')"
 download "$ALARM_PRIMARY" "$WORK/$ALARM_NAME"
 download "$ALARM_SECONDARY" "$WORK/$ALARM_SECONDARY_NAME"
 cmp "$WORK/$ALARM_NAME" "$WORK/$ALARM_SECONDARY_NAME" \
-  || { echo "official mirrors returned different rootfs bytes" >&2; exit 1; }
+  || { echo "$(ui_text 'official mirrors returned different rootfs bytes' 'los mirrors oficiales devolvieron rootfs diferentes')" >&2; exit 1; }
 download "$ALARM_PRIMARY.sig" "$WORK/$ALARM_NAME.sig"
 download "$KEY_URL" "$WORK/archlinuxarm-builder.asc"
 require_sha256 "$WORK/archlinuxarm-builder.asc" "$KEY_SHA256"
@@ -86,19 +96,19 @@ mkdir -p "$GNUPGHOME"
 chmod 700 "$GNUPGHOME"
 gpg --batch --quiet --import "$WORK/archlinuxarm-builder.asc"
 status=$(gpg --batch --status-fd 1 --verify "$WORK/$ALARM_NAME.sig" "$WORK/$ALARM_NAME" 2>/dev/null) \
-  || { echo "Arch Linux ARM signature verification failed" >&2; exit 1; }
+  || { echo "$(ui_text 'Arch Linux ARM signature verification failed' 'fallo la verificacion de la firma de Arch Linux ARM')" >&2; exit 1; }
 printf '%s\n' "$status" | grep -F "VALIDSIG $ALARM_SIGNER " >/dev/null \
-  || { echo "unexpected Arch Linux ARM signing fingerprint" >&2; exit 1; }
+  || { echo "$(ui_text 'unexpected Arch Linux ARM signing fingerprint' 'huella de firma inesperada para Arch Linux ARM')" >&2; exit 1; }
 alarm_sha=$(sha256_file "$WORK/$ALARM_NAME")
 
-echo "==> Alpine: HTTPS checksum"
+echo "==> $(ui_text 'Alpine: HTTPS checksum' 'Alpine: checksum por HTTPS')"
 index=$(curl -fsSL --max-time 30 "$ALPINE_BASE/")
 alpine_name=$(printf '%s' "$index" \
   | grep -oE 'alpine-virt-[0-9.]+-aarch64\.iso' | sort -V | tail -1 || true)
-[[ -n $alpine_name ]] || { echo "could not resolve current Alpine virt ISO" >&2; exit 1; }
+[[ -n $alpine_name ]] || { echo "$(ui_text 'could not resolve the current Alpine virt ISO' 'no se pudo determinar la ISO virt actual de Alpine')" >&2; exit 1; }
 alpine_sha=$(curl -fsSL --max-time 30 "$ALPINE_BASE/$alpine_name.sha256" | awk '{print $1}')
 [[ $alpine_sha =~ ^[0-9a-fA-F]{64}$ ]] \
-  || { echo "Alpine did not publish a valid SHA-256" >&2; exit 1; }
+  || { echo "$(ui_text 'Alpine did not publish a valid SHA-256' 'Alpine no publico un SHA-256 valido')" >&2; exit 1; }
 download "$ALPINE_BASE/$alpine_name" "$WORK/$alpine_name"
 require_sha256 "$WORK/$alpine_name" "$alpine_sha"
 
@@ -107,15 +117,15 @@ printf '%s  %s\n%s  %s\n' \
   "$alpine_sha" "$alpine_name" "$alarm_sha" "$ALARM_NAME" > "$manifest"
 
 echo
-echo "Verified pins:"
+echo "$(ui_text 'Verified pins:' 'Hashes verificados:')"
 sed 's/^/  /' "$manifest"
 
 if [[ $WRITE -eq 1 ]]; then
-  python3 - "$ROOT/build-omarchy-arm.sh" "$alpine_name" "$alpine_sha" "$alarm_sha" <<'PY'
+  python3 - "$ROOT/build-omarchy-arm.sh" "$alpine_name" "$alpine_sha" "$alarm_sha" "$OMARCHY_LANG" <<'PY'
 import pathlib, sys
 
 path = pathlib.Path(sys.argv[1])
-alpine_name, alpine_sha, alarm_sha = sys.argv[2:]
+alpine_name, alpine_sha, alarm_sha, language = sys.argv[2:]
 replacements = {
     ': "${ALPINE_ISO:=': f': "${{ALPINE_ISO:={alpine_name}}}"',
     ': "${ALPINE_SHA256:=': f': "${{ALPINE_SHA256:={alpine_sha}}}"',
@@ -130,12 +140,14 @@ for index, line in enumerate(lines):
             seen[prefix] += 1
 for prefix, count in seen.items():
     if count != 1:
-        raise SystemExit(f"expected one builder assignment starting with {prefix!r}, found {count}")
+        if language == "es":
+            raise SystemExit(f"se esperaba una asignacion del builder que empezara por {prefix!r}; se encontraron {count}")
+        raise SystemExit(f"expected one builder assignment starting with {prefix!r}; found {count}")
 path.write_text("\n".join(lines) + "\n")
 PY
   cp "$manifest" "$ROOT/checksums/base-images.sha256.new"
   mv "$ROOT/checksums/base-images.sha256.new" "$ROOT/checksums/base-images.sha256"
-  echo "Updated build-omarchy-arm.sh and checksums/base-images.sha256"
+  echo "$(ui_text 'Updated build-omarchy-arm.sh and checksums/base-images.sha256' 'Actualizados build-omarchy-arm.sh y checksums/base-images.sha256')"
 else
-  echo "Dry run only; pass --write after reviewing these pins."
+  echo "$(ui_text 'Dry run only; pass --write after reviewing these pins.' 'Solo simulacion; usa --write despues de revisar estos hashes.')"
 fi
