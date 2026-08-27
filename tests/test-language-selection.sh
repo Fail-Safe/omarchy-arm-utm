@@ -83,6 +83,34 @@ for helper in omarchy-arm-extras omarchy-arm-clipboard omarchy-arm-share; do
   grep -q '^Uso:' "$TMP/$helper-es"
 done
 
+cat > "$TMP/bin/git" <<'MOCK'
+#!/usr/bin/env bash
+case "$*" in
+  *'rev-parse --is-inside-work-tree'*) exit 0 ;;
+  *'rev-parse --short HEAD'*) printf '%s\n' 83881e9 ;;
+  *'pull --ff-only'*) printf '%s\n' 'Already up to date.' ;;
+esac
+MOCK
+cat > "$TMP/bin/sudo" <<'MOCK'
+#!/usr/bin/env bash
+exec "$@"
+MOCK
+chmod +x "$TMP/bin/git" "$TMP/bin/sudo"
+
+for hook in provision/src/hooks/10-arm-sync provision/repair-iso/armsync.sh; do
+  OMARCHY_LANG=en PATH="$TMP/bin:$PATH" bash "$ROOT/$hook" > "$TMP/hook-en.out"
+  grep -q 'Update the Omarchy tree (Git checkout)' "$TMP/hook-en.out"
+  grep -q 'already up to date (83881e9)' "$TMP/hook-en.out"
+  if grep -Eq 'Actualizar|ya estaba|binarios|árbol' "$TMP/hook-en.out"; then
+    echo "$hook emitted Spanish text in English mode" >&2
+    exit 1
+  fi
+
+  OMARCHY_LANG=es PATH="$TMP/bin:$PATH" bash "$ROOT/$hook" > "$TMP/hook-es.out"
+  grep -q 'Actualizar el árbol de Omarchy (checkout git)' "$TMP/hook-es.out"
+  grep -q 'ya estaba al día (83881e9)' "$TMP/hook-es.out"
+done
+
 OMARCHY_LANG=en bash "$ROOT/scripts/update-base-image-pins.sh" --help > "$TMP/pins-en"
 OMARCHY_LANG=es bash "$ROOT/scripts/update-base-image-pins.sh" --help > "$TMP/pins-es"
 grep -q '^Usage:' "$TMP/pins-en"

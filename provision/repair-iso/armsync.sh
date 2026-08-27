@@ -9,20 +9,25 @@
 # would remain frozen at the cloned version.
 set -uo pipefail
 TREE=/usr/share/omarchy
+# Generated guest configuration.
+# shellcheck disable=SC1091
+[ -r /etc/omarchy-arm.conf ] && . /etc/omarchy-arm.conf
+: "${OMARCHY_LANG:=en}"
+ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
 
 git -C "$TREE" rev-parse --is-inside-work-tree >/dev/null 2>&1 || exit 0
 
 # The tree can belong to the user (development VM) or to root (distributed image)
 if [ -w "$TREE/.git" ]; then GIT=(git -C "$TREE"); else GIT=(sudo git -C "$TREE"); fi
 
-echo -e "\e[32m\nActualizar el árbol de Omarchy (checkout git)\e[0m"
+printf '\033[32m\n%s\033[0m\n' "$(ui_text 'Update the Omarchy tree (Git checkout)' 'Actualizar el árbol de Omarchy (checkout git)')"
 before=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
 if ! "${GIT[@]}" pull --ff-only 2>&1 | sed 's/^/  /'; then
-  echo "  no se pudo hacer fast-forward; el árbol queda como estaba"
+  echo "  $(ui_text 'fast-forward failed; the tree was left unchanged' 'no se pudo hacer fast-forward; el árbol queda como estaba')"
   exit 0
 fi
 after=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
-if [ "$before" = "$after" ]; then echo "  ya estaba al día ($after)"; exit 0; fi
+if [ "$before" = "$after" ]; then echo "  $(ui_text 'already up to date' 'ya estaba al día') ($after)"; exit 0; fi
 echo "  $before → $after"
 
 # Link the new binaries, respecting ARM-specific wrappers
@@ -35,6 +40,6 @@ for f in "$TREE"/bin/*; do
   [ -L "$t" ] && continue
   sudo ln -sfn "$f" "$t" 2>/dev/null && n=$((n+1))
 done
-[ "$n" -gt 0 ] && echo "  $n binarios nuevos enlazados en /usr/local/bin"
+[ "$n" -gt 0 ] && echo "  $(ui_text "$n new binaries linked in /usr/local/bin" "$n binarios nuevos enlazados en /usr/local/bin")"
 sudo find /usr/local/bin -xtype l -delete 2>/dev/null || true
 exit 0
