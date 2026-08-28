@@ -31,6 +31,7 @@ if sys.argv[1:] not in ([], ["--check"]):
 MAPA={
  "__PAYLOAD_CORE_GIT_SOURCES_TSV__":"checksums/core-git-sources.tsv",
  "__PAYLOAD_FREE_APP_ARTIFACTS_TSV__":"checksums/free-app-artifacts.tsv",
+ "__PAYLOAD_ALARM_REPOSITORY_SNAPSHOT_PY__":"provision/src/alarm-repository-snapshot.py",
  "__PAYLOAD_PROVISION_STAGE1_SH__":"provision/src/stage1.sh",
  "__PAYLOAD_PROVISION_STAGE2_SH__":"provision/src/stage2.sh",
  "__PAYLOAD_PROVISION_STAGE3_SH__":"provision/src/stage3.sh",

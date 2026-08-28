@@ -25,7 +25,7 @@
 # Phases:
 #    deps      check host dependencies
 #    fetch     download Alpine ISO + ALARM rootfs (pinned SHA-256 hashes)
-#    prepare   calculate the package list from the live Omarchy branch
+#    prepare   capture repository databases and calculate the pinned package list
 #    build     build the disk (headless, QEMU + HVF, three stages in chroot)
 #    utm       create the .utm bundle and register it in UTM
 #    verify    boot and verify via serial console
@@ -423,29 +423,107 @@ core_source_record() {
   awk -v key="$1" '$1 == key { print; exit }' "$2"
 }
 
+# ───────────────────── Arch Linux ARM repository snapshot ──────────────────
+ALARM_REPOSITORIES=(core extra alarm aur)
+
+capture_alarm_mirror() {
+  local mirror="$1" destination="$2" marker_before marker_after repository timeout
+  mkdir -p "$destination"
+  marker_before=$(curl -fsSL --max-time 30 "$mirror/aarch64/sync") || return 1
+  [[ $marker_before =~ ^[0-9]+$ ]] || return 1
+  for repository in "${ALARM_REPOSITORIES[@]}"; do
+    timeout=120
+    [[ $repository == extra ]] && timeout=240
+    curl -fsSL --max-time "$timeout" \
+      "$mirror/aarch64/$repository/$repository.db" \
+      -o "$destination/$repository.db" || return 1
+  done
+  marker_after=$(curl -fsSL --max-time 30 "$mirror/aarch64/sync") || return 1
+  [[ $marker_after == "$marker_before" ]] || return 1
+  printf '%s\n' "$marker_after"
+}
+
+validate_alarm_repository_snapshot() {
+  local directory="$W/provision/alarm-repositories"
+  [[ -x $W/provision/alarm-repository-snapshot.py ]] \
+    || die "the repository snapshot validator is missing; run prepare" "falta el validador de la captura de repositorios; ejecuta prepare"
+  [[ -d $directory && -s $directory/manifest.tsv ]] \
+    || die "the Arch Linux ARM repository snapshot is missing; run prepare" "falta la captura de repositorios de Arch Linux ARM; ejecuta prepare"
+  python3 "$W/provision/alarm-repository-snapshot.py" validate \
+    "$directory" "$directory/manifest.tsv" \
+    || die "the Arch Linux ARM repository snapshot is invalid; run prepare" "la captura de repositorios de Arch Linux ARM no es valida; ejecuta prepare"
+}
+
+capture_alarm_repository_snapshot() {
+  validate_fetch_url "$ALARM_MIRROR_PRIMARY" "$(ui_text 'primary Arch Linux ARM mirror' 'mirror primario de Arch Linux ARM')"
+  validate_fetch_url "$ALARM_MIRROR_SECONDARY" "$(ui_text 'secondary Arch Linux ARM mirror' 'mirror secundario de Arch Linux ARM')"
+  [[ $ALARM_MIRROR_PRIMARY != "$ALARM_MIRROR_SECONDARY" ]] \
+    || die "two distinct Arch Linux ARM mirrors are required" "se necesitan dos mirrors distintos de Arch Linux ARM"
+
+  local temporary primary secondary candidate final previous
+  local primary_marker secondary_marker repository captured_at snapshot
+  temporary=$(mktemp -d "$W/provision/.alarm-repository-snapshot.XXXXXX")
+  primary="$temporary/primary"
+  secondary="$temporary/secondary"
+  candidate="$temporary/candidate"
+  final="$W/provision/alarm-repositories"
+  previous="$W/provision/.alarm-repositories.previous.$$"
+
+  info "capturing all four repository databases from two official HTTPS mirrors..." \
+       "capturando las cuatro bases de repositorios desde dos mirrors HTTPS oficiales..."
+  primary_marker=$(capture_alarm_mirror "$ALARM_MIRROR_PRIMARY" "$primary") \
+    || { rm -rf "$temporary"; die "the primary mirror did not provide one stable repository set" "el mirror primario no proporciono un conjunto estable de repositorios"; }
+  secondary_marker=$(capture_alarm_mirror "$ALARM_MIRROR_SECONDARY" "$secondary") \
+    || { rm -rf "$temporary"; die "the secondary mirror did not provide one stable repository set" "el mirror secundario no proporciono un conjunto estable de repositorios"; }
+  [[ $primary_marker == "$secondary_marker" ]] \
+    || { rm -rf "$temporary"; die "the official mirrors report different repository sync markers" "los mirrors oficiales informan marcadores de sincronizacion distintos"; }
+
+  mkdir -p "$candidate"
+  for repository in "${ALARM_REPOSITORIES[@]}"; do
+    cmp -s "$primary/$repository.db" "$secondary/$repository.db" \
+      || { rm -rf "$temporary"; die "$repository.db differs between the official mirrors" "$repository.db difiere entre los mirrors oficiales"; }
+    cp "$primary/$repository.db" "$candidate/$repository.db"
+  done
+  captured_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+  python3 "$W/provision/alarm-repository-snapshot.py" write-manifest \
+    "$candidate" "$candidate/manifest.tsv" \
+    "$ALARM_MIRROR_PRIMARY" "$ALARM_MIRROR_SECONDARY" \
+    "$primary_marker" "$captured_at" \
+    || { rm -rf "$temporary"; die "could not write the repository snapshot manifest" "no se pudo escribir el manifiesto de la captura de repositorios"; }
+  python3 "$W/provision/alarm-repository-snapshot.py" validate \
+    "$candidate" "$candidate/manifest.tsv" \
+    || { rm -rf "$temporary"; die "the captured repository set failed validation" "el conjunto capturado de repositorios no supero la validacion"; }
+
+  [[ ! -e $previous ]] || { rm -rf "$temporary"; die "temporary repository snapshot path already exists: $previous" "ya existe la ruta temporal de la captura: $previous"; }
+  [[ ! -e $final ]] || mv "$final" "$previous"
+  if ! mv "$candidate" "$final"; then
+    [[ ! -e $previous ]] || mv "$previous" "$final"
+    rm -rf "$temporary"
+    die "could not publish the captured repository set" "no se pudo publicar el conjunto capturado de repositorios"
+  fi
+  rm -rf "$previous" "$temporary"
+  snapshot=$(awk -F '\t' '$1 == "snapshot-id" { print $2 }' "$final/manifest.tsv")
+  ok "repository snapshot ${snapshot:0:12}, sync marker $primary_marker" \
+     "captura de repositorios ${snapshot:0:12}, marcador de sincronizacion $primary_marker"
+}
+
 # ────────────────────────────── phase: prepare ──────────────────────────────
 ph_prepare() {
   phase "prepare · package list" "prepare · lista de paquetes"
-  write_core_source_lock
+  write_payloads
   validate_core_source_lock "$W/provision/core-git-sources.tsv"
+  capture_alarm_repository_snapshot
   local omarchy_commit
   omarchy_commit=$(core_source_record omarchy "$W/provision/core-git-sources.tsv" | awk '{ print $4 }')
   # The list is computed against the REVIEWED commit of Omarchy intersected with what
   # exists in Arch Linux ARM. Doing it here, rather than with a fixed list, prevents the
   # package selection from disagreeing with the source tree installed in stage 3.
-  local base=/tmp/om-base.$$ core=/tmp/alarm-core.$$ extra=/tmp/alarm-extra.$$
+  local base=/tmp/om-base.$$ core extra
+  core="$W/provision/alarm-repositories/core.db"
+  extra="$W/provision/alarm-repositories/extra.db"
   curl -fsSL --max-time 60 \
     "https://raw.githubusercontent.com/basecamp/omarchy/$omarchy_commit/install/omarchy-base.packages" \
     -o "$base" || die "could not read Omarchy's package list" "no se pudo leer la lista de paquetes de Omarchy"
-  validate_fetch_url "$ALARM_MIRROR_PRIMARY" "$(ui_text 'primary Arch Linux ARM mirror' 'mirror primario de Arch Linux ARM')"
-  validate_fetch_url "$ALARM_MIRROR_SECONDARY" "$(ui_text 'secondary Arch Linux ARM mirror' 'mirror secundario de Arch Linux ARM')"
-  curl -fsSL --max-time 120 "$ALARM_MIRROR_PRIMARY/aarch64/core/core.db" -o "$core" \
-    || curl -fsSL --max-time 120 "$ALARM_MIRROR_SECONDARY/aarch64/core/core.db" -o "$core" \
-    || die "the ALARM HTTPS mirrors did not respond for core.db" "los mirrors HTTPS de ALARM no responden para core.db"
-  curl -fsSL --max-time 180 "$ALARM_MIRROR_PRIMARY/aarch64/extra/extra.db" -o "$extra" \
-    || curl -fsSL --max-time 180 "$ALARM_MIRROR_SECONDARY/aarch64/extra/extra.db" -o "$extra" \
-    || die "the ALARM HTTPS mirrors did not respond for extra.db" "los mirrors HTTPS de ALARM no responden para extra.db"
-
   local d=/tmp/alarmdb.$$; rm -rf "$d"; mkdir -p "$d"; ( cd "$d" && tar -xzf "$core"; tar -xzf "$extra" )
   ls -1 "$d" | sed -E 's/-[^-]+-[^-]+$//' | sort -u > /tmp/alarm-pkgs.$$
 
@@ -489,7 +567,7 @@ else:
     print(f"  core={len(core)}  extras={len(ext)}  without an ARM equivalent={len(set(miss))}")
     print("  unavailable:", " ".join(sorted(set(miss))))
 PYEOF
-  rm -rf "$d" "$base" "$core" "$extra" /tmp/alarm-pkgs.$$
+  rm -rf "$d" "$base" /tmp/alarm-pkgs.$$
   # Without this, a write error would go unnoticed and the build would die later,
   # far from the cause.
   [ -s "$W/provision/packages-core.txt" ] || die "could not write the package lists" "no se pudieron escribir las listas de paquetes"
@@ -504,6 +582,393 @@ write_payloads() {
 mkdir -p "$W/provision"
 write_core_source_lock
 write_free_app_artifact_lock
+cat > "$W/provision/alarm-repository-snapshot.py" <<'__PAYLOAD_ALARM_REPOSITORY_SNAPSHOT_PY__'
+#!/usr/bin/env python3
+"""Validate an ALARM repository snapshot and record installed package provenance."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import binascii
+import hashlib
+import pathlib
+import re
+import subprocess
+import sys
+import tarfile
+
+
+REPOSITORIES = ("core", "extra", "alarm", "aur")
+FORMAT = "alarm-repository-snapshot-v1"
+SHA256 = re.compile(r"[0-9a-f]{64}")
+
+
+def fail(message: str) -> "NoReturn":
+    raise SystemExit(message)
+
+
+def file_sha256(path: pathlib.Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def snapshot_id(records: dict[str, tuple[str, int]]) -> str:
+    canonical = "".join(
+        f"repo\t{repository}\t{records[repository][0]}\t{records[repository][1]}\n"
+        for repository in REPOSITORIES
+    )
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def load_manifest(path: pathlib.Path) -> tuple[dict[str, str], dict[str, tuple[str, int]]]:
+    metadata: dict[str, str] = {}
+    records: dict[str, tuple[str, int]] = {}
+    for number, raw in enumerate(path.read_text().splitlines(), 1):
+        if not raw or raw.startswith("#"):
+            continue
+        fields = raw.split("\t")
+        if fields[0] == "repo":
+            if len(fields) != 4 or fields[1] not in REPOSITORIES:
+                fail(f"invalid repository record at {path}:{number}")
+            if fields[1] in records or not SHA256.fullmatch(fields[2]):
+                fail(f"duplicate or invalid repository record at {path}:{number}")
+            try:
+                size = int(fields[3])
+            except ValueError:
+                fail(f"invalid repository size at {path}:{number}")
+            if size <= 0:
+                fail(f"invalid repository size at {path}:{number}")
+            records[fields[1]] = (fields[2], size)
+        else:
+            if len(fields) != 2 or fields[0] in metadata:
+                fail(f"duplicate or invalid metadata at {path}:{number}")
+            metadata[fields[0]] = fields[1]
+
+    required = {
+        "format",
+        "architecture",
+        "primary-url",
+        "secondary-url",
+        "sync-marker",
+        "captured-at",
+        "snapshot-id",
+    }
+    if set(metadata) != required:
+        fail(f"snapshot metadata fields do not match {sorted(required)}")
+    if metadata["format"] != FORMAT or metadata["architecture"] != "aarch64":
+        fail("unsupported repository snapshot format or architecture")
+    if not metadata["primary-url"].startswith("https://") or not metadata[
+        "secondary-url"
+    ].startswith("https://"):
+        fail("repository snapshot sources must use HTTPS")
+    if metadata["primary-url"] == metadata["secondary-url"]:
+        fail("repository snapshot requires two distinct official mirrors")
+    if not metadata["sync-marker"].isdigit():
+        fail("invalid repository snapshot sync marker")
+    if set(records) != set(REPOSITORIES):
+        fail(f"snapshot repositories do not match {list(REPOSITORIES)}")
+    expected_id = snapshot_id(records)
+    if metadata["snapshot-id"] != expected_id:
+        fail("repository snapshot ID does not match its records")
+    return metadata, records
+
+
+def validate(snapshot_dir: pathlib.Path, manifest: pathlib.Path) -> tuple[dict[str, str], dict[str, tuple[str, int]]]:
+    metadata, records = load_manifest(manifest)
+    actual_names = {path.name for path in snapshot_dir.glob("*.db")}
+    expected_names = {f"{repository}.db" for repository in REPOSITORIES}
+    if actual_names != expected_names:
+        fail(f"snapshot database files do not match {sorted(expected_names)}")
+    for repository in REPOSITORIES:
+        path = snapshot_dir / f"{repository}.db"
+        expected_hash, expected_size = records[repository]
+        if path.stat().st_size != expected_size:
+            fail(f"{repository}.db size does not match the snapshot manifest")
+        if file_sha256(path) != expected_hash:
+            fail(f"{repository}.db SHA-256 does not match the snapshot manifest")
+        try:
+            with tarfile.open(path, "r:*") as archive:
+                next((member for member in archive if member.name.endswith("/desc")))
+        except (tarfile.TarError, StopIteration):
+            fail(f"{repository}.db is not a usable pacman repository database")
+    return metadata, records
+
+
+def write_manifest(args: argparse.Namespace) -> None:
+    snapshot_dir = pathlib.Path(args.snapshot_dir)
+    records = {
+        repository: (
+            file_sha256(snapshot_dir / f"{repository}.db"),
+            (snapshot_dir / f"{repository}.db").stat().st_size,
+        )
+        for repository in REPOSITORIES
+    }
+    lines = [
+        f"format\t{FORMAT}",
+        "architecture\taarch64",
+        f"primary-url\t{args.primary_url}",
+        f"secondary-url\t{args.secondary_url}",
+        f"sync-marker\t{args.sync_marker}",
+        f"captured-at\t{args.captured_at}",
+        f"snapshot-id\t{snapshot_id(records)}",
+    ]
+    lines.extend(
+        f"repo\t{repository}\t{records[repository][0]}\t{records[repository][1]}"
+        for repository in REPOSITORIES
+    )
+    pathlib.Path(args.manifest).write_text("\n".join(lines) + "\n")
+
+
+def parse_desc(raw: bytes) -> dict[str, list[str]]:
+    fields: dict[str, list[str]] = {}
+    key: str | None = None
+    for line in raw.decode("utf-8", "strict").splitlines():
+        if len(line) >= 3 and line.startswith("%") and line.endswith("%"):
+            key = line[1:-1]
+            fields.setdefault(key, [])
+        elif line and key is not None:
+            fields[key].append(line)
+    return fields
+
+
+def one(fields: dict[str, list[str]], key: str) -> str:
+    values = fields.get(key, [])
+    if len(values) != 1:
+        fail(f"repository record has no unique %{key}% field")
+    return values[0]
+
+
+def repository_packages(snapshot_dir: pathlib.Path) -> dict[tuple[str, str, str], list[dict[str, str]]]:
+    packages: dict[tuple[str, str, str], list[dict[str, str]]] = {}
+    for repository in REPOSITORIES:
+        with tarfile.open(snapshot_dir / f"{repository}.db", "r:*") as archive:
+            for member in archive:
+                if not member.isfile() or not member.name.endswith("/desc"):
+                    continue
+                source = archive.extractfile(member)
+                if source is None:
+                    continue
+                try:
+                    fields = parse_desc(source.read())
+                except UnicodeDecodeError:
+                    continue
+                if "NAME" not in fields:
+                    continue
+                name, version = one(fields, "NAME"), one(fields, "VERSION")
+                package_hash = one(fields, "SHA256SUM")
+                signature = one(fields, "PGPSIG")
+                if not SHA256.fullmatch(package_hash):
+                    fail(f"invalid package SHA-256 for {repository}/{name}")
+                try:
+                    signature_bytes = base64.b64decode(signature, validate=True)
+                except (ValueError, binascii.Error):
+                    fail(f"invalid package PGP signature for {repository}/{name}")
+                architecture = one(fields, "ARCH")
+                key = (name, version, architecture)
+                packages.setdefault(key, []).append(
+                    {
+                        "repository": repository,
+                        "filename": one(fields, "FILENAME"),
+                        "package-sha256": package_hash,
+                        "signature-sha256": hashlib.sha256(signature_bytes).hexdigest(),
+                    }
+                )
+    return packages
+
+
+def installed_packages(local_db: pathlib.Path) -> list[tuple[str, str, str, pathlib.Path]]:
+    installed: list[tuple[str, str, str, pathlib.Path]] = []
+    for desc in local_db.glob("*/desc"):
+        fields = parse_desc(desc.read_bytes())
+        if "NAME" not in fields:
+            continue
+        installed.append(
+            (one(fields, "NAME"), one(fields, "VERSION"), one(fields, "ARCH"), desc.parent)
+        )
+    if not installed:
+        fail(f"no installed packages found under {local_db}")
+    return sorted(installed)
+
+
+def cached_package_mtree(
+    cache_dir: pathlib.Path, local_record: pathlib.Path, record: dict[str, str]
+) -> str | None:
+    package = cache_dir / record["filename"]
+    local_mtree = local_record / "mtree"
+    if not package.is_file() or not local_mtree.is_file():
+        return None
+    if file_sha256(package) != record["package-sha256"]:
+        return None
+    extracted = subprocess.run(
+        ["bsdtar", "-xOf", str(package), ".MTREE"],
+        capture_output=True,
+        check=False,
+    )
+    if extracted.returncode != 0 or extracted.stdout != local_mtree.read_bytes():
+        return None
+    return hashlib.sha256(extracted.stdout).hexdigest()
+
+
+HEADER = (
+    "snapshot-id\tevidence\trepository-candidate\tname\tversion\tarchitecture\t"
+    "filename\tpackage-sha256\tpgp-signature-sha256\tinstalled-mtree-sha256"
+)
+
+
+def provenance_lines(
+    snapshot_dir: pathlib.Path,
+    manifest: pathlib.Path,
+    local_db: pathlib.Path,
+    cache_dir: pathlib.Path,
+) -> list[str]:
+    metadata, _ = validate(snapshot_dir, manifest)
+    available = repository_packages(snapshot_dir)
+    lines = [HEADER]
+    for name, version, architecture, local_record in installed_packages(local_db):
+        records = available.get((name, version, architecture), [])
+        if not records:
+            values = (
+                metadata["snapshot-id"], "local-or-unknown", "-", name, version,
+                architecture, "-", "-", "-", "-",
+            )
+        elif len(records) > 1:
+            candidates = ",".join(record["repository"] for record in records)
+            values = (
+                metadata["snapshot-id"], "ambiguous-snapshot-match", candidates,
+                name, version, architecture, "-", "-", "-", "-",
+            )
+        else:
+            record = records[0]
+            mtree_hash = cached_package_mtree(cache_dir, local_record, record)
+            evidence = "repository-cache+mtree" if mtree_hash else "snapshot-metadata-only"
+            values = (
+                metadata["snapshot-id"],
+                evidence,
+                record["repository"],
+                name,
+                version,
+                architecture,
+                record["filename"],
+                record["package-sha256"],
+                record["signature-sha256"],
+                mtree_hash or "-",
+            )
+        lines.append("\t".join(values))
+    return lines
+
+
+def write_provenance(args: argparse.Namespace) -> None:
+    snapshot_dir = pathlib.Path(args.snapshot_dir)
+    lines = provenance_lines(
+        snapshot_dir,
+        pathlib.Path(args.manifest),
+        pathlib.Path(args.local_db),
+        pathlib.Path(args.cache_dir),
+    )
+    pathlib.Path(args.output).write_text("\n".join(lines) + "\n")
+
+
+def validate_provenance(args: argparse.Namespace) -> None:
+    snapshot_dir = pathlib.Path(args.snapshot_dir)
+    metadata, _ = validate(snapshot_dir, pathlib.Path(args.manifest))
+    available = repository_packages(snapshot_dir)
+    installed = {
+        (name, version, architecture): local_record
+        for name, version, architecture, local_record in installed_packages(pathlib.Path(args.local_db))
+    }
+    rows = pathlib.Path(args.provenance).read_text().splitlines()
+    if not rows or rows[0] != HEADER:
+        fail("installed-package provenance header is invalid")
+    seen: set[tuple[str, str, str]] = set()
+    for number, row in enumerate(rows[1:], 2):
+        fields = row.split("\t")
+        if len(fields) != 10:
+            fail(f"invalid installed-package provenance row {number}")
+        snapshot, evidence, candidate, name, version, architecture, filename, package_hash, signature_hash, mtree_hash = fields
+        key = (name, version, architecture)
+        if snapshot != metadata["snapshot-id"] or key not in installed or key in seen:
+            fail(f"wrong snapshot, unknown package, or duplicate provenance row {number}")
+        seen.add(key)
+        records = available.get(key, [])
+        if not records:
+            expected = ("local-or-unknown", "-", "-", "-", "-", "-")
+        elif len(records) > 1:
+            expected = (
+                "ambiguous-snapshot-match",
+                ",".join(record["repository"] for record in records),
+                "-", "-", "-", "-",
+            )
+        else:
+            record = records[0]
+            if evidence not in {"repository-cache+mtree", "snapshot-metadata-only"}:
+                fail(f"invalid repository evidence in provenance row {number}")
+            expected = (
+                evidence,
+                record["repository"],
+                record["filename"],
+                record["package-sha256"],
+                record["signature-sha256"],
+                mtree_hash,
+            )
+            if evidence == "repository-cache+mtree":
+                local_mtree = installed[key] / "mtree"
+                if not SHA256.fullmatch(mtree_hash) or not local_mtree.is_file() \
+                        or file_sha256(local_mtree) != mtree_hash:
+                    fail(f"installed mtree evidence does not validate in provenance row {number}")
+            elif mtree_hash != "-":
+                fail(f"metadata-only provenance has mtree evidence in row {number}")
+        actual = (evidence, candidate, filename, package_hash, signature_hash, mtree_hash)
+        if actual != expected:
+            fail(f"installed-package provenance fields do not validate in row {number}")
+    if seen != set(installed):
+        fail("installed-package provenance is incomplete")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    writer = subparsers.add_parser("write-manifest")
+    writer.add_argument("snapshot_dir")
+    writer.add_argument("manifest")
+    writer.add_argument("primary_url")
+    writer.add_argument("secondary_url")
+    writer.add_argument("sync_marker")
+    writer.add_argument("captured_at")
+    writer.set_defaults(handler=write_manifest)
+
+    checker = subparsers.add_parser("validate")
+    checker.add_argument("snapshot_dir")
+    checker.add_argument("manifest")
+    checker.set_defaults(handler=lambda args: validate(pathlib.Path(args.snapshot_dir), pathlib.Path(args.manifest)))
+
+    provenance = subparsers.add_parser("provenance")
+    provenance.add_argument("snapshot_dir")
+    provenance.add_argument("manifest")
+    provenance.add_argument("output")
+    provenance.add_argument("--local-db", default="/var/lib/pacman/local")
+    provenance.add_argument("--cache-dir", default="/var/cache/pacman/pkg")
+    provenance.set_defaults(handler=write_provenance)
+
+    provenance_check = subparsers.add_parser("validate-provenance")
+    provenance_check.add_argument("snapshot_dir")
+    provenance_check.add_argument("manifest")
+    provenance_check.add_argument("provenance")
+    provenance_check.add_argument("--local-db", default="/var/lib/pacman/local")
+    provenance_check.set_defaults(handler=validate_provenance)
+
+    args = parser.parse_args()
+    args.handler(args)
+
+
+if __name__ == "__main__":
+    main()
+__PAYLOAD_ALARM_REPOSITORY_SNAPSHOT_PY__
+chmod +x "$W/provision/alarm-repository-snapshot.py"
 cat > "$W/provision/stage1.sh" <<'__PAYLOAD_PROVISION_STAGE1_SH__'
 #!/bin/sh
 # Stage 1 — runs on the Alpine live environment (busybox ash).
@@ -616,7 +1081,8 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
 cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" \
-   "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
+   "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
+cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
@@ -626,7 +1092,7 @@ cat > /mnt/root/prov/fsinfo.env <<EOF
 ROOTFS=$ROOTFS
 ROOT_MOUNT_OPTS=$MOPT_ROOT
 EOF
-chmod +x /mnt/root/prov/stage2.sh /mnt/root/prov/stage3.sh
+chmod +x /mnt/root/prov/stage2.sh /mnt/root/prov/stage3.sh /mnt/root/prov/alarm-repository-snapshot.py
 
 log "entering chroot -> stage2" "entrando en chroot -> stage2"
 set +e
@@ -664,6 +1130,60 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage2] $text";
 trap 'warn "failed at line $LINENO" "fallo en la linea $LINENO"; exit 1' ERR
 
 # ---------------------------------------------------------------- pacman
+SNAPSHOT_DIR=/root/prov/alarm-repositories
+SNAPSHOT_MANIFEST="$SNAPSHOT_DIR/manifest.tsv"
+SNAPSHOT_REPOSITORIES=(core extra alarm aur)
+
+validate_repository_snapshot() {
+  local repository line tag name digest size extra actual_size count
+  local primary_url secondary_url snapshot_records="" computed_snapshot_id
+  [[ -s $SNAPSHOT_MANIFEST ]] || { warn "the repository snapshot manifest is missing" "falta el manifiesto de la captura de repositorios"; return 1; }
+  [[ $(find "$SNAPSHOT_DIR" -maxdepth 1 -type f -name '*.db' | wc -l) -eq 4 ]] \
+    || { warn "the repository snapshot must contain exactly four databases" "la captura de repositorios debe contener exactamente cuatro bases"; return 1; }
+  [[ $(awk -F '\t' '$1 == "format" && $2 == "alarm-repository-snapshot-v1" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "architecture" && $2 == "aarch64" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "primary-url" && $2 ~ /^https:\/\// && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "secondary-url" && $2 ~ /^https:\/\// && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  primary_url=$(awk -F '\t' '$1 == "primary-url" { print $2 }' "$SNAPSHOT_MANIFEST")
+  secondary_url=$(awk -F '\t' '$1 == "secondary-url" { print $2 }' "$SNAPSHOT_MANIFEST")
+  [[ $primary_url != "$secondary_url" ]]
+  [[ $(awk -F '\t' '$1 == "sync-marker" && $2 ~ /^[0-9]+$/ && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "captured-at" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 11 ]]
+  SNAPSHOT_ID=$(awk -F '\t' '$1 == "snapshot-id" && NF == 2 { print $2 }' "$SNAPSHOT_MANIFEST")
+  [[ $SNAPSHOT_ID =~ ^[0-9a-f]{64}$ ]] || { warn "the repository snapshot ID is invalid" "el identificador de la captura de repositorios no es valido"; return 1; }
+  [[ $(awk -F '\t' '$1 == "repo" { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 4 ]]
+
+  for repository in "${SNAPSHOT_REPOSITORIES[@]}"; do
+    count=$(awk -F '\t' -v repository="$repository" '$1 == "repo" && $2 == repository { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST")
+    [[ $count -eq 1 ]] || { warn "missing or duplicate snapshot record for $repository" "falta o esta duplicado el registro de la captura para $repository"; return 1; }
+    line=$(awk -F '\t' -v repository="$repository" '$1 == "repo" && $2 == repository { print; exit }' "$SNAPSHOT_MANIFEST")
+    snapshot_records+="$line"$'\n'
+    IFS=$'\t' read -r tag name digest size extra <<< "$line"
+    [[ $tag == repo && $name == "$repository" && -z ${extra:-} && $digest =~ ^[0-9a-f]{64}$ && $size =~ ^[0-9]+$ ]]
+    actual_size=$(stat -c '%s' "$SNAPSHOT_DIR/$repository.db")
+    [[ $actual_size == "$size" ]] || { warn "$repository.db size does not match its manifest" "el tamano de $repository.db no coincide con su manifiesto"; return 1; }
+    printf '%s  %s\n' "$digest" "$SNAPSHOT_DIR/$repository.db" | sha256sum -c - >/dev/null \
+      || { warn "$repository.db SHA-256 does not match its manifest" "el sha256 de $repository.db no coincide con su manifiesto"; return 1; }
+    tar -tzf "$SNAPSHOT_DIR/$repository.db" >/dev/null \
+      || { warn "$repository.db is not a usable pacman database" "$repository.db no es una base utilizable de pacman"; return 1; }
+  done
+  computed_snapshot_id=$(printf '%s' "$snapshot_records" | sha256sum | awk '{ print $1 }')
+  [[ $computed_snapshot_id == "$SNAPSHOT_ID" ]] \
+    || { warn "the repository snapshot ID does not match its records" "el identificador de la captura no coincide con sus registros"; return 1; }
+}
+
+log "verifying the build-scoped repository snapshot" "verificando la captura de repositorios de esta construccion"
+validate_repository_snapshot
+install -d -m 0755 /var/lib/pacman/sync /usr/share/omarchy-arm/alarm-repositories
+for repository in "${SNAPSHOT_REPOSITORIES[@]}"; do
+  install -m 0644 "$SNAPSHOT_DIR/$repository.db" "/var/lib/pacman/sync/$repository.db"
+  install -m 0644 "$SNAPSHOT_DIR/$repository.db" "/usr/share/omarchy-arm/alarm-repositories/$repository.db"
+done
+install -m 0644 "$SNAPSHOT_MANIFEST" /usr/share/omarchy-arm/alarm-repositories/manifest.tsv
+install -m 0755 /root/prov/alarm-repository-snapshot.py /usr/share/omarchy-arm/alarm-repository-snapshot.py
+echo "  $(ui_text 'snapshot' 'captura'): ${SNAPSHOT_ID:0:12}"
+
 log "initializing the Arch Linux and Arch Linux ARM keyrings" "inicializando los llaveros de Arch Linux y Arch Linux ARM"
 pacman-key --init
 pacman-key --populate archlinux archlinuxarm
@@ -688,21 +1208,20 @@ case "$ALARM_MIRROR_SECONDARY" in https://*) ;; *) warn "the secondary mirror mu
 grep -q '^DisableDownloadTimeout' /etc/pacman.conf \
   || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout\nParallelDownloads = 5/' /etc/pacman.conf
 
-# Retry wrapper: the mirror fails in bursts, not consistently.
+# Retry package downloads without refreshing the build-scoped databases.
 pac() {
   local intento
   for intento in 1 2 3; do
     if pacman -S --noconfirm --needed --disable-download-timeout "$@"; then return 0; fi
     warn "pacman failed (attempt $intento/3); retrying in ${intento}0 seconds" "pacman fallo (intento $intento/3); reintentando en ${intento}0 s"
     sleep "${intento}0"
-    pacman -Sy --noconfirm --disable-download-timeout >/dev/null 2>&1 || true
   done
   return 1
 }
 
-log "updating the system (the tarball is from August; repositories are current)" "actualizando el sistema (el tarball es de agosto, los repos van al dia)"
-pacman -Syu --noconfirm --needed --disable-download-timeout \
-  || pacman -Syu --noconfirm --needed --disable-download-timeout
+log "updating the system from the captured repository snapshot" "actualizando el sistema desde la captura de repositorios"
+pacman -Su --noconfirm --needed --disable-download-timeout \
+  || pacman -Su --noconfirm --needed --disable-download-timeout
 
 log "base system" "sistema base"
 # linux-firmware is intentionally omitted: ~800 MB useless in a VM
@@ -955,6 +1474,22 @@ su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
 echo "TOK_STAGE3_$STAGE3_RC"
 rm -f "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
 rm -rf "$PROVDIR"
+
+log "recording installed-package provenance" "registrando la procedencia de los paquetes instalados"
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py provenance \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv \
+  /usr/share/omarchy-arm/alarm-package-provenance.tsv
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv \
+  /usr/share/omarchy-arm/alarm-package-provenance.tsv
+echo "  $(ui_text 'repository packages verified from cached bytes' 'paquetes de repositorios verificados desde bytes en cache'): $(awk -F '\t' 'NR > 1 && $2 == "repository-cache+mtree" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
+echo "  $(ui_text 'snapshot metadata matches without cached bytes' 'coincidencias con la captura sin bytes en cache'): $(awk -F '\t' 'NR > 1 && $2 == "snapshot-metadata-only" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
+echo "  $(ui_text 'local, unknown, or ambiguous packages' 'paquetes locales, desconocidos o ambiguos'): $(awk -F '\t' 'NR > 1 && $2 != "repository-cache+mtree" && $2 != "snapshot-metadata-only" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
 
 # ---------------------------------------------------------------- login SDDM
 log "SDDM: Omarchy session with autologin" "SDDM: sesion Omarchy con autologin"
@@ -3829,15 +4364,12 @@ make_iso() {  # make_iso <destination.iso> <file...>
 ph_build() {
   phase "build · disk construction (headless, QEMU + HVF)" "build · construccion del disco (headless, QEMU + HVF)"
   write_payloads
-  # Short names: hdiutil truncates long ones in the ISO9660 tree
-  make_iso "$W/provision/provision.iso" \
-    "$W/provision/stage1.sh" "$W/provision/stage2.sh" "$W/provision/stage3.sh" \
-    "$W/provision/config.env" "$W/provision/core-git-sources.tsv" "$W/provision/free-app-artifacts.tsv" \
-    "$W/provision/packages-core.txt" "$W/provision/packages-extra.txt"
+  validate_alarm_repository_snapshot
   ln -f "$W/dl/alarm-rootfs.tgz" /tmp/alarm-rootfs.tgz 2>/dev/null || true
   # the rootfs travels inside the provisioning ISO
   local d; d=$(mktemp -d)
-  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,packages-core.txt,packages-extra.txt} "$d"/
+  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,alarm-repository-snapshot.py,packages-core.txt,packages-extra.txt} "$d"/
+  cp -R "$W/provision/alarm-repositories" "$d"/
   cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
@@ -3944,7 +4476,7 @@ PY
   [[ -n $pty ]] || die "could not open the serial port for '$VM_NAME'; verification is impossible without it (to continue anyway: --from sanitize)" "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Previously this phase collected metrics and did not compare them with anything, so
   # it ended in "ok" regardless of what happened. Now the guest emits a verdict
-  # and the host checks it. Ten conditions, all necessary:
+  # and the host checks it. Eleven conditions, all necessary:
   #   H  Hyprland running
   #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
   #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
@@ -3957,6 +4489,7 @@ PY
   #   T  ttfx is available (the real binary or the static fallback)
   #   P  installed Omarchy is exactly the reviewed source-lock commit
   #   F  both reviewed libre-app packages are installed when INCLUDE_LIBRE_APPS=yes
+  #   S  the captured repository databases and installed-package provenance validate
   # The previous threshold checked /usr/local/bin, where commands are no longer placed: it was
   # a guaranteed false positive once they were moved to /usr/bin.
   local vlog="$W/logs/verify.log"
@@ -4003,14 +4536,20 @@ expect {
 #
 # C counts the five known ways the clipboard can die. None
 # require a connected SPICE client, so it can be checked here.
+send "python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance /usr/share/omarchy-arm/alarm-repositories /usr/share/omarchy-arm/alarm-repositories/manifest.tsv /usr/share/omarchy-arm/alarm-package-provenance.tsv >/dev/null 2>&1 && echo SNAP\"SHOT_OK\" || echo SNAP\"SHOT_KO\"\r"
+expect { -re {SNAPSHOT_(OK|KO)} {} timeout {} }
 send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRE_APPS)\" = yes ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERD\"ICT_OK\"; else echo VERD\"ICT_KO\"; fi\r"
 set timeout 60
 expect { -re {VERDICT_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
-  if grep -qa "^VERDICT_OK" "$vlog"; then
-    ok "VM '$VM_NAME' verified: reviewed Omarchy source, Hyprland + Quickshell running, commands and units in place, clipboard operational" "VM '$VM_NAME' verificada: fuente revisada de Omarchy, Hyprland + quickshell vivos, comandos y unidades en su sitio, portapapeles operativo"
-  elif grep -qa "^VERDICT_KO" "$vlog"; then
+  # SNAPSHOT_OK is the first command result after login, so systemd's OSC shell
+  # integration can prefix it on the same physical line. The echoed command
+  # contains SNAP"SHOT_OK" split across quotes, so an unanchored search still
+  # cannot mistake command echo for the result.
+  if grep -qa "^VERDICT_OK" "$vlog" && grep -qa "SNAPSHOT_OK" "$vlog"; then
+    ok "VM '$VM_NAME' verified: reviewed sources and repository snapshot, package provenance, desktop, commands, units, and clipboard" "VM '$VM_NAME' verificada: fuentes y captura de repositorios revisadas, procedencia de paquetes, escritorio, comandos, unidades y portapapeles"
+  elif grep -qa "^VERDICT_KO" "$vlog" || grep -qa "SNAPSHOT_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "the VM boots but the desktop is incomplete; log at $vlog" "la VM arranca pero el escritorio no esta completo; log en $vlog"
   else

@@ -109,7 +109,8 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
 cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" \
-   "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
+   "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
+cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
@@ -119,7 +120,7 @@ cat > /mnt/root/prov/fsinfo.env <<EOF
 ROOTFS=$ROOTFS
 ROOT_MOUNT_OPTS=$MOPT_ROOT
 EOF
-chmod +x /mnt/root/prov/stage2.sh /mnt/root/prov/stage3.sh
+chmod +x /mnt/root/prov/stage2.sh /mnt/root/prov/stage3.sh /mnt/root/prov/alarm-repository-snapshot.py
 
 log "entering chroot -> stage2" "entrando en chroot -> stage2"
 set +e

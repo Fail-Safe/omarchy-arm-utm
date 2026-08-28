@@ -13,6 +13,60 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage2] $text";
 trap 'warn "failed at line $LINENO" "fallo en la linea $LINENO"; exit 1' ERR
 
 # ---------------------------------------------------------------- pacman
+SNAPSHOT_DIR=/root/prov/alarm-repositories
+SNAPSHOT_MANIFEST="$SNAPSHOT_DIR/manifest.tsv"
+SNAPSHOT_REPOSITORIES=(core extra alarm aur)
+
+validate_repository_snapshot() {
+  local repository line tag name digest size extra actual_size count
+  local primary_url secondary_url snapshot_records="" computed_snapshot_id
+  [[ -s $SNAPSHOT_MANIFEST ]] || { warn "the repository snapshot manifest is missing" "falta el manifiesto de la captura de repositorios"; return 1; }
+  [[ $(find "$SNAPSHOT_DIR" -maxdepth 1 -type f -name '*.db' | wc -l) -eq 4 ]] \
+    || { warn "the repository snapshot must contain exactly four databases" "la captura de repositorios debe contener exactamente cuatro bases"; return 1; }
+  [[ $(awk -F '\t' '$1 == "format" && $2 == "alarm-repository-snapshot-v1" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "architecture" && $2 == "aarch64" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "primary-url" && $2 ~ /^https:\/\// && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "secondary-url" && $2 ~ /^https:\/\// && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  primary_url=$(awk -F '\t' '$1 == "primary-url" { print $2 }' "$SNAPSHOT_MANIFEST")
+  secondary_url=$(awk -F '\t' '$1 == "secondary-url" { print $2 }' "$SNAPSHOT_MANIFEST")
+  [[ $primary_url != "$secondary_url" ]]
+  [[ $(awk -F '\t' '$1 == "sync-marker" && $2 ~ /^[0-9]+$/ && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk -F '\t' '$1 == "captured-at" && NF == 2 { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 1 ]]
+  [[ $(awk 'NF && $1 !~ /^#/ { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 11 ]]
+  SNAPSHOT_ID=$(awk -F '\t' '$1 == "snapshot-id" && NF == 2 { print $2 }' "$SNAPSHOT_MANIFEST")
+  [[ $SNAPSHOT_ID =~ ^[0-9a-f]{64}$ ]] || { warn "the repository snapshot ID is invalid" "el identificador de la captura de repositorios no es valido"; return 1; }
+  [[ $(awk -F '\t' '$1 == "repo" { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST") -eq 4 ]]
+
+  for repository in "${SNAPSHOT_REPOSITORIES[@]}"; do
+    count=$(awk -F '\t' -v repository="$repository" '$1 == "repo" && $2 == repository { count++ } END { print count + 0 }' "$SNAPSHOT_MANIFEST")
+    [[ $count -eq 1 ]] || { warn "missing or duplicate snapshot record for $repository" "falta o esta duplicado el registro de la captura para $repository"; return 1; }
+    line=$(awk -F '\t' -v repository="$repository" '$1 == "repo" && $2 == repository { print; exit }' "$SNAPSHOT_MANIFEST")
+    snapshot_records+="$line"$'\n'
+    IFS=$'\t' read -r tag name digest size extra <<< "$line"
+    [[ $tag == repo && $name == "$repository" && -z ${extra:-} && $digest =~ ^[0-9a-f]{64}$ && $size =~ ^[0-9]+$ ]]
+    actual_size=$(stat -c '%s' "$SNAPSHOT_DIR/$repository.db")
+    [[ $actual_size == "$size" ]] || { warn "$repository.db size does not match its manifest" "el tamano de $repository.db no coincide con su manifiesto"; return 1; }
+    printf '%s  %s\n' "$digest" "$SNAPSHOT_DIR/$repository.db" | sha256sum -c - >/dev/null \
+      || { warn "$repository.db SHA-256 does not match its manifest" "el sha256 de $repository.db no coincide con su manifiesto"; return 1; }
+    tar -tzf "$SNAPSHOT_DIR/$repository.db" >/dev/null \
+      || { warn "$repository.db is not a usable pacman database" "$repository.db no es una base utilizable de pacman"; return 1; }
+  done
+  computed_snapshot_id=$(printf '%s' "$snapshot_records" | sha256sum | awk '{ print $1 }')
+  [[ $computed_snapshot_id == "$SNAPSHOT_ID" ]] \
+    || { warn "the repository snapshot ID does not match its records" "el identificador de la captura no coincide con sus registros"; return 1; }
+}
+
+log "verifying the build-scoped repository snapshot" "verificando la captura de repositorios de esta construccion"
+validate_repository_snapshot
+install -d -m 0755 /var/lib/pacman/sync /usr/share/omarchy-arm/alarm-repositories
+for repository in "${SNAPSHOT_REPOSITORIES[@]}"; do
+  install -m 0644 "$SNAPSHOT_DIR/$repository.db" "/var/lib/pacman/sync/$repository.db"
+  install -m 0644 "$SNAPSHOT_DIR/$repository.db" "/usr/share/omarchy-arm/alarm-repositories/$repository.db"
+done
+install -m 0644 "$SNAPSHOT_MANIFEST" /usr/share/omarchy-arm/alarm-repositories/manifest.tsv
+install -m 0755 /root/prov/alarm-repository-snapshot.py /usr/share/omarchy-arm/alarm-repository-snapshot.py
+echo "  $(ui_text 'snapshot' 'captura'): ${SNAPSHOT_ID:0:12}"
+
 log "initializing the Arch Linux and Arch Linux ARM keyrings" "inicializando los llaveros de Arch Linux y Arch Linux ARM"
 pacman-key --init
 pacman-key --populate archlinux archlinuxarm
@@ -37,21 +91,20 @@ case "$ALARM_MIRROR_SECONDARY" in https://*) ;; *) warn "the secondary mirror mu
 grep -q '^DisableDownloadTimeout' /etc/pacman.conf \
   || sed -i 's/^\[options\]/[options]\nDisableDownloadTimeout\nParallelDownloads = 5/' /etc/pacman.conf
 
-# Retry wrapper: the mirror fails in bursts, not consistently.
+# Retry package downloads without refreshing the build-scoped databases.
 pac() {
   local intento
   for intento in 1 2 3; do
     if pacman -S --noconfirm --needed --disable-download-timeout "$@"; then return 0; fi
     warn "pacman failed (attempt $intento/3); retrying in ${intento}0 seconds" "pacman fallo (intento $intento/3); reintentando en ${intento}0 s"
     sleep "${intento}0"
-    pacman -Sy --noconfirm --disable-download-timeout >/dev/null 2>&1 || true
   done
   return 1
 }
 
-log "updating the system (the tarball is from August; repositories are current)" "actualizando el sistema (el tarball es de agosto, los repos van al dia)"
-pacman -Syu --noconfirm --needed --disable-download-timeout \
-  || pacman -Syu --noconfirm --needed --disable-download-timeout
+log "updating the system from the captured repository snapshot" "actualizando el sistema desde la captura de repositorios"
+pacman -Su --noconfirm --needed --disable-download-timeout \
+  || pacman -Su --noconfirm --needed --disable-download-timeout
 
 log "base system" "sistema base"
 # linux-firmware is intentionally omitted: ~800 MB useless in a VM
@@ -304,6 +357,22 @@ su - "$VM_USER" -c "bash ~/stage3.sh" || STAGE3_RC=$?
 echo "TOK_STAGE3_$STAGE3_RC"
 rm -f "/home/$VM_USER/stage3.sh" "/home/$VM_USER/config.env"
 rm -rf "$PROVDIR"
+
+log "recording installed-package provenance" "registrando la procedencia de los paquetes instalados"
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py provenance \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv \
+  /usr/share/omarchy-arm/alarm-package-provenance.tsv
+python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance \
+  /usr/share/omarchy-arm/alarm-repositories \
+  /usr/share/omarchy-arm/alarm-repositories/manifest.tsv \
+  /usr/share/omarchy-arm/alarm-package-provenance.tsv
+echo "  $(ui_text 'repository packages verified from cached bytes' 'paquetes de repositorios verificados desde bytes en cache'): $(awk -F '\t' 'NR > 1 && $2 == "repository-cache+mtree" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
+echo "  $(ui_text 'snapshot metadata matches without cached bytes' 'coincidencias con la captura sin bytes en cache'): $(awk -F '\t' 'NR > 1 && $2 == "snapshot-metadata-only" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
+echo "  $(ui_text 'local, unknown, or ambiguous packages' 'paquetes locales, desconocidos o ambiguos'): $(awk -F '\t' 'NR > 1 && $2 != "repository-cache+mtree" && $2 != "snapshot-metadata-only" { count++ } END { print count + 0 }' /usr/share/omarchy-arm/alarm-package-provenance.tsv)"
 
 # ---------------------------------------------------------------- login SDDM
 log "SDDM: Omarchy session with autologin" "SDDM: sesion Omarchy con autologin"

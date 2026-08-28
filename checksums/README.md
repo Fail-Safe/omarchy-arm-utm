@@ -31,8 +31,9 @@ refs, verify that every recorded commit remains directly fetchable, and print a
 reviewable diff. After reviewing the source changes, pass `--write` to update
 the manifest and re-embed it in the standalone builder.
 
-This locks source selection, not all binary inputs: Arch Linux ARM repositories
-and language package registries remain live dependency sources.
+This locks source selection, not all binary inputs. Language package registries
+remain live dependency sources. Arch Linux ARM repositories are handled by the
+per-build snapshot described below rather than by a long-lived checked-in pin.
 
 `PINNED` in the refresh-ref column means the commit is derived from another
 reviewed source rather than independently following a remote branch. The OBS
@@ -53,3 +54,28 @@ dependency together with the pinned `dotnet-core-bin` recipe. Record the new
 exact URL, digest, and signer fingerprint, re-embed the payload, and run the
 full default VM build; selecting the newest mirror filename at build time is
 intentionally unsupported.
+
+# Per-build Arch Linux ARM repository snapshot
+
+The `prepare` phase captures `core`, `extra`, `alarm`, and `aur` as one set. It
+requires a stable `/aarch64/sync` marker and byte-identical databases from the
+configured California and Florida official HTTPS mirrors. The resulting
+`alarm-repositories/manifest.tsv` records the sources, capture time, sync marker,
+size, SHA-256, and a snapshot ID for all four databases.
+
+Arch Linux ARM signs packages but does not sign repository databases. The build
+therefore authenticates database selection through agreement between the two
+official HTTPS mirrors, then relies on pacman's required package signatures for
+the selected package bytes. Stage 2 verifies and installs the captured databases
+before any transaction and never refreshes them during provisioning.
+
+The installed image retains the snapshot manifest and databases under
+`/usr/share/omarchy-arm/alarm-repositories/`, plus
+`alarm-package-provenance.tsv`. Its evidence field distinguishes packages
+proved against cached package bytes and the installed mtree from metadata-only,
+ambiguous, local, and unknown records. Exact snapshot candidates retain their
+versions, package hashes, and database-recorded PGP-signature hashes without
+claiming that metadata coincidence proves origin. This is not an offline
+archive: if a mirror removes a selected package before it is downloaded, the
+build fails closed. After installation, the normal live HTTPS mirrorlist remains
+configured, so a later user-initiated `pacman -Syu` works normally.

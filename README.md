@@ -110,7 +110,7 @@ For unattended builds, `INCLUDE_LIBRE_APPS=yes|no` controls OBS and Pinta.
 The former `HACER_LIBRES=si|no` spelling remains accepted for compatibility,
 but new configuration and saved answers use the English name.
 
-**The script is a single self-contained file.** It embeds the fifteen files it
+**The script is a single self-contained file.** It embeds the files it
 needs — three install stages, the sanitiser, the repair harness, the optional-app
 installer, the post-update hook, the clipboard agent, the shared-folder mounter,
 the VM config, two `expect` harnesses, the QEMU launcher, the `.utm` bundle
@@ -131,6 +131,20 @@ packaging recipes, OBS source/submodules, and exact Pinta package are pinned.
 Pinta must match both the recorded SHA-256 and Arch signing fingerprint before
 the local package can reach `pacman -U`.
 
+**Each build uses one coherent Arch Linux ARM repository snapshot.** During
+`prepare`, all four enabled databases (`core`, `extra`, `alarm`, and `aur`) must
+have a stable sync marker and identical bytes on two official HTTPS mirrors.
+Those exact databases select every provisioning package; retries never refresh
+them. The installed image inventories every package under
+`/usr/share/omarchy-arm/`, including exact snapshot candidates and their
+SHA-256 and PGP-signature hashes. An evidence column distinguishes packages
+proved from cached bytes and installed mtree data from metadata-only matches,
+ambiguous matches, and local packages. This intentionally does not archive package files:
+if a selected package disappears before download, the build fails instead of
+silently moving to a newer version. A later user-run `pacman -Syu` remains
+normal. Resuming at `build` reuses the prepared snapshot and tells you to run
+`prepare` if it is missing or damaged.
+
 ### How long
 
 Measured on an M3 Max, tools compiled, without OBS/Pinta:
@@ -139,7 +153,7 @@ Measured on an M3 Max, tools compiled, without OBS/Pinta:
 |---|---|---|
 | `deps` | host checks, installs qemu/expect/aria2 | ~10 s |
 | `fetch` | pinned Alpine ISO + ALARM rootfs, SHA-256 verified | 2 min |
-| `prepare` | package list, computed against the pinned Omarchy source | ~10 s |
+| `prepare` | dual-mirror repository snapshot + package list against pinned Omarchy | ~20 s |
 | `build` | Alpine headless → partition → rootfs → three chroot stages | **40 min** |
 | `utm` | writes the `.utm` bundle and registers it | 1 min |
 | `verify` | boots and checks *inside the guest* that the desktop is up | 4 min |
