@@ -66,13 +66,17 @@ while IFS= read -r line || [[ -n $line ]]; do
   read -r key url ref commit extra <<< "$line"
   [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ \
       && $url == https://* \
-      && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ \
+      && $ref =~ ^(HEAD|PINNED|refs/heads/[A-Za-z0-9._/-]+|refs/tags/[A-Za-z0-9._/+:-]+\^\{\})$ \
       && $commit =~ ^[0-9a-f]{40}$ ]] || {
     echo "invalid source-lock record: $line" >&2
     exit 1
   }
   (( VERIFY )) && verify_fetchable "$key" "$url" "$ref" "$commit"
-  proposed=$(git ls-remote "$url" "$ref" | awk 'NR == 1 { print $1 }')
+  if [[ $ref == PINNED ]]; then
+    proposed=$commit
+  else
+    proposed=$(git ls-remote "$url" "$ref" | awk 'NR == 1 { print $1 }')
+  fi
   [[ $proposed =~ ^[0-9a-f]{40}$ ]] || {
     echo "could not resolve $key at $ref" >&2
     exit 1

@@ -325,7 +325,9 @@ ph_fetch() {
 
 # ───────────────────────────── core Git source lock ─────────────────────────
 CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
-                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+                  dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
+                  obs-libdshowcapture obs-browser obs-websocket)
 
 write_core_source_lock() {
   mkdir -p "$W/provision"
@@ -347,7 +349,21 @@ mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fb
 aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
 cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
 herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
+dotnet-runtime-bin https://aur.archlinux.org/dotnet-core-bin.git HEAD 2c499d7ce634efb8e93eee4c4239490b02e98e09
+obs-studio-pkgbuild https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git HEAD 8a0774a179eba2c08b7fff44252098d609c9c6d5
+obs-studio-source https://github.com/obsproject/obs-studio.git refs/tags/32.2.2^{} ba2f32bdf791005443988a4955e963663e16b1ed
+obs-libdshowcapture https://github.com/obsproject/libdshowcapture.git PINNED 8878638324393815512f802640b0d5ce940161f1
+obs-browser https://github.com/obsproject/obs-browser.git PINNED 3f0a2cdf378939ebe3c6f9ab36d4ea100c25aac2
+obs-websocket https://github.com/obsproject/obs-websocket.git PINNED 1ef34bf48110c2a18184e50e41cd0b1a855e2147
 __PAYLOAD_CORE_GIT_SOURCES_TSV__
+}
+
+write_free_app_artifact_lock() {
+  mkdir -p "$W/provision"
+  cat > "$W/provision/free-app-artifacts.tsv" <<'__PAYLOAD_FREE_APP_ARTIFACTS_TSV__'
+# key  exact-url  sha256  required-signing-fingerprint
+pinta-package https://geo.mirror.pkgbuild.com/extra/os/x86_64/pinta-3.1.2-2-any.pkg.tar.zst 3f9d4977ecef3e97bf6bd1daea5e677d74d4173f3222679fc085940e7751c7ed 14E46FE5FD69F2E287E244DB632C3CC0D1C9CAF6
+__PAYLOAD_FREE_APP_ARTIFACTS_TSV__
 }
 
 validate_core_source_lock() {
@@ -357,7 +373,8 @@ validate_core_source_lock() {
     [[ -z $line || $line == \#* ]] && continue
     read -r key url ref commit extra <<< "$line"
     [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
-        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+        && $ref =~ ^(HEAD|PINNED|refs/heads/[A-Za-z0-9._/-]+|refs/tags/[A-Za-z0-9._/+:-]+\^\{\})$ \
+        && $commit =~ ^[0-9a-f]{40}$ ]] \
       || die "invalid core Git source-lock record: $line" "registro invalido en el bloqueo de fuentes Git: $line"
     [[ $seen != *" $key "* ]] || die "duplicate core Git source-lock key: $key" "clave duplicada en el bloqueo de fuentes Git: $key"
     seen="$seen$key "
@@ -368,6 +385,21 @@ validate_core_source_lock() {
   read -r key url ref commit < <(awk '$1 == "omarchy" { print; exit }' "$lock")
   [[ $url == https://github.com/basecamp/omarchy.git && $ref == "refs/heads/$OMARCHY_REF" ]] \
     || die "the Omarchy source lock is incompatible with OMARCHY_REF='$OMARCHY_REF'" "el bloqueo de Omarchy no es compatible con OMARCHY_REF='$OMARCHY_REF'"
+}
+
+validate_free_app_artifact_lock() {
+  local lock="$1" line key url digest signer extra count=0
+  [[ -s $lock ]] || die "missing free-app artifact lock: $lock" "falta el bloqueo de artefactos de apps libres: $lock"
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    read -r key url digest signer extra <<< "$line"
+    [[ -z ${extra:-} && $key == pinta-package \
+        && $url =~ ^https://geo\.mirror\.pkgbuild\.com/extra/os/x86_64/pinta-[0-9][A-Za-z0-9._+-]*-any\.pkg\.tar\.zst$ \
+        && $digest =~ ^[0-9a-f]{64}$ && $signer =~ ^[0-9A-F]{40}$ ]] \
+      || die "invalid free-app artifact-lock record: $line" "registro invalido en el bloqueo de artefactos de apps libres: $line"
+    count=$((count + 1))
+  done < "$lock"
+  [[ $count == 1 ]] || die "free-app artifact lock must contain exactly one Pinta record" "el bloqueo de artefactos debe contener exactamente un registro de Pinta"
 }
 
 core_source_record() {
@@ -454,6 +486,7 @@ write_payloads() {
   # this script is self-contained: a single file reproduces the entire process.
 mkdir -p "$W/provision"
 write_core_source_lock
+write_free_app_artifact_lock
 cat > "$W/provision/stage1.sh" <<'__PAYLOAD_PROVISION_STAGE1_SH__'
 #!/bin/sh
 # Stage 1 — runs on the Alpine live environment (busybox ash).
@@ -565,7 +598,7 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
-cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" \
+cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" \
    "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
@@ -614,9 +647,9 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage2] $text";
 trap 'warn "failed at line $LINENO" "fallo en la linea $LINENO"; exit 1' ERR
 
 # ---------------------------------------------------------------- pacman
-log "initializing the Arch Linux ARM keyring" "inicializando el llavero de Arch Linux ARM"
+log "initializing the Arch Linux and Arch Linux ARM keyrings" "inicializando los llaveros de Arch Linux y Arch Linux ARM"
 pacman-key --init
-pacman-key --populate archlinuxarm
+pacman-key --populate archlinux archlinuxarm
 
 # The mirrors included in the tarball use HTTP. Although pacman verifies the signature of
 # each package, TLS also protects the index, version selection, and
@@ -878,6 +911,7 @@ usermod -aG docker "$VM_USER" 2>/dev/null || true
 log "stage 3: Omarchy dotfiles as $VM_USER" "etapa 3: dotfiles de Omarchy como $VM_USER"
 chmod +x /root/prov/stage3.sh
 install -Dm644 /root/prov/core-git-sources.tsv /usr/share/omarchy-arm/core-git-sources.tsv
+install -Dm644 /root/prov/free-app-artifacts.tsv /usr/share/omarchy-arm/free-app-artifacts.tsv
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # stage3 runs as a normal user and /root is 0750: any test you perform on
 # /root/prov returns false without error. A readable copy is left in their home.
@@ -982,7 +1016,9 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage3] $text";
 
 SOURCE_LOCK=/usr/share/omarchy-arm/core-git-sources.tsv
 CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
-                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+                  dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
+                  obs-libdshowcapture obs-browser obs-websocket)
 
 # CORE_SOURCE_LOCK_HELPERS_BEGIN
 source_lock_record() {
@@ -996,7 +1032,8 @@ validate_core_source_lock() {
     [[ -z $line || $line == \#* ]] && continue
     read -r key url ref commit extra <<< "$line"
     [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
-        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+        && $ref =~ ^(HEAD|PINNED|refs/heads/[A-Za-z0-9._/-]+|refs/tags/[A-Za-z0-9._/+:-]+\^\{\})$ \
+        && $commit =~ ^[0-9a-f]{40}$ ]] \
       || { warn "invalid core Git source-lock record: $line"; return 1; }
     [[ $seen != *" $key "* ]] || { warn "duplicate core Git source-lock key: $key"; return 1; }
     seen="$seen$key "
@@ -1622,9 +1659,11 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
       echo "  pinta: $(pacman -Q pinta 2>/dev/null || ui_text MISSING FALTA)"
       echo "  obs:   $(pacman -Q obs-studio 2>/dev/null || ui_text MISSING FALTA)"
+      pacman -Q pinta obs-studio >/dev/null 2>&1 \
+        || { warn "OBS or Pinta did not remain installed" "OBS o Pinta no quedaron instalados"; exit 1; }
     else
-      warn "OBS or Pinta was not installed; they can be added later with:" "OBS o Pinta no se instalaron; se pueden anadir despues con:"
-      warn "  omarchy-arm-extras pinta obs"
+      warn "OBS or Pinta failed the reviewed-source installation" "OBS o Pinta fallaron la instalacion desde fuentes revisadas"
+      exit 1
     fi
   else
     echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (HACER_LIBRES=no)"
@@ -1722,6 +1761,8 @@ log "running $FIXSCRIPT inside the chroot" "ejecutando $FIXSCRIPT dentro del chr
 mkdir -p /mnt/root/prov
 cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/config.env" ] && cp "$PROV/config.env" /mnt/root/prov/
+[ -f "$PROV/core-git-sources.tsv" ] && cp "$PROV/core-git-sources.tsv" /mnt/root/prov/
+[ -f "$PROV/free-app-artifacts.tsv" ] && cp "$PROV/free-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
@@ -2020,6 +2061,11 @@ for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
 done
 if [ -n "$EXTRAS_SRC" ]; then
+  for lock in core-git-sources.tsv free-app-artifacts.tsv; do
+    [ -f "/root/prov/$lock" ] \
+      || { warn "the reviewed source lock $lock was missing" "faltaba el bloqueo revisado de fuentes $lock"; exit 1; }
+    install -Dm644 "/root/prov/$lock" "/usr/share/omarchy-arm/$lock"
+  done
   install -Dm755 "$EXTRAS_SRC" /usr/local/bin/omarchy-arm-extras
   DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
@@ -2317,6 +2363,84 @@ catalog_desc()  { local field=3; [[ $OMARCHY_LANG == es ]] && field=4; printf '%
 
 # ── utilities ──────────────────────────────────────────────────────────────
 have() { command -v "$1" >/dev/null 2>&1; }
+: "${CORE_SOURCE_LOCK:=/usr/share/omarchy-arm/core-git-sources.tsv}"
+: "${FREE_APP_ARTIFACT_LOCK:=/usr/share/omarchy-arm/free-app-artifacts.tsv}"
+
+# REVIEWED_FREE_APP_HELPERS_BEGIN
+source_lock_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$CORE_SOURCE_LOCK"
+}
+
+require_source_pin() { # require_source_pin <key> <exact-url>
+  local wanted="$1" expected_url="$2" key url ref commit extra
+  read -r key url ref commit extra <<< "$(source_lock_record "$wanted")"
+  [[ -z ${extra:-} && $key == "$wanted" && $url == "$expected_url" \
+      && $ref =~ ^(HEAD|PINNED|refs/heads/[A-Za-z0-9._/-]+|refs/tags/[A-Za-z0-9._/+:-]+\^\{\})$ \
+      && $commit =~ ^[0-9a-f]{40}$ ]] \
+    || { fail "missing or invalid reviewed source pin: $wanted" "falta o no es valido el pin revisado: $wanted"; return 1; }
+}
+
+artifact_lock_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$FREE_APP_ARTIFACT_LOCK"
+}
+
+require_pinta_artifact() {
+  local key url digest signer extra
+  read -r key url digest signer extra <<< "$(artifact_lock_record pinta-package)"
+  [[ -z ${extra:-} && $key == pinta-package \
+      && $url =~ ^https://geo\.mirror\.pkgbuild\.com/extra/os/x86_64/pinta-[0-9][A-Za-z0-9._+-]*-any\.pkg\.tar\.zst$ \
+      && $digest =~ ^[0-9a-f]{64}$ && $signer =~ ^[0-9A-F]{40}$ ]] \
+    || { fail "missing or invalid reviewed Pinta artifact" "falta o no es valido el artefacto revisado de Pinta"; return 1; }
+}
+
+validate_free_app_locks() {
+  local item
+  (($#)) || return 0
+  [[ -r $CORE_SOURCE_LOCK ]] || { fail "missing reviewed Git source lock" "falta el bloqueo revisado de fuentes Git"; return 1; }
+  for item in "$@"; do
+    case "$item" in
+      pinta)
+        require_source_pin dotnet-runtime-bin https://aur.archlinux.org/dotnet-core-bin.git || return 1
+        [[ -r $FREE_APP_ARTIFACT_LOCK ]] || { fail "missing reviewed artifact lock" "falta el bloqueo revisado de artefactos"; return 1; }
+        require_pinta_artifact || return 1 ;;
+      obs)
+        require_source_pin obs-studio-pkgbuild https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git || return 1
+        require_source_pin obs-studio-source https://github.com/obsproject/obs-studio.git || return 1
+        require_source_pin obs-libdshowcapture https://github.com/obsproject/libdshowcapture.git || return 1
+        require_source_pin obs-browser https://github.com/obsproject/obs-browser.git || return 1
+        require_source_pin obs-websocket https://github.com/obsproject/obs-websocket.git || return 1 ;;
+    esac
+  done
+}
+
+clone_reviewed_source() { # clone_reviewed_source <lock-key> <destination>
+  local wanted="$1" dir="$2" key url commit actual
+  read -r key url _ commit <<< "$(source_lock_record "$wanted")"
+  [[ $key == "$wanted" && $commit =~ ^[0-9a-f]{40}$ ]] || return 1
+  rm -rf "$dir"; mkdir -p "$dir"
+  git -C "$dir" init -q || return 1
+  git -C "$dir" remote add origin "$url" || return 1
+  git -C "$dir" -c protocol.version=2 fetch -q --filter=blob:none --depth 1 origin "$commit" \
+    || git -C "$dir" fetch -q --depth 1 origin "$commit" \
+    || return 1
+  git -C "$dir" checkout -q --detach FETCH_HEAD || return 1
+  actual=$(git -C "$dir" rev-parse HEAD 2>/dev/null)
+  [[ $actual == "$commit" ]] || return 1
+  echo "  $(ui_text 'reviewed source' 'fuente revisada'): $wanted ${commit:0:12}"
+}
+
+verify_reviewed_artifact() { # verify_reviewed_artifact <package> <signature> <sha256> <signer>
+  local package_file="$1" signature_file="$2" digest="$3" signer="$4" signature_status actual_signer
+  printf '%s  %s\n' "$digest" "$package_file" | sha256sum -c - >/dev/null \
+    || { fail "artifact SHA-256 mismatch" "SHA-256 del artefacto no coincide"; return 1; }
+  signature_status=$(gpg --homedir /etc/pacman.d/gnupg --batch --status-fd 1 \
+    --verify "$signature_file" "$package_file" 2>/dev/null) \
+    || { fail "artifact signature is invalid" "la firma del artefacto no es valida"; return 1; }
+  actual_signer=$(printf '%s\n' "$signature_status" | awk '$2 == "VALIDSIG" { print $3; exit }')
+  [[ $actual_signer == "$signer" ]] \
+    || { fail "artifact signer does not match the reviewed fingerprint" "el firmante no coincide con la huella revisada"; return 1; }
+}
+# REVIEWED_FREE_APP_HELPERS_END
 
 # Pinta and OBS Studio are free software and come within the image; the rest
 # do not. Without this check, `--all` would recompile OBS entirely (half an hour) to
@@ -2349,16 +2473,21 @@ need_sudo() {
 aur_build() {
   # A single `local` expands ALL values before assigning any, so
   # $pkg would not exist when building $dir, and with set -u the script aborts.
-  local pkg="$1" want="${2:-$1}"
+  local pkg="$1" want="${2:-$1}" lock_key="${3:-}"
   local dir="$WORK/$pkg" base
   pacman -Q "$want" >/dev/null 2>&1 && { ok "$want is already installed" "$want ya instalado"; return 0; }
 
-  base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
-         | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
-  [ -n "$base" ] || base="$pkg"
-
-  rm -rf "$dir"; mkdir -p "$WORK"
-  git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null
+  if [[ -n $lock_key ]]; then
+    base=$lock_key
+    clone_reviewed_source "$lock_key" "$dir" \
+      || { fail "could not fetch reviewed source: $lock_key" "no se pudo obtener la fuente revisada: $lock_key"; return 1; }
+  else
+    base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
+           | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
+    [ -n "$base" ] || base="$pkg"
+    rm -rf "$dir"; mkdir -p "$WORK"
+    git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null
+  fi
   [ -f "$dir/PKGBUILD" ] || { fail "could not clone $pkg (base: $base)" "no se pudo clonar $pkg (base: $base)"; return 1; }
 
   # Several PKGBUILDs verify the upstream signature in check(). If the key is
@@ -2499,13 +2628,17 @@ do_pinta() {
   title "Pinta"
   info "Microsoft publishes .NET for linux-arm64; Arch only packages it for x86_64." "Microsoft sí publica .NET para linux-arm64; Arch solo lo empaqueta para x86_64."
   info "The runtime is installed from the official tarball, followed by Pinta's arch=any package." "Se instala el runtime desde el tarball oficial y luego el paquete de Pinta, que es arch=any."
-  aur_build dotnet-runtime-bin dotnet-runtime-bin || { fail "cannot continue without the .NET runtime" "sin runtime .NET no se puede seguir"; return 1; }
-  local url=https://geo.mirror.pkgbuild.com/extra/os/x86_64/
-  local file; file=$(curl -fsSL --max-time 30 "$url" | grep -o 'pinta-[0-9][^"]*-any\.pkg\.tar\.zst' | sort -V | tail -1)
-  [ -n "$file" ] || { fail "could not find the Pinta package" "no encontré el paquete de Pinta"; return 1; }
+  aur_build dotnet-runtime-bin dotnet-runtime-bin dotnet-runtime-bin || { fail "cannot continue without the .NET runtime" "sin runtime .NET no se puede seguir"; return 1; }
+  local key url digest signer file package_file signature_file
+  read -r key url digest signer <<< "$(artifact_lock_record pinta-package)"
+  file=${url##*/}
   info "$file  ${c_dim}(the path says x86_64, but the package is arch=any)${c_off}" "$file  ${c_dim}(la ruta dice x86_64 pero el paquete es arch=any)${c_off}"
-  mkdir -p "$WORK"; curl -fL --progress-bar "$url$file" -o "$WORK/$file" || return 1
-  sudo pacman -U --noconfirm "$WORK/$file" >/dev/null 2>&1 && ok "$(pacman -Q pinta)" || { fail "pacman -U failed" "pacman -U falló"; return 1; }
+  mkdir -p "$WORK"
+  package_file="$WORK/$file"; signature_file="$package_file.sig"
+  curl -fL --progress-bar "$url" -o "$package_file" || return 1
+  curl -fsSL --max-time 30 "$url.sig" -o "$signature_file" || { fail "Pinta signature download failed" "fallo la descarga de la firma de Pinta"; return 1; }
+  verify_reviewed_artifact "$package_file" "$signature_file" "$digest" "$signer" || return 1
+  sudo pacman -U --noconfirm "$package_file" >/dev/null 2>&1 && ok "$(pacman -Q pinta)" || { fail "pacman -U failed" "pacman -U falló"; return 1; }
   warn "this is outside the update manager; repeat manually for each version" "queda fuera del gestor de actualizaciones: cada versión hay que repetirla a mano"
 }
 
@@ -2516,9 +2649,18 @@ do_obs() {
   warn "building Qt6 + OBS inside the VM takes a while" "compilar Qt6 + OBS dentro de la VM lleva un buen rato"
   local dir="$WORK/obs-studio"
   rm -rf "$dir"; mkdir -p "$WORK"
-  git clone -q --depth 1 https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git "$dir" \
+  clone_reviewed_source obs-studio-pkgbuild "$dir" \
     || { fail "could not clone Arch's PKGBUILD" "no pude clonar el PKGBUILD de Arch"; return 1; }
   cd "$dir" || return 1
+  local obs_commit dshow_commit browser_commit websocket_commit
+  obs_commit=$(source_lock_record obs-studio-source | awk '{ print $4 }')
+  dshow_commit=$(source_lock_record obs-libdshowcapture | awk '{ print $4 }')
+  browser_commit=$(source_lock_record obs-browser | awk '{ print $4 }')
+  websocket_commit=$(source_lock_record obs-websocket | awk '{ print $4 }')
+  sed -i 's|#tag=$pkgver|#commit='"$obs_commit"'|' PKGBUILD
+  sed -i 's|libdshowcapture.git"|libdshowcapture.git#commit='"$dshow_commit"'"|' PKGBUILD
+  sed -i 's|obs-browser.git"|obs-browser.git#commit='"$browser_commit"'"|' PKGBUILD
+  sed -i 's|obs-websocket.git"|obs-websocket.git#commit='"$websocket_commit"'"|' PKGBUILD
   sed -i "s/^arch=(\(.*\))/arch=(\1 'aarch64')/" PKGBUILD
   # NOTE: 'cef' goes on the SAME line as makedepends=, not on its own, so
   # it must be removed as a token and not as a complete line.
@@ -2539,6 +2681,10 @@ do_obs() {
   # The browser subpackage is no longer generated
   sed -i '/^package_obs-studio-plugin-browser()/,/^}/d' PKGBUILD
   sed -i "s/^pkgname=(.*)/pkgname=('obs-studio')/" PKGBUILD
+  if grep -E '^  ".*::git\+https://' PKGBUILD | grep -Evq '#commit=[0-9a-f]{40}"$'; then
+    fail "OBS PKGBUILD still contains an unpinned Git source" "el PKGBUILD de OBS aun contiene una fuente Git sin fijar"
+    return 1
+  fi
   info "PKGBUILD patched: aarch64, no CEF, no browser plugin" "PKGBUILD parcheado: aarch64, sin CEF, sin plugin de navegador"
   if makepkg -si --noconfirm --needed --noprogressbar >"$dir/build.log" 2>&1; then
     ok "$(pacman -Q obs-studio)"
@@ -2614,6 +2760,15 @@ case "${1:-}" in
 esac
 
 [ ${#SELECTED[@]} -gt 0 ] || { info "nothing selected" "nada seleccionado"; exit 0; }
+
+LOCKED_SELECTED=()
+for k in "${SELECTED[@]}"; do
+  case "$k" in
+    pinta|obs)
+      if [ "$FORCE" = 1 ] || ! is_installed "$k"; then LOCKED_SELECTED+=("$k"); fi ;;
+  esac
+done
+validate_free_app_locks "${LOCKED_SELECTED[@]}" || exit 1
 
 need_sudo || exit 1
 mkdir -p "$WORK"
@@ -3646,12 +3801,12 @@ ph_build() {
   # Short names: hdiutil truncates long ones in the ISO9660 tree
   make_iso "$W/provision/provision.iso" \
     "$W/provision/stage1.sh" "$W/provision/stage2.sh" "$W/provision/stage3.sh" \
-    "$W/provision/config.env" "$W/provision/core-git-sources.tsv" \
+    "$W/provision/config.env" "$W/provision/core-git-sources.tsv" "$W/provision/free-app-artifacts.tsv" \
     "$W/provision/packages-core.txt" "$W/provision/packages-extra.txt"
   ln -f "$W/dl/alarm-rootfs.tgz" /tmp/alarm-rootfs.tgz 2>/dev/null || true
   # the rootfs travels inside the provisioning ISO
   local d; d=$(mktemp -d)
-  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,packages-core.txt,packages-extra.txt} "$d"/
+  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,packages-core.txt,packages-extra.txt} "$d"/
   cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
@@ -3770,6 +3925,7 @@ PY
   #   C  all five clipboard integration checks pass
   #   T  ttfx is available (the real binary or the static fallback)
   #   P  installed Omarchy is exactly the reviewed source-lock commit
+  #   F  both reviewed free-app packages are installed when HACER_LIBRES=si
   # The previous threshold checked /usr/local/bin, where commands are no longer placed: it was
   # a guaranteed false positive once they were moved to /usr/bin.
   local vlog="$W/logs/verify.log"
@@ -3778,7 +3934,7 @@ PY
   # the Mac instead of inside the VM (pgrep with BSD syntax, systemctl
   # nonexistent). The three required values are passed via the environment and
   # read with $env(...), which is a Tcl feature, not bash.
-  PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" \
+  PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" GLIBRES="$HACER_LIBRES" \
   expect > "$vlog" 2>&1 <<'EXPEOF'
 set timeout 30
 log_user 1
@@ -3816,7 +3972,7 @@ expect {
 #
 # C counts the five known ways the clipboard can die. None
 # require a connected SPICE client, so it can be checked here.
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRES)\" = si ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
 set timeout 60
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
@@ -4199,7 +4355,7 @@ while (($#)); do
     --only) run_only="${2:-}"; [[ -n $run_only ]] || { usage; die "--only requires a phase (${PHASES[*]})" "--only necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
     --print-language) printf '%s\n' "$OMARCHY_LANG"; exit 0 ;;
-    --check-core-source-lock) ensure_dirs; write_core_source_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; ok "core Git source lock is valid" "el bloqueo de fuentes Git principales es valido"; exit 0 ;;
+    --check-core-source-lock) ensure_dirs; write_core_source_lock; write_free_app_artifact_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; validate_free_app_artifact_lock "$W/provision/free-app-artifacts.tsv"; ok "reviewed source locks are valid" "los bloqueos de fuentes revisadas son validos"; exit 0 ;;
     --yes|-y|--sin-preguntas) ASSUME_YES=1; INTERACTIVO=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" "opcion desconocida: $1" ;;

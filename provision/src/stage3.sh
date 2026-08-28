@@ -11,7 +11,9 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage3] $text";
 
 SOURCE_LOCK=/usr/share/omarchy-arm/core-git-sources.tsv
 CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
-                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+                  ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+                  dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
+                  obs-libdshowcapture obs-browser obs-websocket)
 
 # CORE_SOURCE_LOCK_HELPERS_BEGIN
 source_lock_record() {
@@ -25,7 +27,8 @@ validate_core_source_lock() {
     [[ -z $line || $line == \#* ]] && continue
     read -r key url ref commit extra <<< "$line"
     [[ -z ${extra:-} && $key =~ ^[a-z0-9][a-z0-9._+-]*$ && $url == https://* \
-        && $ref =~ ^(HEAD|refs/heads/[A-Za-z0-9._/-]+)$ && $commit =~ ^[0-9a-f]{40}$ ]] \
+        && $ref =~ ^(HEAD|PINNED|refs/heads/[A-Za-z0-9._/-]+|refs/tags/[A-Za-z0-9._/+:-]+\^\{\})$ \
+        && $commit =~ ^[0-9a-f]{40}$ ]] \
       || { warn "invalid core Git source-lock record: $line"; return 1; }
     [[ $seen != *" $key "* ]] || { warn "duplicate core Git source-lock key: $key"; return 1; }
     seen="$seen$key "
@@ -651,9 +654,11 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
       echo "  pinta: $(pacman -Q pinta 2>/dev/null || ui_text MISSING FALTA)"
       echo "  obs:   $(pacman -Q obs-studio 2>/dev/null || ui_text MISSING FALTA)"
+      pacman -Q pinta obs-studio >/dev/null 2>&1 \
+        || { warn "OBS or Pinta did not remain installed" "OBS o Pinta no quedaron instalados"; exit 1; }
     else
-      warn "OBS or Pinta was not installed; they can be added later with:" "OBS o Pinta no se instalaron; se pueden anadir despues con:"
-      warn "  omarchy-arm-extras pinta obs"
+      warn "OBS or Pinta failed the reviewed-source installation" "OBS o Pinta fallaron la instalacion desde fuentes revisadas"
+      exit 1
     fi
   else
     echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (HACER_LIBRES=no)"

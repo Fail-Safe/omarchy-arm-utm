@@ -13,9 +13,9 @@ warn() { local text; text=$(ui_text "$1" "${2:-$1}"); echo "!!  [stage2] $text";
 trap 'warn "failed at line $LINENO" "fallo en la linea $LINENO"; exit 1' ERR
 
 # ---------------------------------------------------------------- pacman
-log "initializing the Arch Linux ARM keyring" "inicializando el llavero de Arch Linux ARM"
+log "initializing the Arch Linux and Arch Linux ARM keyrings" "inicializando los llaveros de Arch Linux y Arch Linux ARM"
 pacman-key --init
-pacman-key --populate archlinuxarm
+pacman-key --populate archlinux archlinuxarm
 
 # The mirrors included in the tarball use HTTP. Although pacman verifies the signature of
 # each package, TLS also protects the index, version selection, and
@@ -277,6 +277,7 @@ usermod -aG docker "$VM_USER" 2>/dev/null || true
 log "stage 3: Omarchy dotfiles as $VM_USER" "etapa 3: dotfiles de Omarchy como $VM_USER"
 chmod +x /root/prov/stage3.sh
 install -Dm644 /root/prov/core-git-sources.tsv /usr/share/omarchy-arm/core-git-sources.tsv
+install -Dm644 /root/prov/free-app-artifacts.tsv /usr/share/omarchy-arm/free-app-artifacts.tsv
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # stage3 runs as a normal user and /root is 0750: any test you perform on
 # /root/prov returns false without error. A readable copy is left in their home.

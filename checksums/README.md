@@ -33,3 +33,23 @@ the manifest and re-embed it in the standalone builder.
 
 This locks source selection, not all binary inputs: Arch Linux ARM repositories
 and language package registries remain live dependency sources.
+
+`PINNED` in the refresh-ref column means the commit is derived from another
+reviewed source rather than independently following a remote branch. The OBS
+submodule commits use this form because they must match the gitlinks in the
+reviewed OBS source commit.
+
+# Default free-app artifacts
+
+`free-app-artifacts.tsv` records the exact Pinta package URL, SHA-256, and Arch
+package-signing fingerprint used by the default `HACER_LIBRES=si` build. The
+installer downloads both the package and its detached signature, verifies the
+reviewed digest and signer, and only then permits `pacman -U`. Stage 2 populates
+the Arch Linux keyring bundled in the reviewed base image alongside the Arch
+Linux ARM keyring.
+
+When updating Pinta, review the package metadata and its `dotnet-runtime-*`
+dependency together with the pinned `dotnet-core-bin` recipe. Record the new
+exact URL, digest, and signer fingerprint, re-embed the payload, and run the
+full default VM build; selecting the newest mirror filename at build time is
+intentionally unsupported.

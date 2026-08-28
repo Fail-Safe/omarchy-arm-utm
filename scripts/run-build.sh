@@ -11,7 +11,7 @@ ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else prin
 echo "=== $(ui_text 'preparing provisioning ISO' 'preparando ISO de aprovisionamiento') ==="
 rm -rf provision/iso && mkdir -p provision/iso
 cp provision/src/stage1.sh provision/src/stage2.sh provision/src/stage3.sh \
-   provision/src/config.env checksums/core-git-sources.tsv \
+   provision/src/config.env checksums/core-git-sources.tsv checksums/free-app-artifacts.tsv \
    provision/src/packages-core.txt provision/src/packages-extra.txt \
    provision/iso/
 # short name to avoid dependency on ISO9660 extensions

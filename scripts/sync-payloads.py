@@ -30,6 +30,7 @@ if sys.argv[1:] not in ([], ["--check"]):
     raise SystemExit("usage: scripts/sync-payloads.py [--check]")
 MAPA={
  "__PAYLOAD_CORE_GIT_SOURCES_TSV__":"checksums/core-git-sources.tsv",
+ "__PAYLOAD_FREE_APP_ARTIFACTS_TSV__":"checksums/free-app-artifacts.tsv",
  "__PAYLOAD_PROVISION_STAGE1_SH__":"provision/src/stage1.sh",
  "__PAYLOAD_PROVISION_STAGE2_SH__":"provision/src/stage2.sh",
  "__PAYLOAD_PROVISION_STAGE3_SH__":"provision/src/stage3.sh",
@@ -46,6 +47,13 @@ MAPA={
  "__PAYLOAD_SCRIPTS_MAKE-UTM_SH__":"scripts/make-utm.sh",
 
 }
+MIRRORS={
+ "provision/repair-iso/repair.sh":"provision/src/repair.sh",
+ "provision/repair-iso/sanitize.sh":"provision/src/sanitize.sh",
+ "provision/repair-iso/extras.sh":"provision/src/omarchy-arm-extras",
+ "provision/repair-iso/core-git-sources.tsv":"checksums/core-git-sources.tsv",
+ "provision/repair-iso/free-app-artifacts.tsv":"checksums/free-app-artifacts.tsv",
+}
 p=os.path.join(RAIZ,"build-omarchy-arm.sh")
 lineas=open(p).read().split("\n")
 cambios=0
@@ -59,11 +67,24 @@ for marca,rel in MAPA.items():
     cambios+=1
     print(ui_text(f"  re-embedded {os.path.basename(rel)} ({len(nuevo)} lines)",
                   f"  re-incrustado {os.path.basename(rel)} ({len(nuevo)} lineas)"))
+if not CHECK:
+    open(p,"w").write("\n".join(lineas))
+
+for target_rel, source_rel in MIRRORS.items():
+    target=os.path.join(RAIZ,target_rel)
+    source=os.path.join(RAIZ,source_rel)
+    current=open(target).read() if os.path.exists(target) else None
+    wanted=open(source).read()
+    if current == wanted: continue
+    cambios+=1
+    print(ui_text(f"  synchronized {target_rel} from {source_rel}",
+                  f"  sincronizado {target_rel} desde {source_rel}"))
+    if not CHECK:
+        os.makedirs(os.path.dirname(target),exist_ok=True)
+        open(target,"w").write(wanted)
 if cambios and CHECK:
     raise SystemExit(ui_text(f"{cambios} payload(s) are out of sync",
                              f"{cambios} payload(s) desincronizados"))
-if not CHECK:
-    open(p,"w").write("\n".join(lineas))
 print(ui_text(f"  {cambios} payload(s) updated" if cambios else "  all payloads are already synchronized",
               f"  {cambios} payload(s) actualizados" if cambios else "  todo ya estaba sincronizado"))
 

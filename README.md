@@ -123,6 +123,11 @@ provenance is in [`checksums/`](checksums/). Maintainers can run
 `scripts/update-base-image-pins.sh` to verify two official Arch Linux ARM
 mirrors plus its detached signature before proposing an update.
 
+The default OBS/Pinta path is also reviewed and fail closed: its AUR and
+packaging recipes, OBS source/submodules, and exact Pinta package are pinned.
+Pinta must match both the recorded SHA-256 and Arch signing fingerprint before
+the local package can reach `pacman -U`.
+
 ### How long
 
 Measured on an M3 Max, tools compiled, without OBS/Pinta:

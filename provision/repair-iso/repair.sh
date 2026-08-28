@@ -1,6 +1,6 @@
 #!/bin/sh
-# Reopens the system already installed on /dev/vda and runs a script inside the chroot,
-# without repartitioning or downloading anything. To iterate after a specific failure.
+# Re-mount the already installed system on /dev/vda and run a script inside the chroot,
+# without re-partitioning or downloading anything. To iterate after a specific failure.
 set -eu
 PROV=/media/prov
 . "$PROV/config.env" 2>/dev/null || true
@@ -50,6 +50,8 @@ log "running $FIXSCRIPT inside the chroot" "ejecutando $FIXSCRIPT dentro del chr
 mkdir -p /mnt/root/prov
 cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/config.env" ] && cp "$PROV/config.env" /mnt/root/prov/
+[ -f "$PROV/core-git-sources.tsv" ] && cp "$PROV/core-git-sources.tsv" /mnt/root/prov/
+[ -f "$PROV/free-app-artifacts.tsv" ] && cp "$PROV/free-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
@@ -65,8 +67,8 @@ chroot /mnt /bin/bash "/root/prov/$FIXSCRIPT"
 rc=$?
 set -e
 
-# The working directory must not be left inside the system: scripts accumulate there
-# from all the repair scripts of previous runs.
+# The working directory must not be left inside the system: all repair scripts from
+# previous runs accumulate there.
 log "removing /root/prov from the installed system" "retirando /root/prov del sistema instalado"
 ls /mnt/root/prov 2>/dev/null | tr '\n' ' '; echo
 rm -rf /mnt/root/prov

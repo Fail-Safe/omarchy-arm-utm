@@ -9,7 +9,9 @@ cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
 
 expected=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
-          ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr)
+          ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+          dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
+          obs-libdshowcapture obs-browser obs-websocket)
 for key in "${expected[@]}"; do
   [[ $(awk -v key="$key" '$1 == key { count++ } END { print count + 0 }' "$LOCK") == 1 ]]
 done
@@ -17,7 +19,8 @@ done
 awk '
   /^[[:space:]]*($|#)/ { next }
   NF != 4 || $1 !~ /^[a-z0-9][a-z0-9._+-]*$/ || $2 !~ /^https:\/\// ||
-    $3 !~ /^(HEAD|refs\/heads\/[A-Za-z0-9._\/-]+)$/ || $4 !~ /^[0-9a-f]{40}$/ { exit 1 }
+    $3 !~ /^(HEAD|PINNED|refs\/heads\/[A-Za-z0-9._\/-]+|refs\/tags\/[A-Za-z0-9._\/+:-]+\^\{\})$/ ||
+    $4 !~ /^[0-9a-f]{40}$/ { exit 1 }
 ' "$LOCK"
 [[ $(awk '$1 == "yaru-icon-theme" { print $2 }' "$LOCK") == https://aur.archlinux.org/yaru.git ]]
 
@@ -62,6 +65,7 @@ git init -q --bare "$TMP/remote.git"
 git init -q "$TMP/author"
 git -C "$TMP/author" config user.email fixture@example.invalid
 git -C "$TMP/author" config user.name Fixture
+git -C "$TMP/author" config commit.gpgsign false
 printf 'reviewed\n' > "$TMP/author/source.txt"
 git -C "$TMP/author" add source.txt
 git -C "$TMP/author" commit -qm reviewed
