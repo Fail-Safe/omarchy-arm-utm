@@ -43,7 +43,8 @@ set -uo pipefail
 # value", and detect_from_host was overwriting what the user had set:
 # `UTM_MEM=16384 ./build-omarchy-arm.sh --yes` was building with a different value.
 FIJADO_POR_ENTORNO=""
-for _v in OMARCHY_LANG VM_TIMEZONE VM_KEYMAP VM_XKB UTM_CPUS UTM_MEM; do
+for _v in OMARCHY_LANG VM_TIMEZONE VM_KEYMAP VM_XKB UTM_CPUS UTM_MEM \
+          INCLUDE_LIBRE_APPS HACER_LIBRES; do
   [ -n "${!_v:-}" ] && FIJADO_POR_ENTORNO="$FIJADO_POR_ENTORNO $_v"
 done
 unset _v
@@ -131,7 +132,7 @@ INTERACTIVO=0
 RESPUESTAS_VARS=(OMARCHY_LANG VM_NAME VM_USER VM_PASSWORD VM_FULLNAME VM_EMAIL VM_HOSTNAME
                  VM_TIMEZONE VM_KEYMAP VM_XKB VM_LOCALE VM_LOCALE_EXTRA
                  OMARCHY_REF DIST_NEW_USER DISK_SIZE UTM_CPUS UTM_MEM
-                 HACER_TOOLS HACER_LIBRES HACER_DIST)
+                 HACER_TOOLS INCLUDE_LIBRE_APPS HACER_DIST)
 
 shq() { printf "%s" "${1-}" | sed "s/'/'\\\\''/g"; }
 
@@ -156,6 +157,22 @@ cargar_respuestas() {
     val=$(. "$W/respuestas.env" >/dev/null 2>&1; printf '%s' "${!v-}")
     printf -v "$v" '%s' "$val"
   done
+  # Migrate saved answers from builds created before INCLUDE_LIBRE_APPS became
+  # canonical. An explicit current environment value always wins.
+  if ! del_entorno INCLUDE_LIBRE_APPS \
+      && ! grep -q '^INCLUDE_LIBRE_APPS=' "$W/respuestas.env" \
+      && grep -q '^HACER_LIBRES=' "$W/respuestas.env"; then
+    val=$(. "$W/respuestas.env" >/dev/null 2>&1; printf '%s' "${HACER_LIBRES-}")
+    case "$val" in
+      si) INCLUDE_LIBRE_APPS=yes ;;
+      no) INCLUDE_LIBRE_APPS=no ;;
+      *) die "invalid legacy HACER_LIBRES='$val'; expected si or no" "HACER_LIBRES antiguo no valido: '$val'; se esperaba si o no" ;;
+    esac
+  fi
+  case "$INCLUDE_LIBRE_APPS" in
+    yes|no) ;;
+    *) die "invalid INCLUDE_LIBRE_APPS='$INCLUDE_LIBRE_APPS'; expected yes or no" "INCLUDE_LIBRE_APPS no valido: '$INCLUDE_LIBRE_APPS'; se esperaba yes o no" ;;
+  esac
   # NOTE: PHASES are NOT touched here. Trimming it at this point broke four things
   # the time -- the worst, that phase name validation runs BEFORE, so
   # `--from sanitize` (exactly the escape suggested by the ph_verify die) is
@@ -1653,8 +1670,22 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   # that is how they are distributed. They are installed with the same installer to avoid
   # duplicating their logic (OBS needs to remove the browser plugin, whose CEF is
   # x86-only; Pinta needs Microsoft's .NET arm64, which Arch does not package).
-  # This is the most expensive part of the build: ~45 min. HACER_LIBRES=no skips it.
-  if [ "${HACER_LIBRES:-si}" = "si" ]; then
+  # New builds use INCLUDE_LIBRE_APPS=yes|no. Accept the former Spanish setting
+  # when repairing or resuming an older provisioning image.
+  if [[ -z ${INCLUDE_LIBRE_APPS:-} && -n ${HACER_LIBRES:-} ]]; then
+    case "$HACER_LIBRES" in
+      si) INCLUDE_LIBRE_APPS=yes ;;
+      no) INCLUDE_LIBRE_APPS=no ;;
+      *) warn "invalid legacy HACER_LIBRES='$HACER_LIBRES'" "HACER_LIBRES antiguo no valido: '$HACER_LIBRES'"; exit 1 ;;
+    esac
+  fi
+  : "${INCLUDE_LIBRE_APPS:=yes}"
+  case "$INCLUDE_LIBRE_APPS" in
+    yes|no) ;;
+    *) warn "invalid INCLUDE_LIBRE_APPS='$INCLUDE_LIBRE_APPS'" "INCLUDE_LIBRE_APPS no valido: '$INCLUDE_LIBRE_APPS'"; exit 1 ;;
+  esac
+  # This is the most expensive part of the build: ~45 min. INCLUDE_LIBRE_APPS=no skips it.
+  if [ "$INCLUDE_LIBRE_APPS" = yes ]; then
     log "OBS Studio and Pinta (free software included in the image; ~45 min)" "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
       echo "  pinta: $(pacman -Q pinta 2>/dev/null || ui_text MISSING FALTA)"
@@ -1666,7 +1697,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
       exit 1
     fi
   else
-    echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (HACER_LIBRES=no)"
+    echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (INCLUDE_LIBRE_APPS=no)"
   fi
 fi
 
@@ -3775,7 +3806,7 @@ ALARM_MIRROR_SECONDARY='$(cfgq "$ALARM_MIRROR_SECONDARY")'
 DIST_OLD_USER='$(cfgq "$VM_USER")'
 DIST_NEW_USER='$(cfgq "$DIST_NEW_USER")'
 HACER_TOOLS='$(cfgq "$HACER_TOOLS")'
-HACER_LIBRES='$(cfgq "$HACER_LIBRES")'
+INCLUDE_LIBRE_APPS='$(cfgq "$INCLUDE_LIBRE_APPS")'
 CFGEOF
   # Harnesses carry the root as a marker @OMARM_ROOT@: it is replaced upon
   # deployment. Previously it was the literal path on the Mac where they were written.
@@ -3913,7 +3944,7 @@ PY
   [[ -n $pty ]] || die "could not open the serial port for '$VM_NAME'; verification is impossible without it (to continue anyway: --from sanitize)" "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Previously this phase collected metrics and did not compare them with anything, so
   # it ended in "ok" regardless of what happened. Now the guest emits a verdict
-  # and the host checks it. Nine conditions, all necessary:
+  # and the host checks it. Ten conditions, all necessary:
   #   H  Hyprland running
   #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
   #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
@@ -3925,7 +3956,7 @@ PY
   #   C  all five clipboard integration checks pass
   #   T  ttfx is available (the real binary or the static fallback)
   #   P  installed Omarchy is exactly the reviewed source-lock commit
-  #   F  both reviewed free-app packages are installed when HACER_LIBRES=si
+  #   F  both reviewed libre-app packages are installed when INCLUDE_LIBRE_APPS=yes
   # The previous threshold checked /usr/local/bin, where commands are no longer placed: it was
   # a guaranteed false positive once they were moved to /usr/bin.
   local vlog="$W/logs/verify.log"
@@ -3934,7 +3965,7 @@ PY
   # the Mac instead of inside the VM (pgrep with BSD syntax, systemctl
   # nonexistent). The three required values are passed via the environment and
   # read with $env(...), which is a Tcl feature, not bash.
-  PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" GLIBRES="$HACER_LIBRES" \
+  PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" GLIBRE_APPS="$INCLUDE_LIBRE_APPS" \
   expect > "$vlog" 2>&1 <<'EXPEOF'
 set timeout 30
 log_user 1
@@ -3964,22 +3995,22 @@ expect {
 # in every build against a hypothesis. If a bug of
 # that type reappears someday, this is the place to restart and repeat the verdict.
 #
-# NOTE 2: the token is SPLIT (VERED\"ICTO_OK\"). The serial console echoes the
+# NOTE 2: the token is SPLIT (VERD\"ICT_OK\"). The serial console echoes the
 # command, so if the token traveled whole, the log would contain the string
-# VEREDICTO_OK before the guest responded with anything, and the host's `grep`
+# VERDICT_OK before the guest responded with anything, and the host's `grep`
 # would find it there: the phase would always return OK, regardless of what happened.
-# Split, the echo shows VERED"ICTO_OK" and only the actual response matches.
+# Split, the echo shows VERD"ICT_OK" and only the actual response matches.
 #
 # C counts the five known ways the clipboard can die. None
 # require a connected SPICE client, so it can be checked here.
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRES)\" = si ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRE_APPS)\" = yes ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERD\"ICT_OK\"; else echo VERD\"ICT_KO\"; fi\r"
 set timeout 60
-expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
+expect { -re {VERDICT_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
-  if grep -qa "^VEREDICTO_OK" "$vlog"; then
+  if grep -qa "^VERDICT_OK" "$vlog"; then
     ok "VM '$VM_NAME' verified: reviewed Omarchy source, Hyprland + Quickshell running, commands and units in place, clipboard operational" "VM '$VM_NAME' verificada: fuente revisada de Omarchy, Hyprland + quickshell vivos, comandos y unidades en su sitio, portapapeles operativo"
-  elif grep -qa "^VEREDICTO_KO" "$vlog"; then
+  elif grep -qa "^VERDICT_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "the VM boots but the desktop is incomplete; log at $vlog" "la VM arranca pero el escritorio no esta completo; log en $vlog"
   else
@@ -4236,10 +4267,29 @@ __PAYLOAD_LEEME_MD__
 # locales) remains configurable through environment variables: these are
 # implementation details, not decisions.
 # Use ':=' so they can be set from the environment, just like the rest:
-#   HACER_LIBRES=no ./build-omarchy-arm.sh --yes
+#   INCLUDE_LIBRE_APPS=no ./build-omarchy-arm.sh --yes
 : "${HACER_TOOLS:=si}"
-: "${HACER_LIBRES:=si}"
 : "${HACER_DIST:=si}"
+
+# INCLUDE_LIBRE_APPS is the canonical English control. HACER_LIBRES remains a
+# read-only compatibility input for existing automation and saved answers.
+if del_entorno INCLUDE_LIBRE_APPS; then
+  :
+elif del_entorno HACER_LIBRES; then
+  case "$HACER_LIBRES" in
+    si) INCLUDE_LIBRE_APPS=yes ;;
+    no) INCLUDE_LIBRE_APPS=no ;;
+    *) die "invalid legacy HACER_LIBRES='$HACER_LIBRES'; expected si or no" "HACER_LIBRES antiguo no valido: '$HACER_LIBRES'; se esperaba si o no" ;;
+  esac
+  FIJADO_POR_ENTORNO="$FIJADO_POR_ENTORNO INCLUDE_LIBRE_APPS"
+else
+  INCLUDE_LIBRE_APPS=yes
+fi
+case "$INCLUDE_LIBRE_APPS" in
+  yes|no) ;;
+  *) die "invalid INCLUDE_LIBRE_APPS='$INCLUDE_LIBRE_APPS'; expected yes or no" "INCLUDE_LIBRE_APPS no valido: '$INCLUDE_LIBRE_APPS'; se esperaba yes o no" ;;
+esac
+unset HACER_LIBRES
 
 cuestionario() {
   detectar_del_anfitrion
@@ -4277,9 +4327,9 @@ cuestionario() {
   # OBS and Pinta are the most expensive parts of the build. The distributable
   # image includes them because they are free software, but a test VM does not need them.
   if confirm "$(ui_text 'Include OBS Studio and Pinta (free software; ~45 min to build)?' 'Incluir OBS Studio y Pinta (software libre, se compilan: ~45 min)?')" si; then
-    HACER_LIBRES=si
+    INCLUDE_LIBRE_APPS=yes
   else
-    HACER_LIBRES=no
+    INCLUDE_LIBRE_APPS=no
     info "they can be added later inside the VM: omarchy-arm-extras pinta obs" "se pueden anadir despues desde dentro: omarchy-arm-extras pinta obs"
   fi
   echo
@@ -4300,7 +4350,7 @@ cuestionario() {
   fi
   echo
   info "summary: $VM_KEYMAP/$VM_XKB · $VM_TIMEZONE · ${UTM_CPUS} cores · ${UTM_MEM} MiB · disk $DISK_SIZE" "resumen: $VM_KEYMAP/$VM_XKB · $VM_TIMEZONE · ${UTM_CPUS} nucleos · ${UTM_MEM} MiB · disco $DISK_SIZE"
-  info "         tools: $HACER_TOOLS · OBS+Pinta: $HACER_LIBRES · distribution: $HACER_DIST" "         herramientas: $HACER_TOOLS · OBS+Pinta: $HACER_LIBRES · repartir: $HACER_DIST"
+  info "         tools: $HACER_TOOLS · OBS+Pinta: $INCLUDE_LIBRE_APPS · distribution: $HACER_DIST" "         herramientas: $HACER_TOOLS · OBS+Pinta: $INCLUDE_LIBRE_APPS · repartir: $HACER_DIST"
   confirm "$(ui_text 'Start?' 'Empezar?')" si || die "cancelled" "cancelado"
   guardar_respuestas
 }
@@ -4355,6 +4405,7 @@ while (($#)); do
     --only) run_only="${2:-}"; [[ -n $run_only ]] || { usage; die "--only requires a phase (${PHASES[*]})" "--only necesita una fase (${PHASES[*]})"; }; shift 2 ;;
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
     --print-language) printf '%s\n' "$OMARCHY_LANG"; exit 0 ;;
+    --print-libre-apps) cargar_respuestas; printf '%s\n' "$INCLUDE_LIBRE_APPS"; exit 0 ;;
     --check-core-source-lock) ensure_dirs; write_core_source_lock; write_free_app_artifact_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; validate_free_app_artifact_lock "$W/provision/free-app-artifacts.tsv"; ok "reviewed source locks are valid" "los bloqueos de fuentes revisadas son validos"; exit 0 ;;
     --yes|-y|--sin-preguntas) ASSUME_YES=1; INTERACTIVO=0; shift ;;
     -h|--help) usage; exit 0 ;;

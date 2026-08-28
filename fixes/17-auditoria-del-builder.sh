@@ -63,7 +63,7 @@
 #  Complete build from scratch (8/8 phases) on 2026-08-23 on an M3 Max:
 #   · 17/17 tools compiled (only herdr fails, due to the Zig version)
 #   · extras=yes menu=yes hook=yes  <- the three blocking ones, resolved
-#   · verify inside the guest: H=1 Q=1 BINS=436 -> VEREDICTO_OK
+#   · verify inside the guest: H=1 Q=1 BINS=436 -> VERDICT_OK
 #   · final image 4.1 GB; ~57 min without OBS/Pinta, ~1 h 50 with them
 #  And the call that stage3 makes for OBS and Pinta, tested separately on that same
 #  VM: rc=0, obs-studio 32.2.2-1, pinta 3.1.2-2, /usr/bin/obs ELF ARM aarch64.

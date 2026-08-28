@@ -42,7 +42,7 @@ reviewed OBS source commit.
 # Default free-app artifacts
 
 `free-app-artifacts.tsv` records the exact Pinta package URL, SHA-256, and Arch
-package-signing fingerprint used by the default `HACER_LIBRES=si` build. The
+package-signing fingerprint used by the default `INCLUDE_LIBRE_APPS=yes` build. The
 installer downloads both the package and its detached signature, verifies the
 reviewed digest and signer, and only then permits `pacman -U`. Stage 2 populates
 the Arch Linux keyring bundled in the reviewed base image alongside the Arch

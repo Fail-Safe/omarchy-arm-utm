@@ -648,8 +648,22 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
   # that is how they are distributed. They are installed with the same installer to avoid
   # duplicating their logic (OBS needs to remove the browser plugin, whose CEF is
   # x86-only; Pinta needs Microsoft's .NET arm64, which Arch does not package).
-  # This is the most expensive part of the build: ~45 min. HACER_LIBRES=no skips it.
-  if [ "${HACER_LIBRES:-si}" = "si" ]; then
+  # New builds use INCLUDE_LIBRE_APPS=yes|no. Accept the former Spanish setting
+  # when repairing or resuming an older provisioning image.
+  if [[ -z ${INCLUDE_LIBRE_APPS:-} && -n ${HACER_LIBRES:-} ]]; then
+    case "$HACER_LIBRES" in
+      si) INCLUDE_LIBRE_APPS=yes ;;
+      no) INCLUDE_LIBRE_APPS=no ;;
+      *) warn "invalid legacy HACER_LIBRES='$HACER_LIBRES'" "HACER_LIBRES antiguo no valido: '$HACER_LIBRES'"; exit 1 ;;
+    esac
+  fi
+  : "${INCLUDE_LIBRE_APPS:=yes}"
+  case "$INCLUDE_LIBRE_APPS" in
+    yes|no) ;;
+    *) warn "invalid INCLUDE_LIBRE_APPS='$INCLUDE_LIBRE_APPS'" "INCLUDE_LIBRE_APPS no valido: '$INCLUDE_LIBRE_APPS'"; exit 1 ;;
+  esac
+  # This is the most expensive part of the build: ~45 min. INCLUDE_LIBRE_APPS=no skips it.
+  if [ "$INCLUDE_LIBRE_APPS" = yes ]; then
     log "OBS Studio and Pinta (free software included in the image; ~45 min)" "OBS Studio y Pinta (software libre, van dentro de la imagen; ~45 min)"
     if /usr/local/bin/omarchy-arm-extras pinta obs; then
       echo "  pinta: $(pacman -Q pinta 2>/dev/null || ui_text MISSING FALTA)"
@@ -661,7 +675,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-share" ]; then
       exit 1
     fi
   else
-    echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (HACER_LIBRES=no)"
+    echo "  $(ui_text 'OBS and Pinta skipped' 'OBS y Pinta omitidos') (INCLUDE_LIBRE_APPS=no)"
   fi
 fi
 

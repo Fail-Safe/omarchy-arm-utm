@@ -100,6 +100,8 @@ Y luego las tres que **sí cambian el resultado**:
   el plugin de navegador, cuyo CEF es x86-only) y Pinta necesita el .NET arm64
   oficial de Microsoft. Si dices que no, se añaden luego desde dentro con
   `omarchy-arm-extras pinta obs`.
+  En modo desatendido se controla con `INCLUDE_LIBRE_APPS=yes|no`; el nombre
+  anterior `HACER_LIBRES=si|no` solo se conserva como entrada compatible.
 
 - **¿Preparar la imagen para repartir?**
   - **No** (lo que propone la pregunta: basta con Enter): la VM se queda con tu

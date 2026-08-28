@@ -106,6 +106,9 @@ It asks six values that it pre-fills from your Mac — timezone from
 so Enter accepts them, then three decisions (compile the tools? include OBS and
 Pinta? prepare the image for distribution?) and a couple of follow-ups depending
 on the last one. Add `--yes` to skip all of it; with no tty it never asks.
+For unattended builds, `INCLUDE_LIBRE_APPS=yes|no` controls OBS and Pinta.
+The former `HACER_LIBRES=si|no` spelling remains accepted for compatibility,
+but new configuration and saved answers use the English name.
 
 **The script is a single self-contained file.** It embeds the fifteen files it
 needs — three install stages, the sanitiser, the repair harness, the optional-app
@@ -356,7 +359,7 @@ The guest-side verdict, read back over the serial console:
 
 ```
 ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
-VEREDICTO_OK
+VERDICT_OK
 ```
 
 **16 of the 17 tools build.** `herdr` does not, and won't until the repos ship

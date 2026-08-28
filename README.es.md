@@ -151,6 +151,11 @@ y `package` y conserva tu usuario. Lo contestado se guarda en
 volver a teclearlo. Sin terminal, o con `--yes`, no pregunta nada: el modo
 desatendido de siempre sigue intacto.
 
+En construcciones desatendidas, `INCLUDE_LIBRE_APPS=yes|no` controla OBS y
+Pinta. La forma anterior `HACER_LIBRES=si|no` sigue aceptándose por
+compatibilidad, pero la configuración y las respuestas nuevas usan el nombre
+en inglés.
+
 La fase `prepare` calcula la lista de paquetes en cada ejecución, cruzando la
 rama viva de Omarchy con el índice de Arch Linux ARM. Así el build no se rompe
 cuando Omarchy cambie de paquetes —que lo hará— y de paso informa de qué se ha
@@ -333,7 +338,7 @@ El veredicto que emite el invitado por la consola serie:
 
 ```
 ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
-VEREDICTO_OK
+VERDICT_OK
 ```
 
 **Compilan 16 de las 17 herramientas.** `herdr` no, y no lo hará mientras los
