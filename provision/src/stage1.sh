@@ -108,7 +108,7 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
-cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" \
+cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" "$PROV/optional-app-artifacts.tsv" \
    "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras

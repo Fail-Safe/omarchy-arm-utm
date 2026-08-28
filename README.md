@@ -131,6 +131,12 @@ packaging recipes, OBS source/submodules, and exact Pinta package are pinned.
 Pinta must match both the recorded SHA-256 and Arch signing fingerprint before
 the local package can reach `pacman -U`.
 
+The user-invoked proprietary-app helper is fail closed too. 1Password and
+Obsidian use exact reviewed artifacts, with mandatory fingerprint-bound GPG
+verification for 1Password; 1Password CLI, Typora, LocalSend, and Chrome build
+only from reviewed AUR recipe commits. A missing or mismatched lock stops before
+the installer can modify the system.
+
 **Each build uses one coherent Arch Linux ARM repository snapshot.** During
 `prepare`, all four enabled databases (`core`, `extra`, `alarm`, and `aur`) must
 have a stable sync marker and identical bytes on two official HTTPS mirrors.

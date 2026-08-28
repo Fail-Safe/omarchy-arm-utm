@@ -238,6 +238,12 @@ omarchy-arm-extras            # menú interactivo
 omarchy-arm-extras --all      # todas
 ```
 
+El instalador usa artefactos versionados y recetas AUR fijadas, no descubre la
+versión más reciente durante la instalación. 1Password exige SHA-256 y la firma
+de la clave oficial esperada; Obsidian exige su URL y SHA-256 exactos. Cualquier
+bloqueo ausente o verificación fallida detiene el proceso antes de modificar el
+sistema.
+
 También aparece en el menú de aplicaciones como «Instalar apps que faltan (ARM)».
 
 Spotify no tiene cliente nativo ARM, pero la web sí funciona: necesita Widevine,

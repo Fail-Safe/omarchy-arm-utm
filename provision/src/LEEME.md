@@ -117,6 +117,12 @@ omarchy-arm-extras --all      # todas las que falten
 
 El listado marca `[ya instalada]` lo que la imagen ya trae, y `--all` lo omite.
 
+El instalador no busca la versión más reciente en cada ejecución: usa artefactos
+y recetas AUR revisados y fijados. 1Password exige tanto el SHA-256 registrado
+como una firma de la clave oficial esperada; Obsidian exige su URL versionada y
+SHA-256 exactos. Si falta un bloqueo o no coincide la verificación, se detiene
+antes de modificar el sistema. `--force` reinstala la versión revisada.
+
 También está en el menú de aplicaciones como **«Instalar apps que faltan (ARM)»**.
 
 | Clave | Qué hace |

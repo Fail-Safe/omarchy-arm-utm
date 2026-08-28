@@ -15,6 +15,10 @@ mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fb
 aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
 cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
 herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
+1password-cli https://aur.archlinux.org/1password-cli.git HEAD b0d208821677a5dbb883a8b92f06a5c92b9e861a
+typora https://aur.archlinux.org/typora.git HEAD 029ff738d5928db82edfa34fc365fcb6743a74e5
+localsend-bin https://aur.archlinux.org/localsend-bin.git HEAD a408db7b17712e0d56c49ca3feb5546808a3220c
+google-chrome https://aur.archlinux.org/google-chrome.git HEAD 1cf56b57305f59919b74a559906d60002edd95a3
 dotnet-runtime-bin https://aur.archlinux.org/dotnet-core-bin.git HEAD 2c499d7ce634efb8e93eee4c4239490b02e98e09
 obs-studio-pkgbuild https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git HEAD 8a0774a179eba2c08b7fff44252098d609c9c6d5
 obs-studio-source https://github.com/obsproject/obs-studio.git refs/tags/32.2.2^{} ba2f32bdf791005443988a4955e963663e16b1ed

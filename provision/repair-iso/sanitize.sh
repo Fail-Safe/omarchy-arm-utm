@@ -261,7 +261,7 @@ for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
 done
 if [ -n "$EXTRAS_SRC" ]; then
-  for lock in core-git-sources.tsv free-app-artifacts.tsv; do
+  for lock in core-git-sources.tsv free-app-artifacts.tsv optional-app-artifacts.tsv; do
     [ -f "/root/prov/$lock" ] \
       || { warn "the reviewed source lock $lock was missing" "faltaba el bloqueo revisado de fuentes $lock"; exit 1; }
     install -Dm644 "/root/prov/$lock" "/usr/share/omarchy-arm/$lock"

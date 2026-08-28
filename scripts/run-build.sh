@@ -27,6 +27,7 @@ rm -rf provision/iso && mkdir -p provision/iso
 cp provision/src/stage1.sh provision/src/stage2.sh provision/src/stage3.sh \
    provision/src/alarm-repository-snapshot.py \
    provision/src/config.env checksums/core-git-sources.tsv checksums/free-app-artifacts.tsv \
+   checksums/optional-app-artifacts.tsv \
    provision/iso/
 cp "$OMARCHY_BUILD_WORK/provision"/{packages-core.txt,packages-extra.txt} provision/iso/
 cp -R "$SNAPSHOT_DIR" provision/iso/alarm-repositories

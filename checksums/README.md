@@ -23,8 +23,9 @@ output; it updates the manifest and the standalone builder together.
 # Core Git sources
 
 `core-git-sources.tsv` pins every Git repository whose contents are built or
-installed during the privileged provisioning path. Builds fetch column 4 only;
-they never fall back to the branch or `HEAD` in column 3.
+installed during privileged provisioning or by the optional-app installer.
+Builds and installers fetch column 4 only; they never fall back to the branch or
+`HEAD` in column 3.
 
 Run `scripts/update-core-source-pins.sh --verify` to resolve current upstream
 refs, verify that every recorded commit remains directly fetchable, and print a
@@ -54,6 +55,23 @@ dependency together with the pinned `dotnet-core-bin` recipe. Record the new
 exact URL, digest, and signer fingerprint, re-embed the payload, and run the
 full default VM build; selecting the newest mirror filename at build time is
 intentionally unsupported.
+
+# Optional proprietary-app inputs
+
+`optional-app-artifacts.tsv` records exact reviewed downloads for the
+user-invoked 1Password and Obsidian installers. 1Password must match both the
+recorded SHA-256 and its mandatory detached signature from fingerprint
+`3FEF9748469ADBE15DA7CA80AC2D62742012EA22`; the signing key is downloaded from
+1Password's HTTPS key endpoint into an isolated temporary keyring and its full
+fingerprint is checked. Obsidian publishes no detached signature, so its exact
+versioned GitHub release URL and SHA-256 are the trust boundary.
+
+The 1Password CLI, Typora, LocalSend, and Google Chrome installers use exact AUR
+recipe commits from `core-git-sources.tsv`; those reviewed recipes in turn pin
+their official aarch64 artifacts with makepkg checksums or signatures. Refresh
+these security-sensitive pins promptly when reviewing a vendor update. Until
+then, `--force` reinstalls the reviewed version instead of discovering the
+newest release at runtime.
 
 # Per-build Arch Linux ARM repository snapshot
 

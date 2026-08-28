@@ -10,6 +10,7 @@ trap cleanup EXIT
 
 expected=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
           ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+          1password-cli typora localsend-bin google-chrome
           dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
           obs-libdshowcapture obs-browser obs-websocket)
 for key in "${expected[@]}"; do

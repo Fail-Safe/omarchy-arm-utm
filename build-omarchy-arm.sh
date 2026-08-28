@@ -343,6 +343,7 @@ ph_fetch() {
 # ───────────────────────────── core Git source lock ─────────────────────────
 CORE_SOURCE_KEYS=(omarchy omarchy-pkgs ttfx yay xdg-terminal-exec yaru-icon-theme
                   ttf-ia-writer tzupdate ufw-docker mise-bin aether cliamp herdr
+                  1password-cli typora localsend-bin google-chrome
                   dotnet-runtime-bin obs-studio-pkgbuild obs-studio-source
                   obs-libdshowcapture obs-browser obs-websocket)
 
@@ -366,6 +367,10 @@ mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fb
 aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
 cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
 herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
+1password-cli https://aur.archlinux.org/1password-cli.git HEAD b0d208821677a5dbb883a8b92f06a5c92b9e861a
+typora https://aur.archlinux.org/typora.git HEAD 029ff738d5928db82edfa34fc365fcb6743a74e5
+localsend-bin https://aur.archlinux.org/localsend-bin.git HEAD a408db7b17712e0d56c49ca3feb5546808a3220c
+google-chrome https://aur.archlinux.org/google-chrome.git HEAD 1cf56b57305f59919b74a559906d60002edd95a3
 dotnet-runtime-bin https://aur.archlinux.org/dotnet-core-bin.git HEAD 2c499d7ce634efb8e93eee4c4239490b02e98e09
 obs-studio-pkgbuild https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git HEAD 8a0774a179eba2c08b7fff44252098d609c9c6d5
 obs-studio-source https://github.com/obsproject/obs-studio.git refs/tags/32.2.2^{} ba2f32bdf791005443988a4955e963663e16b1ed
@@ -381,6 +386,15 @@ write_free_app_artifact_lock() {
 # key  exact-url  sha256  required-signing-fingerprint
 pinta-package https://geo.mirror.pkgbuild.com/extra/os/x86_64/pinta-3.1.2-2-any.pkg.tar.zst 3f9d4977ecef3e97bf6bd1daea5e677d74d4173f3222679fc085940e7751c7ed 14E46FE5FD69F2E287E244DB632C3CC0D1C9CAF6
 __PAYLOAD_FREE_APP_ARTIFACTS_TSV__
+}
+
+write_optional_app_artifact_lock() {
+  mkdir -p "$W/provision"
+  cat > "$W/provision/optional-app-artifacts.tsv" <<'__PAYLOAD_OPTIONAL_APP_ARTIFACTS_TSV__'
+# key  exact-url  sha256  required-signing-fingerprint
+1password-package https://downloads.1password.com/linux/tar/stable/aarch64/1password-8.12.34.arm64.tar.gz ea5102363d6cf3442b96a7abd6743da8c1d261f56a628e1a3c183d84fa65fdcb 3FEF9748469ADBE15DA7CA80AC2D62742012EA22
+obsidian-package https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/obsidian-1.13.7-arm64.tar.gz 98aac34d1f132a35cf506fc3fa196d595dcdeefdebd44b0cc5faaa7a1a210de2 -
+__PAYLOAD_OPTIONAL_APP_ARTIFACTS_TSV__
 }
 
 validate_core_source_lock() {
@@ -417,6 +431,23 @@ validate_free_app_artifact_lock() {
     count=$((count + 1))
   done < "$lock"
   [[ $count == 1 ]] || die "free-app artifact lock must contain exactly one Pinta record" "el bloqueo de artefactos debe contener exactamente un registro de Pinta"
+}
+
+validate_optional_app_artifact_lock() {
+  local lock="$1" line key url digest signer extra seen=" "
+  [[ -s $lock ]] || die "missing optional-app artifact lock: $lock" "falta el bloqueo de artefactos de apps opcionales: $lock"
+  while IFS= read -r line || [[ -n $line ]]; do
+    [[ -z $line || $line == \#* ]] && continue
+    read -r key url digest signer extra <<< "$line"
+    [[ -z ${extra:-} && $key =~ ^(1password-package|obsidian-package)$ \
+        && $url == https://* && $digest =~ ^[0-9a-f]{64}$ \
+        && $signer =~ ^(-|[0-9A-F]{40})$ ]] \
+      || die "invalid optional-app artifact-lock record: $line" "registro invalido en el bloqueo de artefactos opcionales: $line"
+    [[ $seen != *" $key "* ]] || die "duplicate optional-app artifact-lock key: $key" "clave duplicada en el bloqueo de artefactos opcionales: $key"
+    seen="$seen$key "
+  done < "$lock"
+  [[ $seen == *" 1password-package "* && $seen == *" obsidian-package "* ]] \
+    || die "optional-app artifact lock is incomplete" "el bloqueo de artefactos opcionales esta incompleto"
 }
 
 core_source_record() {
@@ -582,6 +613,7 @@ write_payloads() {
 mkdir -p "$W/provision"
 write_core_source_lock
 write_free_app_artifact_lock
+write_optional_app_artifact_lock
 cat > "$W/provision/alarm-repository-snapshot.py" <<'__PAYLOAD_ALARM_REPOSITORY_SNAPSHOT_PY__'
 #!/usr/bin/env python3
 """Validate an ALARM repository snapshot and record installed package provenance."""
@@ -1080,7 +1112,7 @@ cp /etc/resolv.conf /mnt/etc/resolv.conf
 
 log "copying payload" "copiando payload"
 mkdir -p /mnt/root/prov
-cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" \
+cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-sources.tsv" "$PROV/free-app-artifacts.tsv" "$PROV/optional-app-artifacts.tsv" \
    "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
@@ -1448,6 +1480,7 @@ log "stage 3: Omarchy dotfiles as $VM_USER" "etapa 3: dotfiles de Omarchy como $
 chmod +x /root/prov/stage3.sh
 install -Dm644 /root/prov/core-git-sources.tsv /usr/share/omarchy-arm/core-git-sources.tsv
 install -Dm644 /root/prov/free-app-artifacts.tsv /usr/share/omarchy-arm/free-app-artifacts.tsv
+install -Dm644 /root/prov/optional-app-artifacts.tsv /usr/share/omarchy-arm/optional-app-artifacts.tsv
 install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # stage3 runs as a normal user and /root is 0750: any test you perform on
 # /root/prov returns false without error. A readable copy is left in their home.
@@ -2329,6 +2362,7 @@ cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/config.env" ] && cp "$PROV/config.env" /mnt/root/prov/
 [ -f "$PROV/core-git-sources.tsv" ] && cp "$PROV/core-git-sources.tsv" /mnt/root/prov/
 [ -f "$PROV/free-app-artifacts.tsv" ] && cp "$PROV/free-app-artifacts.tsv" /mnt/root/prov/
+[ -f "$PROV/optional-app-artifacts.tsv" ] && cp "$PROV/optional-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
@@ -2627,7 +2661,7 @@ for c in /root/prov/omarchy-arm-extras /root/prov/extras.sh; do
   [ -f "$c" ] && { EXTRAS_SRC="$c"; break; }
 done
 if [ -n "$EXTRAS_SRC" ]; then
-  for lock in core-git-sources.tsv free-app-artifacts.tsv; do
+  for lock in core-git-sources.tsv free-app-artifacts.tsv optional-app-artifacts.tsv; do
     [ -f "/root/prov/$lock" ] \
       || { warn "the reviewed source lock $lock was missing" "faltaba el bloqueo revisado de fuentes $lock"; exit 1; }
     install -Dm644 "/root/prov/$lock" "/usr/share/omarchy-arm/$lock"
@@ -2931,6 +2965,7 @@ catalog_desc()  { local field=3; [[ $OMARCHY_LANG == es ]] && field=4; printf '%
 have() { command -v "$1" >/dev/null 2>&1; }
 : "${CORE_SOURCE_LOCK:=/usr/share/omarchy-arm/core-git-sources.tsv}"
 : "${FREE_APP_ARTIFACT_LOCK:=/usr/share/omarchy-arm/free-app-artifacts.tsv}"
+: "${OPTIONAL_APP_ARTIFACT_LOCK:=/usr/share/omarchy-arm/optional-app-artifacts.tsv}"
 
 # REVIEWED_FREE_APP_HELPERS_BEGIN
 source_lock_record() {
@@ -2948,6 +2983,27 @@ require_source_pin() { # require_source_pin <key> <exact-url>
 
 artifact_lock_record() {
   awk -v key="$1" '$1 == key { print; exit }' "$FREE_APP_ARTIFACT_LOCK"
+}
+
+optional_artifact_lock_record() {
+  awk -v key="$1" '$1 == key { print; exit }' "$OPTIONAL_APP_ARTIFACT_LOCK"
+}
+
+require_optional_artifact() {
+  local wanted="$1" key url digest signer extra
+  read -r key url digest signer extra <<< "$(optional_artifact_lock_record "$wanted")"
+  [[ -z ${extra:-} && $key == "$wanted" && $digest =~ ^[0-9a-f]{64}$ ]] \
+    || { fail "missing or invalid reviewed optional-app artifact: $wanted" "falta o no es valido el artefacto opcional revisado: $wanted"; return 1; }
+  case "$wanted" in
+    1password-package)
+      [[ $url =~ ^https://downloads.1password.com/linux/tar/stable/aarch64/1password-[0-9]+\.[0-9]+\.[0-9]+\.arm64\.tar\.gz$ \
+          && $signer == 3FEF9748469ADBE15DA7CA80AC2D62742012EA22 ]] ;;
+    obsidian-package)
+      [[ $url =~ ^https://github.com/obsidianmd/obsidian-releases/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/obsidian-[0-9]+\.[0-9]+\.[0-9]+-arm64\.tar\.gz$ \
+          && $signer == - ]] ;;
+    *) return 1 ;;
+  esac \
+    || { fail "missing or invalid reviewed optional-app artifact: $wanted" "falta o no es valido el artefacto opcional revisado: $wanted"; return 1; }
 }
 
 require_pinta_artifact() {
@@ -2979,6 +3035,30 @@ validate_free_app_locks() {
   done
 }
 
+validate_optional_app_locks() {
+  local item
+  (($#)) || return 0
+  [[ -r $CORE_SOURCE_LOCK ]] || { fail "missing reviewed Git source lock" "falta el bloqueo revisado de fuentes Git"; return 1; }
+  for item in "$@"; do
+    case "$item" in
+      1password)
+        [[ -r $OPTIONAL_APP_ARTIFACT_LOCK ]] || { fail "missing reviewed optional-app artifact lock" "falta el bloqueo revisado de artefactos opcionales"; return 1; }
+        require_optional_artifact 1password-package || return 1 ;;
+      obsidian)
+        [[ -r $OPTIONAL_APP_ARTIFACT_LOCK ]] || { fail "missing reviewed optional-app artifact lock" "falta el bloqueo revisado de artefactos opcionales"; return 1; }
+        require_optional_artifact obsidian-package || return 1 ;;
+      1password-cli)
+        require_source_pin 1password-cli https://aur.archlinux.org/1password-cli.git || return 1 ;;
+      typora)
+        require_source_pin typora https://aur.archlinux.org/typora.git || return 1 ;;
+      localsend)
+        require_source_pin localsend-bin https://aur.archlinux.org/localsend-bin.git || return 1 ;;
+      chrome)
+        require_source_pin google-chrome https://aur.archlinux.org/google-chrome.git || return 1 ;;
+    esac
+  done
+}
+
 clone_reviewed_source() { # clone_reviewed_source <lock-key> <destination>
   local wanted="$1" dir="$2" key url commit actual
   read -r key url _ commit <<< "$(source_lock_record "$wanted")"
@@ -3005,6 +3085,31 @@ verify_reviewed_artifact() { # verify_reviewed_artifact <package> <signature> <s
   actual_signer=$(printf '%s\n' "$signature_status" | awk '$2 == "VALIDSIG" { print $3; exit }')
   [[ $actual_signer == "$signer" ]] \
     || { fail "artifact signer does not match the reviewed fingerprint" "el firmante no coincide con la huella revisada"; return 1; }
+}
+
+verify_reviewed_sha256() { # verify_reviewed_sha256 <file> <sha256>
+  printf '%s  %s\n' "$2" "$1" | sha256sum -c - >/dev/null \
+    || { fail "artifact SHA-256 mismatch" "SHA-256 del artefacto no coincide"; return 1; }
+}
+
+verify_1password_artifact() { # verify_1password_artifact <archive> <signature> <key> <sha256> <fingerprint>
+  local archive="$1" signature="$2" key_file="$3" digest="$4" signer="$5"
+  local keyring actual_key signature_status actual_signer
+  verify_reviewed_sha256 "$archive" "$digest" || return 1
+  keyring="$WORK/1password-keyring"
+  rm -rf "$keyring"; mkdir -m 0700 "$keyring"
+  gpg --homedir "$keyring" --batch --import "$key_file" >/dev/null 2>&1 \
+    || { fail "could not import the 1Password signing key" "no se pudo importar la clave de firma de 1Password"; return 1; }
+  actual_key=$(gpg --homedir "$keyring" --batch --with-colons --fingerprint \
+    | awk -F: '$1 == "fpr" { print $10; exit }')
+  [[ $actual_key == "$signer" ]] \
+    || { fail "1Password signing-key fingerprint mismatch" "la huella de la clave de 1Password no coincide"; return 1; }
+  signature_status=$(gpg --homedir "$keyring" --batch --status-fd 1 \
+    --verify "$signature" "$archive" 2>/dev/null) \
+    || { fail "1Password artifact signature is invalid" "la firma del artefacto de 1Password no es valida"; return 1; }
+  actual_signer=$(printf '%s\n' "$signature_status" | awk '$2 == "VALIDSIG" { print $3; exit }')
+  [[ $actual_signer == "$signer" ]] \
+    || { fail "1Password signer does not match the reviewed fingerprint" "el firmante de 1Password no coincide con la huella revisada"; return 1; }
 }
 # REVIEWED_FREE_APP_HELPERS_END
 
@@ -3036,24 +3141,22 @@ need_sudo() {
 #  · the clone URL uses the PackageBase, which is not always the name
 #  · many PKGBUILDs declare arch=(x86_64) by default, not due to incompatibility
 #  · a PKGBUILD can generate multiple subpackages, and only one may have the broken dependency
+# REVIEWED_AUR_BUILD_BEGIN
 aur_build() {
   # A single `local` expands ALL values before assigning any, so
   # $pkg would not exist when building $dir, and with set -u the script aborts.
   local pkg="$1" want="${2:-$1}" lock_key="${3:-}"
   local dir="$WORK/$pkg" base
-  pacman -Q "$want" >/dev/null 2>&1 && { ok "$want is already installed" "$want ya instalado"; return 0; }
-
-  if [[ -n $lock_key ]]; then
-    base=$lock_key
-    clone_reviewed_source "$lock_key" "$dir" \
-      || { fail "could not fetch reviewed source: $lock_key" "no se pudo obtener la fuente revisada: $lock_key"; return 1; }
-  else
-    base=$(curl -fsSL --max-time 20 "https://aur.archlinux.org/rpc/v5/info?arg[]=$pkg" \
-           | sed -n 's/.*"PackageBase":"\([^"]*\)".*/\1/p' | head -1)
-    [ -n "$base" ] || base="$pkg"
-    rm -rf "$dir"; mkdir -p "$WORK"
-    git clone -q "https://aur.archlinux.org/$base.git" "$dir" 2>/dev/null
+  if [[ ${FORCE:-0} != 1 ]] && pacman -Q "$want" >/dev/null 2>&1; then
+    ok "$want is already installed" "$want ya instalado"
+    return 0
   fi
+
+  [[ -n $lock_key ]] \
+    || { fail "AUR build requires a reviewed source pin: $pkg" "la compilacion AUR necesita un pin revisado: $pkg"; return 1; }
+  base=$lock_key
+  clone_reviewed_source "$lock_key" "$dir" \
+    || { fail "could not fetch reviewed source: $lock_key" "no se pudo obtener la fuente revisada: $lock_key"; return 1; }
   [ -f "$dir/PKGBUILD" ] || { fail "could not clone $pkg (base: $base)" "no se pudo clonar $pkg (base: $base)"; return 1; }
 
   # Several PKGBUILDs verify the upstream signature in check(). If the key is
@@ -3075,35 +3178,34 @@ aur_build() {
     info "patched arch= to include aarch64" "arch= parcheado para incluir aarch64"
   fi
 
-  ( cd "$dir" && makepkg -si --noconfirm --needed --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
+  if [[ ${FORCE:-0} == 1 ]]; then
+    ( cd "$dir" && makepkg -si --noconfirm --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
+  else
+    ( cd "$dir" && makepkg -si --noconfirm --needed --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
+  fi
   fail "$pkg build failed — log: $dir/build.log" "falló la compilación de $pkg — log: $dir/build.log"
   tail -5 "$dir/build.log" | sed 's/^/      /'
   return 1
 }
+# REVIEWED_AUR_BUILD_END
 
 # ── installers ────────────────────────────────────────────────────────────
 
 do_1password() {
   title "1Password"
   info "AgileBits publishes arm64 ONLY as a tarball; there is no .deb or .rpm for this architecture." "AgileBits publica arm64 SOLO como tarball: no hay .deb ni .rpm para esta arquitectura."
-  local url=https://downloads.1password.com/linux/tar/stable/aarch64/1password-latest.tar.gz
+  local key url digest signer archive signature key_file
+  read -r key url digest signer <<< "$(optional_artifact_lock_record 1password-package)"
   mkdir -p "$WORK"; rm -rf "$WORK/1p"; mkdir -p "$WORK/1p"
-  curl -fL --progress-bar "$url" -o "$WORK/1p/1p.tar.gz" || { fail "download failed" "descarga fallida"; return 1; }
-  # It is a password manager: the signature is verified before installing it.
-  local KEY=3FEF9748469ADBE15DA7CA80AC2D62742012EA22
-  if curl -fsSL "$url.sig" -o "$WORK/1p/1p.tar.gz.sig" 2>/dev/null; then
-    gpg --list-keys "$KEY" >/dev/null 2>&1 \
-      || gpg --keyserver keyserver.ubuntu.com --recv-keys "$KEY" >/dev/null 2>&1 \
-      || gpg --keyserver keys.openpgp.org --recv-keys "$KEY" >/dev/null 2>&1
-    if gpg --verify "$WORK/1p/1p.tar.gz.sig" "$WORK/1p/1p.tar.gz" >/dev/null 2>&1; then
-      ok "AgileBits GPG signature verified" "firma GPG de AgileBits verificada"
-    else
-      fail "SIGNATURE VERIFICATION FAILED — aborting installation" "LA FIRMA NO VERIFICA — se aborta la instalación"; return 1
-    fi
-  else
-    warn "no .sig is available; installing without signature verification" "no hay .sig disponible; se instala sin verificar la firma"
-  fi
-  tar -xzf "$WORK/1p/1p.tar.gz" -C "$WORK/1p" || { fail "could not extract the archive" "no se pudo extraer"; return 1; }
+  archive="$WORK/1p/1p.tar.gz"; signature="$archive.sig"; key_file="$WORK/1p/1password.asc"
+  curl -fL --progress-bar "$url" -o "$archive" || { fail "download failed" "descarga fallida"; return 1; }
+  curl -fsSL --max-time 30 "$url.sig" -o "$signature" \
+    || { fail "1Password signature download failed" "fallo la descarga de la firma de 1Password"; return 1; }
+  curl -fsSL --max-time 30 https://downloads.1password.com/linux/keys/1password.asc -o "$key_file" \
+    || { fail "1Password signing-key download failed" "fallo la descarga de la clave de firma de 1Password"; return 1; }
+  verify_1password_artifact "$archive" "$signature" "$key_file" "$digest" "$signer" || return 1
+  ok "1Password SHA-256 and GPG signature verified" "SHA-256 y firma GPG de 1Password verificados"
+  tar -xzf "$archive" -C "$WORK/1p" || { fail "could not extract the archive" "no se pudo extraer"; return 1; }
   local src; src=$(find "$WORK/1p" -maxdepth 1 -type d -name '1password-*' | head -1)
   [ -n "$src" ] || { fail "the tarball has an unexpected layout" "el tarball no tiene la forma esperada"; return 1; }
   sudo mkdir -p /opt/1Password
@@ -3113,20 +3215,16 @@ do_1password() {
   info "${c_dim}Under Hyprland, launch it with --ozone-platform=wayland${c_off}" "${c_dim}En Hyprland conviene lanzarlo con --ozone-platform=wayland${c_off}"
 }
 
-do_1password_cli() { title "1Password CLI"; aur_build 1password-cli && ok "$(op --version 2>/dev/null)"; }
+do_1password_cli() { title "1Password CLI"; aur_build 1password-cli 1password-cli 1password-cli && ok "$(op --version 2>/dev/null)"; }
 
 do_obsidian() {
   title "Obsidian"
   info "Official arm64 AppImage and tarball builds exist. The tarball avoids a fuse2 dependency." "Hay AppImage y tarball arm64 oficiales. Se usa el tarball: no depende de fuse2."
-  # NOTE: releases/latest might be an Android-only release (a standalone .apk).
-  # You must find the last one actually published as a desktop arm64 tarball.
-  local url
-  url=$(curl -fsSL --max-time 30 "https://api.github.com/repos/obsidianmd/obsidian-releases/releases?per_page=15" \
-        | grep -oE '"browser_download_url": *"[^"]*obsidian-[0-9.]+-arm64\.tar\.gz"' \
-        | head -1 | sed 's/.*"\(https[^"]*\)"/\1/')
-  [ -n "$url" ] || { fail "no arm64 tarball was found in recent releases" "no encontré ningún tarball arm64 en los últimos releases"; return 1; }
+  local key url digest signer
+  read -r key url digest signer <<< "$(optional_artifact_lock_record obsidian-package)"
   info "$(basename "$url")"
   mkdir -p "$WORK"; curl -fL --progress-bar "$url" -o "$WORK/obsidian.tar.gz" || { fail "download failed" "descarga fallida"; return 1; }
+  verify_reviewed_sha256 "$WORK/obsidian.tar.gz" "$digest" || return 1
   sudo rm -rf /opt/obsidian; sudo mkdir -p /opt/obsidian
   sudo tar -xzf "$WORK/obsidian.tar.gz" -C /opt/obsidian --strip-components=1 || { fail "could not extract the archive" "no se pudo extraer"; return 1; }
   sudo ln -sfn /opt/obsidian/obsidian /usr/local/bin/obsidian
@@ -3147,16 +3245,16 @@ DESK
 do_typora() {
   title "Typora"
   info "The AUR 'typora' package downloads the official arm64 .deb. Do not use typora-electron; electron42 is unavailable on ARM." "El paquete AUR 'typora' baja el .deb arm64 oficial. No uses typora-electron: pide electron42, que no existe en ARM."
-  aur_build typora && ok "$(pacman -Q typora)"
+  aur_build typora typora typora && ok "$(pacman -Q typora)"
 }
 
-do_localsend() { title "LocalSend"; aur_build localsend-bin localsend-bin && ok "$(pacman -Q localsend-bin)"; }
+do_localsend() { title "LocalSend"; aur_build localsend-bin localsend-bin localsend-bin && ok "$(pacman -Q localsend-bin)"; }
 
 do_chrome() {
   title "Google Chrome"
   info "Chrome arm64 includes Widevine (required by Spotify and Netflix web)." "Chrome arm64 incluye Widevine (el DRM que exigen Spotify y Netflix web)."
   info "Repository Chromium does NOT include it, and chromium-widevine is x86_64-only." "Chromium de los repos NO lo trae, y el paquete chromium-widevine es solo x86_64."
-  aur_build google-chrome || return 1
+  aur_build google-chrome google-chrome google-chrome || return 1
   ok "$(pacman -Q google-chrome)"
   info "${c_dim}Check DRM at chrome://components → 'Widevine Content Decryption Module'${c_off}" "${c_dim}Comprueba el DRM en chrome://components → 'Widevine Content Decryption Module'${c_off}"
 }
@@ -3328,13 +3426,23 @@ esac
 [ ${#SELECTED[@]} -gt 0 ] || { info "nothing selected" "nada seleccionado"; exit 0; }
 
 LOCKED_SELECTED=()
+OPTIONAL_LOCKED_SELECTED=()
 for k in "${SELECTED[@]}"; do
   case "$k" in
     pinta|obs)
       if [ "$FORCE" = 1 ] || ! is_installed "$k"; then LOCKED_SELECTED+=("$k"); fi ;;
+    1password|1password-cli|obsidian|typora|localsend|chrome)
+      if [ "$FORCE" = 1 ] || ! is_installed "$k"; then OPTIONAL_LOCKED_SELECTED+=("$k"); fi ;;
+    spotify-web) ;;
+    *) fail "unknown key '$k'" "no conozco '$k'"; exit 1 ;;
   esac
 done
-validate_free_app_locks "${LOCKED_SELECTED[@]}" || exit 1
+if [ ${#LOCKED_SELECTED[@]} -gt 0 ]; then
+  validate_free_app_locks "${LOCKED_SELECTED[@]}" || exit 1
+fi
+if [ ${#OPTIONAL_LOCKED_SELECTED[@]} -gt 0 ]; then
+  validate_optional_app_locks "${OPTIONAL_LOCKED_SELECTED[@]}" || exit 1
+fi
 
 need_sudo || exit 1
 mkdir -p "$WORK"
@@ -3351,6 +3459,7 @@ if [ ${#KO_LIST[@]} -gt 0 ]; then
   # The working directory is not deleted: inside are the build.log files, which are
   # The only thing it allows us to determine is why it failed.
   info "logs at $WORK/<package>/build.log" "logs en $WORK/<paquete>/build.log"
+  exit 1
 else
   rm -rf "$WORK"
 fi
@@ -4368,7 +4477,7 @@ ph_build() {
   ln -f "$W/dl/alarm-rootfs.tgz" /tmp/alarm-rootfs.tgz 2>/dev/null || true
   # the rootfs travels inside the provisioning ISO
   local d; d=$(mktemp -d)
-  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,alarm-repository-snapshot.py,packages-core.txt,packages-extra.txt} "$d"/
+  cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,optional-app-artifacts.tsv,alarm-repository-snapshot.py,packages-core.txt,packages-extra.txt} "$d"/
   cp -R "$W/provision/alarm-repositories" "$d"/
   cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
@@ -4766,6 +4875,12 @@ omarchy-arm-extras --all      # todas las que falten
 
 El listado marca `[ya instalada]` lo que la imagen ya trae, y `--all` lo omite.
 
+El instalador no busca la versión más reciente en cada ejecución: usa artefactos
+y recetas AUR revisados y fijados. 1Password exige tanto el SHA-256 registrado
+como una firma de la clave oficial esperada; Obsidian exige su URL versionada y
+SHA-256 exactos. Si falta un bloqueo o no coincide la verificación, se detiene
+antes de modificar el sistema. `--force` reinstala la versión revisada.
+
 También está en el menú de aplicaciones como **«Instalar apps que faltan (ARM)»**.
 
 | Clave | Qué hace |
@@ -4945,7 +5060,7 @@ while (($#)); do
     --list) printf '%s\n' "${PHASES[@]}"; exit 0 ;;
     --print-language) printf '%s\n' "$OMARCHY_LANG"; exit 0 ;;
     --print-libre-apps) cargar_respuestas; printf '%s\n' "$INCLUDE_LIBRE_APPS"; exit 0 ;;
-    --check-core-source-lock) ensure_dirs; write_core_source_lock; write_free_app_artifact_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; validate_free_app_artifact_lock "$W/provision/free-app-artifacts.tsv"; ok "reviewed source locks are valid" "los bloqueos de fuentes revisadas son validos"; exit 0 ;;
+    --check-core-source-lock) ensure_dirs; write_core_source_lock; write_free_app_artifact_lock; write_optional_app_artifact_lock; validate_core_source_lock "$W/provision/core-git-sources.tsv"; validate_free_app_artifact_lock "$W/provision/free-app-artifacts.tsv"; validate_optional_app_artifact_lock "$W/provision/optional-app-artifacts.tsv"; ok "reviewed source locks are valid" "los bloqueos de fuentes revisadas son validos"; exit 0 ;;
     --yes|-y|--sin-preguntas) ASSUME_YES=1; INTERACTIVO=0; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown option: $1" "opcion desconocida: $1" ;;
