@@ -1,26 +1,31 @@
 # Which file should I download?
 
-**`omarchy-arm-utm-v3.zip`** — current reviewed sources and enforced release gates.
+**`omarchy-arm-utm-v2.zip`** is the current upstream-published image.
+
+**`omarchy-arm-utm-v3.zip`** is this fork's validated release candidate. It is
+not published on the upstream Internet Archive item; publication remains the
+upstream maintainer's decision.
 
 | | `omarchy-arm-utm-v3.zip` | `omarchy-arm-utm-v2.zip` | `omarchy-arm-utm.zip` |
 |---|---|---|---|
-| | **← download this one** | previous repaired image | first release |
+| | validated candidate; not published | **← current upstream download** | first release |
 | Size | 3.8 GB | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
-| Published | 2026-08-29 | 2026-08-26 | 2026-08-23 |
+| Published | Not published | 2026-08-29 | 2026-08-23 |
 | Shared clipboard | **works, verified both ways** | **works, verified both ways** | does not work |
 | Release verification | two boots + packaged snapshot | one boot + packaged snapshot | incomplete |
 | ARM tool contract | **17/17 required** | not enforced | not enforced |
 | Chromium policy hardening | **verified** | not present | not present |
 | `sshd` | disabled | disabled | enabled, with a trivial password |
-| `sha256` | `12b060c287326ba2932a811a7a97fb1bd3d0d4e45e08f45ce84359ed3c2eb539` | `929eb816194a5cfc46b87ebc05f7c29bac004a8850f0ae559d220efae0355958` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| `sha256` | `12b060c287326ba2932a811a7a97fb1bd3d0d4e45e08f45ce84359ed3c2eb539` | `81b64fcc6b065953a685cb7a0e6e2a3b49227b6c77c541362c25e5db86c66f1b` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
 The plain name belongs to the first release and keeps it, and v2 keeps its own
-name and checksum. That preserves every previously published byte identity;
-the current recommendation therefore carries the `-v3` suffix.
+name and checksum. That preserves every previously published byte identity.
+The v3 filename and checksum identify the reviewed candidate without claiming
+that upstream has accepted or published it.
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
-unzip omarchy-arm-utm-v3.zip
+shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+unzip omarchy-arm-utm-v2.zip
 open *.utm
 ```
 
