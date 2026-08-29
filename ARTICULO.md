@@ -897,7 +897,7 @@ qemu-img create -f qcow2 -b slim.qcow2 -F qcow2 prueba.qcow2
 **Funciona:** Arch Linux ARM aarch64 nativo con HVF, kernel `linux-aarch64` 7.2,
 btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
 de Omarchy 4 —quickshell como barra, menú, OSD y demonio de notificaciones,
-hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 439 comandos `omarchy-*`, y `omarchy-update`.
+hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 442 comandos disponibles, y `omarchy-update`.
 
 **No funciona:** la aceleración GL dentro de la VM (render por software), y
 `herdr`, que exige la semántica de Zig 0.15 cuando los repositorios ya van por la
@@ -1009,12 +1009,12 @@ tercero llevaba ahí desde el principio.
 Y el resultado, ya con todo corregido:
 
 ```
-16/17 herramientas compiladas (solo falla herdr, por la version de Zig)
+17/17 herramientas soportadas verificadas (herdr queda aparte por Zig 0.15)
 extras=si  menu=si  hook=si          ← los tres bloqueantes, resueltos
 verify dentro del invitado:
-  ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+  ### H=1 Q=1 BINS=442 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 TTFX=1 PIN=1 FREE=2/2
   VERDICT_OK
-imagen final: 3,6 GB · 76 min de deps a package
+imagen final: 3,8 GB · 76–83 min de deps a package
 ```
 
 Ese veredicto es de la tanda de certificación, con el constructor ya corregido.
