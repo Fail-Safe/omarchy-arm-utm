@@ -25,7 +25,7 @@ open *.utm
 
 User `omarchy`, password `omarchy` (also root). **Change it with `passwd`.**
 
-Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 441
+Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 442
 `omarchy-*` commands · 17 tools built for ARM · OBS Studio and Pinta.
 
 ## What changed on 2026-08-29

@@ -145,7 +145,7 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **441 `omarchy-*` commands**, in `/usr/bin` as
+- Dotfiles, themes and the **442 `omarchy-*` commands**, in `/usr/bin` as
   upstream's package does
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
@@ -340,7 +340,7 @@ Validated by a full from-scratch run on 2026-08-25: **8/8 phases, 76 minutes,
 The guest-side verdict, read back over the serial console:
 
 ```
-### H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+### H=1 Q=1 BINS=442 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
 VEREDICTO_OK
 ```
 
@@ -350,7 +350,7 @@ rather than relying on whatever the repos happen to ship.
 
 The *packaged* image — not the intermediate VM — was then booted read-only
 (`qemu -snapshot`) and checked from outside: generic user with the build account
-gone, 441 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
+gone, 442 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
 running with `-X` and the clipboard agent alive, `sshd` disabled, no SSH host
 keys, no build-time paths inside the compiled binaries.
 

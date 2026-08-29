@@ -74,7 +74,7 @@ de ARM que necesitan precedencia en el `PATH`.
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los 441 comandos `omarchy-*`**, en `/usr/bin` como hace
+- **Dotfiles, temas y los 442 comandos `omarchy-*`**, en `/usr/bin` como hace
   el paquete de upstream
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
@@ -331,7 +331,7 @@ Validado con una construcción completa desde cero el 25-08-2026: **8 de 8 fases
 El veredicto que emite el invitado por la consola serie:
 
 ```
-### H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+### H=1 Q=1 BINS=442 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
 VEREDICTO_OK
 ```
 
@@ -341,7 +341,7 @@ en vez de depender de la versión que empaqueten los repositorios.
 
 Después se arrancó la **imagen ya empaquetada** —no la VM intermedia— en modo
 solo lectura (`qemu -snapshot`) y se comprobó desde fuera: usuario genérico y la
-cuenta de construcción borrada, 441 comandos `omarchy-*`, Hyprland y quickshell
+cuenta de construcción borrada, 442 comandos `omarchy-*`, Hyprland y quickshell
 vivos, `spice-vdagentd` con `-X` y el agente del portapapeles activo, `sshd`
 deshabilitado, cero claves SSH de host y ninguna ruta de compilación dentro de
 los binarios.
