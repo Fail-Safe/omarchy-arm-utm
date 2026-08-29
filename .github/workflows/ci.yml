@@ -28,7 +28,9 @@ jobs:
         run: |
           set -euo pipefail
           for test_file in tests/*.sh; do
+            echo "::group::$test_file"
             bash "$test_file"
+            echo "::endgroup::"
           done
 
       - name: Check shell syntax and ShellCheck errors
