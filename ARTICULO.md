@@ -887,7 +887,7 @@ Y después, compactar:
 # tambien despues de descomprimir el zip, a cambio de descomprimir al leer
 qemu-img convert -c -O qcow2 dist.qcow2 slim.qcow2   # 11,6 GB → 6,6 GB
 qemu-img check slim.qcow2
-zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"
+zip -r -1 omarchy-arm-utm.zip "Omarchy 4 ARM64.utm"
 ```
 
 Y una precaucion que solo se aprende rompiendola: **despues de sanitizar, la

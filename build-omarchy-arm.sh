@@ -3489,7 +3489,10 @@ ph_package() {
   # dentro del zip como nombre de directorio y como <key>Name</key>, de modo que
   # al importarla en UTM aparecia con el versionado interno de quien la creo.
   # Ademas el LEEME dice «doble clic en Omarchy ARM.utm», que entonces no existia.
-  local DNAME="${DIST_VM_NAME:-Omarchy ARM}"
+  # El nombre que vera quien la importe en UTM. Lleva la version a proposito:
+  # "Omarchy ARM" a secas no distinguia nada el dia que salga Omarchy 5, y es
+  # el mismo nombre con el que se anuncia en la galeria de UTM.
+  local DNAME="${DIST_VM_NAME:-Omarchy 4 ARM64}"
   rm -rf "$W/dist/$DNAME.utm"
   SRC_QCOW="$W/dist/slim.qcow2" DEST_DIR="$W/dist" UTM_CPUS=$UTM_CPUS UTM_MEM=$UTM_MEM \
     NOTES_USER="$DIST_NEW_USER" NOTES_PASS="$DIST_NEW_USER" \
@@ -3500,8 +3503,10 @@ ph_package() {
   if grep -q "\b$VM_USER\b" "$W/dist/$DNAME.utm/config.plist" 2>/dev/null; then
     die "el config.plist del bundle menciona a '$VM_USER'; revisa make-utm.sh"
   fi
-  if [[ "$DNAME" != "$(printf '%s' "$DNAME" | tr -cd 'A-Za-z .-')" ]]; then
-    die "el nombre de distribucion '$DNAME' lleva caracteres raros; usa algo neutro"
+  # Digitos incluidos: el nombre lleva la version. Sin ellos, este mismo filtro
+  # rechazaba "Omarchy 4 ARM64", que es justo el nombre que queremos.
+  if [[ "$DNAME" != "$(printf '%s' "$DNAME" | tr -cd 'A-Za-z0-9 .-')" ]]; then
+    die "el nombre de distribucion '$DNAME' lleva caracteres raros; usa letras, digitos, espacio, punto o guion"
   fi
   write_readme "$W/dist/LEEME.md"
 

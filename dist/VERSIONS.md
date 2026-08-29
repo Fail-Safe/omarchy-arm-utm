@@ -11,7 +11,7 @@
 | "Update System" notification | gone | repeats on every boot |
 | "Reboot?" after each update | gone | repeats forever |
 | `sshd` | disabled | enabled, with a trivial password |
-| `sha256` | `5a00e6d73f29657e2ee404b9c635af1022f9ef865b20f484a1ce699bbde5f46e` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| `sha256` | `569d287c6d5f1b95279dcc0bbb3276dbb6a3a08e31404b978f9ad50aaf4fb505` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
 The plain name belongs to the first release and keeps it, so links and checksums
 published back in August still resolve to the exact bytes they were written
@@ -30,6 +30,10 @@ Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 441
 
 ## What changed on 2026-08-29
 
+- **The VM is now called `Omarchy 4 ARM64`** when you import it, instead of
+  `Omarchy ARM`. The old name carried no version, which would say nothing the
+  day Omarchy 5 lands, and it did not match the name the UTM gallery announces.
+
 - **All 17 tools now build.** `herdr` was the one that never did; it now comes
   from Omarchy's own PKGBUILD, which declares `aarch64` and fetches the official
   Zig 0.15.2 instead of relying on the version the repos happen to ship. Its
@@ -46,7 +50,7 @@ image no longer carries and what was proven about it:
 - **`sshd` comes disabled.** The previous build left it listening with
   `omarchy`/`omarchy`. Enable it yourself if you want it:
   `sudo systemctl enable --now sshd`.
-- **No trace of the build account.** The bundle is named `Omarchy ARM.utm`
+- **No trace of the build account.** The bundle is named `Omarchy 4 ARM64.utm`
   instead of carrying an internal version number, `ttfx` no longer has the
   build path compiled into it, and files whose *name* mentioned the build user
   are gone.
