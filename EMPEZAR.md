@@ -7,8 +7,12 @@ Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |
 |---|---|
-| **Solo quiero la VM** | descarga [`omarchy-arm-utm-v3.zip`](https://archive.org/details/omarchy-arm-utm) (3,8 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
+| **Solo quiero la VM publicada** | descarga [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
 | **Quiero construirla yo** | `./build-omarchy-arm.sh` → sigue leyendo |
+
+Este fork también ha construido y validado `omarchy-arm-utm-v3.zip` (3,8 GB,
+`sha256 12b060c287326ba2…`), pero es una **candidata de publicación**: todavía no
+está en el elemento upstream de Internet Archive.
 
 ---
 
@@ -212,18 +216,18 @@ de tu Mac.
 
 ## Si solo quieres la VM
 
-Descarga **`omarchy-arm-utm-v3.zip`** de https://archive.org/details/omarchy-arm-utm (3,8 GB) y:
+Descarga **`omarchy-arm-utm-v2.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
-unzip omarchy-arm-utm-v3.zip
+shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+unzip omarchy-arm-utm-v2.zip
 open *.utm
 ```
 
 Usuario `omarchy`, contraseña `omarchy` (también para root). **Cámbiala nada más
 entrar con `passwd`.** El resto está en el `LEEME.md` que viene dentro del zip.
 
-Su `sha256` es `12b060c287326ba2…`. Al lado quedan `omarchy-arm-utm-v2.zip` y
-`omarchy-arm-utm.zip`, las entregas anteriores; conservan sus nombres y checksums
-para que los enlaces publicados sigan apuntando a los bytes originales.
-`VERSIONS.md` compara las tres.
+Su `sha256` publicado es `81b64fcc6b065953…`. La v3 de este fork es una
+candidata validada (`sha256 12b060c287326ba2…`) pendiente de que el mantenedor
+upstream decida si la publica. `VERSIONS.md` compara la candidata con las dos
+entregas publicadas.

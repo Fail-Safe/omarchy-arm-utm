@@ -64,24 +64,23 @@ need to take precedence in `PATH`.
 
 Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 4.
 
-## Or skip the build
+## Published image and v3 release candidate
 
-The image this produces is on the Internet Archive, sanitised and ready to
+The upstream-maintained image on the Internet Archive is sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
-**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v3.zip`** · 3.8 GB ·
-`sha256 12b060c287326ba2…`
+**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
+`sha256 81b64fcc6b065953…`
 
-The plain `omarchy-arm-utm.zip` is the first release (6.5 GB), and `-v2` is the
-previous repaired image (3.6 GB). Both keep their names so published links and
-checksums continue to identify the same bytes. Take `-v3`: it adds current
-reviewed source pins, enforced 17-tool and browser-policy contracts, CI, and
-first/second-boot release verification. `VERSIONS.md` on the item compares all
-three.
+This fork has also produced a fully validated **`omarchy-arm-utm-v3.zip` release
+candidate** (3.8 GB, `sha256 12b060c287326ba2…`). It adds current reviewed
+source pins, enforced 17-tool and browser-policy contracts, CI, and
+first/second-boot release verification. It is not published on the upstream
+Archive item; publication remains the upstream maintainer's decision.
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
-unzip omarchy-arm-utm-v3.zip
+shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
+unzip omarchy-arm-utm-v2.zip
 open *.utm
 ```
 

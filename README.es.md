@@ -12,7 +12,8 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 | | |
 |---|---|
 | **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
-| **Imagen lista para descargar** | [`omarchy-arm-utm-v3.zip`](https://archive.org/details/omarchy-arm-utm) · 3,8 GB |
+| **Imagen publicada upstream** | [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
+| **Candidata v3 de este fork** | `omarchy-arm-utm-v3.zip` · validada, pendiente de publicación upstream |
 | **Construir desde cero** | `./build-omarchy-arm.sh` · 76–83 min medidos, con todo |
 | **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
