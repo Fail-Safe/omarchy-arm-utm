@@ -7,7 +7,7 @@ Dos caminos. El primero tarda diez minutos; el segundo, entre una hora y dos.
 
 | | |
 |---|---|
-| **Solo quiero la VM** | descarga [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) (3,6 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
+| **Solo quiero la VM** | descarga [`omarchy-arm-utm-v3.zip`](https://archive.org/details/omarchy-arm-utm) (3,8 GB) y doble clic → [salta al final](#si-solo-quieres-la-vm) |
 | **Quiero construirla yo** | `./build-omarchy-arm.sh` → sigue leyendo |
 
 ---
@@ -109,7 +109,7 @@ Y luego las tres que **sí cambian el resultado**:
     minutos. Aun así `sshd` queda deshabilitado, para que no se quede una VM
     escuchando con una contraseña trivial.
   - **Sí**: renombra el usuario a `omarchy`, borra claves SSH, identidad de git
-    e historiales, y genera un `.zip` de ~3,6 GB con su `sha256`.
+    e historiales, y genera un `.zip` de ~3,8 GB con su `sha256`.
 
 Para no responder nada:
 
@@ -138,7 +138,7 @@ compiladas y sin OBS ni Pinta:
 **Total: entre 76 y 83 minutos**, medido en dos tandas completas sobre un M3
 Max con los valores por defecto —con las 17 herramientas, con OBS y con Pinta,
 que es exactamente lo que lleva la imagen que se distribuye—, y el resultado son
-**3,6 GB** de `.zip`. Decir que no a OBS y Pinta ahorra unos 45 minutos: OBS se
+**3,8 GB** de `.zip`. Decir que no a OBS y Pinta ahorra unos 45 minutos: OBS se
 compila entero desde fuente y es, con diferencia, lo más caro del proceso.
 
 El directorio de trabajo llega a unos **24 GB** en el pico. El script exige 40
@@ -212,19 +212,18 @@ de tu Mac.
 
 ## Si solo quieres la VM
 
-Descarga **`omarchy-arm-utm-v2.zip`** de https://archive.org/details/omarchy-arm-utm (3,6 GB) y:
+Descarga **`omarchy-arm-utm-v3.zip`** de https://archive.org/details/omarchy-arm-utm (3,8 GB) y:
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-unzip omarchy-arm-utm-v2.zip
+shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
+unzip omarchy-arm-utm-v3.zip
 open *.utm
 ```
 
 Usuario `omarchy`, contraseña `omarchy` (también para root). **Cámbiala nada más
 entrar con `passwd`.** El resto está en el `LEEME.md` que viene dentro del zip.
 
-Su `sha256` es `929eb816194a5cfc…`. Al lado hay un `omarchy-arm-utm.zip` de
-6,5 GB: es la primera entrega, y conserva el nombre corto para que los enlaces y
-checksums publicados con ella sigan apuntando a los bytes exactos para los que
-se escribieron. Esa es la única razón de que la buena lleve `-v2` en el nombre.
-`VERSIONS.md` compara las dos.
+Su `sha256` es `12b060c287326ba2…`. Al lado quedan `omarchy-arm-utm-v2.zip` y
+`omarchy-arm-utm.zip`, las entregas anteriores; conservan sus nombres y checksums
+para que los enlaces publicados sigan apuntando a los bytes originales.
+`VERSIONS.md` compara las tres.

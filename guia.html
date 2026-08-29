@@ -231,8 +231,8 @@ code {
   <div class="paths">
     <div class="path">
       <h3>Solo quiero la VM</h3>
-      <p>Descarga <code>omarchy-arm-utm-v2.zip</code> del
-      <a href="https://archive.org/details/omarchy-arm-utm">Internet Archive</a> (3,6 GB), doble clic, y arranca sola.</p>
+      <p>Descarga <code>omarchy-arm-utm-v3.zip</code> del
+      <a href="https://archive.org/details/omarchy-arm-utm">Internet Archive</a> (3,8 GB), doble clic, y arranca sola.</p>
       <span class="dur">10 minutos + la descarga</span>
     </div>
     <div class="path pick">
@@ -413,7 +413,7 @@ cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz</pre></
 
   <div class="total">
     <span><b>76–83 min</b> en total</span>
-    <span>→ 3,6 GB de <code>.zip</code></span>
+    <span>→ 3,8 GB de <code>.zip</code></span>
     <span>~24 GB de pico en disco</span>
     <span>con OBS y Pinta incluidos</span>
   </div>
@@ -488,20 +488,18 @@ cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz</pre></
   </p>
 
   <div class="term"><pre><span class="c"># https://archive.org/details/omarchy-arm-utm</span>
-<span class="c"># descarga omarchy-arm-utm-v2.zip — 3,6 GB</span>
-<span class="p">$</span> shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-<span class="p">$</span> unzip omarchy-arm-utm-v2.zip
+<span class="c"># descarga omarchy-arm-utm-v3.zip — 3,8 GB</span>
+<span class="p">$</span> shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
+<span class="p">$</span> unzip omarchy-arm-utm-v3.zip
 <span class="p">$</span> open "Omarchy ARM.utm"</pre></div>
 
   <p>Usuario <code>omarchy</code>, contraseña <code>omarchy</code> (también root).</p>
 
   <div class="note">
-    Al lado hay un <code>omarchy-arm-utm.zip</code> de 6,5&nbsp;GB: es la primera entrega,
-    y conserva el nombre corto para que los enlaces y checksums publicados con ella sigan
-    apuntando a los bytes exactos para los que se escribieron. Esa es la única razón de que
-    la buena lleve <code>-v2</code> en el nombre. Si ya te descargaste aquella, no necesitas
-    bajar 3,6&nbsp;GB otra vez: los dos scripts de <code>fixes/</code> la ponen al día desde
-    dentro.
+    Al lado quedan <code>omarchy-arm-utm-v2.zip</code> y
+    <code>omarchy-arm-utm.zip</code>, las entregas anteriores. Conservan sus nombres y
+    checksums para que los enlaces publicados sigan apuntando a los bytes originales;
+    <code>VERSIONS.md</code> compara las tres.
   </div>
 </section>
 
