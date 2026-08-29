@@ -33,6 +33,25 @@ echo "== portapapeles =="
 # unico que demuestra que la bandera llego a aplicarse, venga de donde venga.
 pgrep -af spice-vdagentd | grep -q -- ' -X' && bien "demonio con -X" || mal "demonio sin -X"
 systemctl is-active --quiet spice-vdagentd && bien "demonio activo" || mal "demonio inactivo"
+# El puntero. Con `-f` (--fake-uinput) el demonio se saltaba los ioctl que
+# configuran /dev/uinput y fallaba en cada escritura; UTM dejaba de capturar el
+# raton y no habia puntero absoluto que lo sustituyera.
+#
+# Nadie lo miraba: "sin errores en el journal" usa `-p 3` y estos salen por
+# debajo de esa prioridad, asi que daba verde sobre la imagen rota.
+#
+# Y se exige que el journal traiga ALGO antes de juzgarlo. Si la unidad
+# cambiara de nombre o journalctl no devolviera nada, un `grep -q` a secas no
+# encontraria "uinput" y esto daria verde sin haber comprobado nada: el mismo
+# fallo de comprobacion-que-no-puede-fallar que dejo pasar el `-f`.
+J=$(journalctl -b -u spice-vdagentd --no-pager 2>/dev/null)
+if [ -z "$J" ]; then
+  mal "sin journal de spice-vdagentd: el raton no se ha podido comprobar"
+elif printf '%s\n' "$J" | grep -q uinput; then
+  mal "errores de uinput: el raton no se capturara"
+else
+  bien "sin errores de uinput"
+fi
 pgrep -af python3 | grep -q omarchy-arm-vdagent && bien "agente corriendo" || mal "agente no corre"
 grep -vs -- '^[[:space:]]*--' /home/omarchy/.config/hypr/autostart.lua 2>/dev/null | grep -qs spice-vdagent \
   && mal "autostart lanza el agente oficial" || bien "autostart limpio"

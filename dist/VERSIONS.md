@@ -5,13 +5,13 @@
 | | `omarchy-arm-utm-v2.zip` | `omarchy-arm-utm.zip` |
 |---|---|---|
 | | **← download this one** | the first release |
-| Size | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
+| Size | 3.6 GB (3.8 GB unpacked) | 6.5 GB (13 GB unpacked) |
 | Published | 2026-08-29 | 2026-08-23 |
 | Shared clipboard | **works, verified both ways** | does not work |
 | "Update System" notification | gone | repeats on every boot |
 | "Reboot?" after each update | gone | repeats forever |
 | `sshd` | disabled | enabled, with a trivial password |
-| `sha256` | `569d287c6d5f1b95279dcc0bbb3276dbb6a3a08e31404b978f9ad50aaf4fb505` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| `sha256` | `81b64fcc6b065953a685cb7a0e6e2a3b49227b6c77c541362c25e5db86c66f1b` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
 The plain name belongs to the first release and keeps it, so links and checksums
 published back in August still resolve to the exact bytes they were written
@@ -34,6 +34,16 @@ Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 441
   `Omarchy ARM`. The old name carried no version, which would say nothing the
   day Omarchy 5 lands, and it did not match the name the UTM gallery announces.
 
+- **The mouse behaves like a mouse again.** Two releases ago the clipboard fix
+  passed `-f` to `spice-vdagentd` believing it meant "foreground". It does not
+  — that is `-x`, which was already there. `-f` is `--fake-uinput`: the daemon
+  skips the ioctls that set up `/dev/uinput` and then fails on every write
+  (`write /dev/uinput: Invalid argument`, eight times per boot). The agent still
+  announced itself, so UTM stopped grabbing the pointer, but nothing replaced
+  the grab. The flag is gone, and the `-X` the clipboard does need now travels
+  through `/etc/conf.d/spice-vdagentd`, the extension point Arch's own unit
+  already reads. If you are on an affected image, `fixes/19-portapapeles.sh`
+  undoes it in place.
 - **All 17 tools now build.** `herdr` was the one that never did; it now comes
   from Omarchy's own PKGBUILD, which declares `aarch64` and fetches the official
   Zig 0.15.2 instead of relying on the version the repos happen to ship. Its

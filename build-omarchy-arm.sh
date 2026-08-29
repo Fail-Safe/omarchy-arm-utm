@@ -67,6 +67,12 @@ del_entorno() { case " $FIJADO_POR_ENTORNO " in *" $1 "*) return 0 ;; *) return 
 : "${UTM_MEM:=6144}"                     # MiB de la VM final
 : "${OMARCHY_REF:=quattro}"              # rama de Omarchy (¡NO master!)
 : "${DIST_NEW_USER:=omarchy}"            # usuario en la imagen distribuible
+# OJO con este nombre: `omarchy-arm-utm.zip` es el de la PRIMERA publicacion
+# en archive.org, y ahi se queda congelado para que los enlaces y los sha256
+# publicados en agosto sigan resolviendo a los bytes exactos para los que se
+# escribieron. Estaba incrustado aqui, asi que el constructor producia un
+# fichero con ese mismo nombre: subirlo era pisar el original.
+: "${DIST_ZIP:=omarchy-arm-utm-v2.zip}"  # nombre del zip que se reparte
 : "${ALPINE_VER:=v3.24}"
 : "${ALPINE_ISO:=alpine-virt-3.24.1-aarch64.iso}"
 : "${ALARM_URL:=http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz}"
@@ -3523,12 +3529,12 @@ ph_package() {
   write_readme "$W/dist/LEEME.md"
 
   info "comprimiendo..."
-  ( cd "$W/dist" && rm -f omarchy-arm-utm.zip \
-      && zip -r -q -1 omarchy-arm-utm.zip "$DNAME.utm" LEEME.md \
-      && shasum -a 256 omarchy-arm-utm.zip > omarchy-arm-utm.zip.sha256 )
+  ( cd "$W/dist" && rm -f "$DIST_ZIP" \
+      && zip -r -q -1 "$DIST_ZIP" "$DNAME.utm" LEEME.md \
+      && shasum -a 256 "$DIST_ZIP" > "$DIST_ZIP.sha256" )
   rm -f "$W/dist/dist.qcow2" "$W/dist/slim.qcow2"
-  ok "listo: $W/dist/omarchy-arm-utm.zip ($(du -h "$W/dist/omarchy-arm-utm.zip" | cut -f1))"
-  cat "$W/dist/omarchy-arm-utm.zip.sha256"
+  ok "listo: $W/dist/$DIST_ZIP ($(du -h "$W/dist/$DIST_ZIP" | cut -f1))"
+  cat "$W/dist/$DIST_ZIP.sha256"
 }
 
 write_readme() {
