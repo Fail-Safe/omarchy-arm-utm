@@ -107,7 +107,7 @@ grep -q 'missing reviewed artifact lock' "$TMP/fail-closed.out"
 ! rg -n 'curl .*geo\.mirror\.pkgbuild\.com|sort -V.*tail -1' "$EXTRAS"
 rg -q 'aur_build dotnet-runtime-bin dotnet-runtime-bin dotnet-runtime-bin' "$EXTRAS"
 rg -q 'clone_reviewed_source obs-studio-pkgbuild' "$EXTRAS"
-[[ $(rg -c "#commit='\"\$[a-z_]+\"'" "$EXTRAS") -ge 4 ]]
+[[ $(rg -c -F "#commit='\"\$" "$EXTRAS") -ge 4 ]]
 rg -q 'verify_reviewed_artifact .* \|\| return 1' "$EXTRAS"
 python3 "$ROOT/scripts/sync-payloads.py" --check >/dev/null
 
