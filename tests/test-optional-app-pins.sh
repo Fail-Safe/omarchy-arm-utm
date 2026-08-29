@@ -225,7 +225,7 @@ sed '/^google-chrome /d' "$CORE_LOCK" > "$TMP/wrong-core.tsv"
 if CORE_SOURCE_LOCK="$TMP/wrong-core.tsv" OPTIONAL_APP_ARTIFACT_LOCK="$ARTIFACT_LOCK" \
     FREE_APP_ARTIFACT_LOCK="$ROOT/checksums/free-app-artifacts.tsv" \
     PATH="$TMP/main-bin:$PATH" HOME="$TMP/home" XDG_CACHE_HOME="$TMP/cache" OMARCHY_LANG=en \
-    bash "$EXTRAS" chrome >"$TMP/missing-pin.out" 2>&1; then
+    bash "$EXTRAS" --force chrome >"$TMP/missing-pin.out" 2>&1; then
   echo "missing Chrome source pin returned success" >&2; exit 1
 fi
 test ! -s "$TMP/sudo-calls"
