@@ -55,6 +55,11 @@ cp alpine-virt-*-aarch64.iso  ~/omarchy-arm-build/dl/alpine-virt-aarch64.iso
 cp ArchLinuxARM-aarch64-*.tar.gz ~/omarchy-arm-build/dl/alarm-rootfs.tgz
 ```
 
+El constructor vuelve a comprobar el SHA-256 fijado aunque esos ficheros ya
+esten en cache. Una copia distinta o corrupta detiene la construccion y se
+conserva para inspeccion; nunca se acepta por falta de checksum. Los valores y
+su procedencia estan documentados en [`checksums/`](checksums/).
+
 El directorio de trabajo es `~/omarchy-arm-build` salvo que pongas otro:
 
 ```bash
@@ -95,6 +100,8 @@ Y luego las tres que **sí cambian el resultado**:
   el plugin de navegador, cuyo CEF es x86-only) y Pinta necesita el .NET arm64
   oficial de Microsoft. Si dices que no, se añaden luego desde dentro con
   `omarchy-arm-extras pinta obs`.
+  En modo desatendido se controla con `INCLUDE_LIBRE_APPS=yes|no`; el nombre
+  anterior `HACER_LIBRES=si|no` solo se conserva como entrada compatible.
 
 - **¿Preparar la imagen para repartir?**
   - **No** (lo que propone la pregunta: basta con Enter): la VM se queda con tu
@@ -120,11 +127,11 @@ compiladas y sin OBS ni Pinta:
 | Fase | Qué hace | Tiempo |
 |---|---|---|
 | `deps` | comprueba el Mac e instala qemu/expect/aria2 si faltan | segundos |
-| `fetch` | descarga Alpine y el rootfs de ALARM, verificando sha256 y MD5 | ~2 min |
-| `prepare` | calcula la lista de paquetes cruzando la rama viva de Omarchy con el índice de ARM | ~10 s |
+| `fetch` | descarga Alpine y el rootfs de ALARM, verificando SHA-256 fijados | ~2 min |
+| `prepare` | captura los cuatro repositorios en dos mirrors y calcula la lista contra Omarchy fijado | ~20 s |
 | `build` | arranca Alpine headless, particiona, despliega el rootfs y corre las tres etapas en chroot | **~40 min** |
 | `utm` | escribe el bundle `.utm` y lo registra en UTM | ~1 min |
-| `verify` | arranca la VM y le exige dentro siete condiciones: Hyprland y quickshell vivos, ≥400 comandos, ≤5 enlaces rotos, ≥6 unidades `omarchy-*`, versión 4 y el portapapeles completo. Si alguna falla, la construcción se detiene aquí | ~4 min |
+| `verify` | arranca la VM y comprueba el escritorio, los comandos y unidades, el portapapeles, las fuentes fijadas, las apps libres y la captura/procedencia de paquetes. Si algo falla, la construcción se detiene aquí | ~4 min |
 | `sanitize` | copia el disco y lo limpia para distribuir | ~10 min |
 | `package` | compacta el qcow2, crea el bundle y lo comprime | ~3 min |
 

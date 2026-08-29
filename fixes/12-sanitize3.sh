@@ -1,5 +1,5 @@
 #!/bin/bash
-# Tercera pasada: restos visibles para el usuario final.
+# Third pass: visible remnants for the end user.
 set -uo pipefail
 NEW=omarchy
 log() { echo ""; echo "==> $*"; }

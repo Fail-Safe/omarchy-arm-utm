@@ -12,7 +12,7 @@ totalmente automatizada desde macOS: ni un clic en la interfaz de UTM.
 | | |
 |---|---|
 | **Cómo ejecutarlo** | [`EMPEZAR.md`](EMPEZAR.md) · [guía publicada](https://claude.ai/code/artifact/630abf6c-6d3e-4e92-81b2-bfc0a3073c70) |
-| **Imagen lista para descargar** | [`omarchy-arm-utm-v2.zip`](https://archive.org/details/omarchy-arm-utm) · 3,6 GB |
+| **Imagen lista para descargar** | [`omarchy-arm-utm-v3.zip`](https://archive.org/details/omarchy-arm-utm) · 3,8 GB |
 | **Construir desde cero** | `./build-omarchy-arm.sh` · 76–83 min medidos, con todo |
 | **Por qué está hecho así** | [`ARTICULO.md`](ARTICULO.md) · [artículo publicado](https://claude.ai/code/artifact/c089d9ed-f880-4324-b601-815b22356d54) |
 
@@ -74,7 +74,7 @@ de ARM que necesitan precedencia en el `PATH`.
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los 439 comandos `omarchy-*`**, en `/usr/bin` como hace
+- **Dotfiles, temas y los 442 comandos `omarchy-*`**, en `/usr/bin` como hace
   el paquete de upstream
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
@@ -100,9 +100,9 @@ Y algo que tardé en ver: **no todo lo que falta hay que compilarlo**. `mako`,
 aún, `mako` se activa por D-Bus y le roba `org.freedesktop.Notifications` al
 shell, dejando las notificaciones sin tema.
 
-## Fallo conocido en la imagen publicada
+## Fallo conocido en la primera imagen publicada
 
-La imagen que hay en el Internet Archive instala los comandos `omarchy-*` en
+La imagen original, con el nombre sin sufijo, instala los comandos `omarchy-*` en
 `/usr/local/bin`. Fue decisión mía —el paquete de upstream usa `/usr/bin`— y
 resulta que el árbol lleva trece rutas `/usr/bin/omarchy-*` cableadas, cinco de
 ellas en ficheros `.service`. Se nota en dos sitios:
@@ -123,8 +123,8 @@ paquete `omarchy-settings`, que no tiene build ARM, y el primer build no
 replicaba ese paso — así que `enable-user-units.sh` no podía funcionar por
 muchas rutas que se arreglaran.
 
-**Los tres están corregidos en `omarchy-arm-utm-v2.zip`** (3,6 GB, un 45% menos
-que la primera). Para arreglar una VM que ya tengas, sin volver a descargar,
+**Los tres están corregidos en `omarchy-arm-utm-v2.zip` y `-v3.zip`.** Para
+arreglar una VM que ya tengas, sin volver a descargar,
 ejecuta dentro [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh),
 y para el portapapeles [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh).
 
@@ -150,6 +150,11 @@ y `package` y conserva tu usuario. Lo contestado se guarda en
 `$W/respuestas.env` y se recupera al reanudar con `--from`, así que no hay que
 volver a teclearlo. Sin terminal, o con `--yes`, no pregunta nada: el modo
 desatendido de siempre sigue intacto.
+
+En construcciones desatendidas, `INCLUDE_LIBRE_APPS=yes|no` controla OBS y
+Pinta. La forma anterior `HACER_LIBRES=si|no` sigue aceptándose por
+compatibilidad, pero la configuración y las respuestas nuevas usan el nombre
+en inglés.
 
 La fase `prepare` calcula la lista de paquetes en cada ejecución, cruzando la
 rama viva de Omarchy con el índice de Arch Linux ARM. Así el build no se rompe
@@ -233,6 +238,12 @@ omarchy-arm-extras            # menú interactivo
 omarchy-arm-extras --all      # todas
 ```
 
+El instalador usa artefactos versionados y recetas AUR fijadas, no descubre la
+versión más reciente durante la instalación. 1Password exige SHA-256 y la firma
+de la clave oficial esperada; Obsidian exige su URL y SHA-256 exactos. Cualquier
+bloqueo ausente o verificación fallida detiene el proceso antes de modificar el
+sistema.
+
 También aparece en el menú de aplicaciones como «Instalar apps que faltan (ARM)».
 
 Spotify no tiene cliente nativo ARM, pero la web sí funciona: necesita Widevine,
@@ -246,7 +257,7 @@ EMPEZAR.md             guía para ejecutarlo: requisitos y resolución de proble
 ARTICULO.md            explicación paso a paso de cómo se llegó hasta aquí
 articulo.html          la misma, como página
 dist/                  omarchy-arm-utm.zip + sha256 + LEEME para el destinatario
-dl/                    Alpine virt ISO (sha256) + rootfs de ALARM (MD5)
+dl/                    Alpine virt ISO + rootfs de ALARM (SHA-256 fijados)
 provision/src/         stage1..3.sh repair.sh sanitize.sh omarchy-arm-extras hooks/
 scripts/               qemu-build.sh build.exp repair.exp make-utm.sh qemu-shot.sh omssh
 fixes/                 correcciones aplicadas post-build (ya en stage2/3)
@@ -326,25 +337,35 @@ logs/
 
 ## Estado
 
-Validado con una construcción completa desde cero el 25-08-2026: **8 de 8 fases,
-76 minutos, `rc=0`**, partiendo de un directorio de trabajo vacío y con `--yes`.
+Validado el 29-08-2026 con una construcción nueva del perfil completo de
+distribución: herramientas ARM nativas, OBS y Pinta, saneado y empaquetado. El
+disco final corregido pasó la construcción, dos arranques consecutivos en UTM,
+el saneado, el empaquetado y un arranque de solo lectura de la imagen ya
+empaquetada.
 
 El veredicto que emite el invitado por la consola serie:
 
 ```
-### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
-VEREDICTO_OK
+SNAPSHOT_OK
+BROWSER_POLICY_OK
+TOOLS_OK mode=full verified=17/17 known-exception=herdr
+### H=1 Q=1 BINS=442 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 TTFX=1 PIN=1 FREE=2/2
+VERDICT_OK
+### REBOOT H=1 Q=1 CLIP=5/5 TOOLS=1 SNAPSHOT=1 BROWSER_POLICY=1
+REBOOT_OK
 ```
 
-**Compilan 16 de las 17 herramientas.** `herdr` no, y no lo hará mientras los
-repositorios no vuelvan a la semántica de Zig 0.15; también falla en x86_64.
+**Las 17 herramientas ARM compatibles son obligatorias y se verifican.**
+`herdr` queda como excepción conocida independiente: su paquete exige Zig 0.15,
+que los repositorios actuales no ofrecen ni en ARM ni en x86_64.
 
 Después se arrancó la **imagen ya empaquetada** —no la VM intermedia— en modo
 solo lectura (`qemu -snapshot`) y se comprobó desde fuera: usuario genérico y la
-cuenta de construcción borrada, 439 comandos `omarchy-*`, Hyprland y quickshell
-vivos, `spice-vdagentd` con `-X` y el agente del portapapeles activo, `sshd`
-deshabilitado, cero claves SSH de host y ninguna ruta de compilación dentro de
-los binarios.
+cuenta de construcción borrada, 442 comandos `omarchy-*`, Hyprland y quickshell
+vivos, los cinco componentes del portapapeles instalados, procedencia exacta,
+propiedad segura de las políticas de Chromium, `sshd` deshabilitado y ninguna
+ruta de compilación dentro de los binarios. El SHA-256 del QCOW2 fue idéntico
+antes y después de ese arranque `-snapshot`.
 
 El portapapeles compartido se comprobó después con datos reales y en los dos
 sentidos, sobre una VM arrancada en UTM: una cadena única copiada en el Mac se

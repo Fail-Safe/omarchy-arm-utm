@@ -1,11 +1,11 @@
 #!/bin/bash
-# Hace que "Update System" funcione de verdad y de forma segura en ARM.
+# Makes the "Update System" work properly and safely on ARM.
 #
-#  1. snapper: sin el, omarchy-snapshot devuelve 127 y cada actualizacion se
-#     hace SIN red de seguridad. Con el, hay instantanea previa y rollback.
-#  2. hook post-update: omarchy-update-dev solo hace git pull cuando
-#     OMARCHY_PATH != /usr/share/omarchy, y aqui apunta justo ahi, asi que el
-#     arbol de Omarchy no se actualizaria nunca.
+#  1. snapper: without it, omarchy-snapshot returns 127 and every update
+#     happens without a safety net. With it, there is a previous snapshot and rollback.
+#  2. post-update hook: omarchy-update-dev only performs git pull when
+#     OMARCHY_PATH != /usr/share/omarchy, and here it points exactly there, so the
+#     Omarchy tree would never be updated.
 set -uo pipefail
 log() { echo ""; echo "==> $*"; }
 

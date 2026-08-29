@@ -1,10 +1,10 @@
 #!/bin/bash
-# omarchy-update fallaba porque el build no sello las migraciones existentes.
-# Un instalador normal de Omarchy las marca todas como aplicadas al terminar
-# (el sistema ya nace con el estado final); aqui solo habia 8 de 83 selladas,
-# asi que omarchy-update intento reproducir 75 migraciones historicas y murio
-# en la que sustituye `dust` por `tensaku`, paquete propio de Omarchy que no
-# existe en Arch Linux ARM. De paso dejo el sistema sin `dust`.
+# omarchy-update failed because the build did not mark existing migrations as applied.
+# A standard Omarchy installer marks all of them as applied upon completion
+# (the system starts with the final state); here only 8 of 83 were marked,
+# so omarchy-update attempted to reproduce 75 historical migrations and crashed
+# on the one that replaces `dust` with `tensaku`, an Omarchy-specific package that does
+# not exist in Arch Linux ARM. As a side effect, the system is left without `dust`.
 set -uo pipefail
 log() { echo ""; echo "==> $*"; }
 STATE="$HOME/.local/state/omarchy/migrations"
@@ -27,13 +27,13 @@ pacman -Q dust 2>&1
 log "3/5 blindando omarchy-pkg-add frente a paquetes que no existen en ARM"
 sudo tee /usr/local/bin/omarchy-pkg-add >/dev/null <<'WRAP'
 #!/bin/bash
-# Envoltorio para Arch Linux ARM.
+# Wrapper for Arch Linux ARM.
 #
-# Los paquetes propios de Omarchy (tensaku, omarchy-nvim, ttfx...) y varias apps
-# propietarias solo existen para x86_64. El omarchy-pkg-add original aborta con
-# error si alguno falta, lo que hace fallar omarchy-update entero y deja las
-# migraciones a medias. Este envoltorio omite los que no estan en ningun repo,
-# avisa de cuales, e instala el resto con el script original.
+# Omarchy-specific packages (tensaku, omarchy-nvim, ttfx...) and several proprietary apps
+# are only available for x86_64. The original omarchy-pkg-add aborts with
+# an error if any are missing, which causes the entire omarchy-update to fail and leaves
+# migrations incomplete. This wrapper skips those not present in any repository,
+# notifies which ones, and installs the rest using the original script.
 REAL=/usr/share/omarchy/bin/omarchy-pkg-add
 avail=(); skip=()
 for p in "$@"; do

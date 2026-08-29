@@ -1,4 +1,4 @@
-# Nucleo (rama quattro de Omarchy) disponible en Arch Linux ARM aarch64
+# Core (Omarchy quattro branch) available on Arch Linux ARM aarch64
 alsa-utils
 avahi
 bash-completion

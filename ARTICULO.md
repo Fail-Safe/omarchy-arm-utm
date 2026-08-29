@@ -1013,22 +1013,30 @@ Y el resultado, ya con todo corregido:
 extras=si  menu=si  hook=si          ← los tres bloqueantes, resueltos
 verify dentro del invitado:
   ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
-  VEREDICTO_OK
+  VERDICT_OK
 imagen final: 3,6 GB · 76 min de deps a package
 ```
 
 Ese veredicto es de la tanda de certificación, con el constructor ya corregido.
 Conviene mirarlo dos veces, porque durante meses no significó nada: el anfitrión
-lo comprobaba con `grep -qa VEREDICTO_OK` sobre el log, y el log contiene el
-**eco** del propio comando, que lleva dentro `then echo VEREDICTO_OK`. La fase
+lo comprobaba con `grep -qa VERDICT_OK` sobre el log, y el log contiene el
+**eco** del propio comando, que lleva dentro `then echo VERDICT_OK`. La fase
 no podía fallar. Lo demuestra el log de la imagen que llegué a publicar: la
-línea 6 es el eco, la línea 8 dice `VEREDICTO_KO`, y el constructor cantó éxito.
-Ahora el token viaja partido —`VERED"ICTO_OK"`—, que es algo que el eco no puede
+línea 6 es el eco, la línea 8 dice `VERDICT_KO`, y el constructor cantó éxito.
+Ahora el token viaja partido —`VERD"ICT_OK"`—, que es algo que el eco no puede
 contener.
 
 Ese `extras=si menu=si hook=si` es la prueba que importa: son los tres que
 llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa
 había denunciado porque el script se declaraba correcto igualmente.
+
+**Actualización del 29-08-2026:** la certificación actual exige las 17
+herramientas ARM compatibles (con `herdr` como excepción Zig independiente),
+procedencia de fuentes y paquetes, políticas de Chromium seguras y un segundo
+arranque real. El resultado final fue 442 comandos, `CLIP=5/5`, `TOOLS=1`,
+`SNAPSHOT=1`, `BROWSER_POLICY=1` y `REBOOT_OK`; la imagen empaquetada arrancó
+además con `qemu -snapshot` sin cambiar el hash del QCOW2, y el portapapeles se
+probó con datos reales en ambos sentidos.
 
 ---
 

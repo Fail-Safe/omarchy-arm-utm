@@ -1,11 +1,27 @@
 #!/usr/bin/expect -f
-# Verifica la VM arrancada en UTM por su puerto serie (pty).
-# Uso: verify-utm.exp /dev/ttysNNN     (utmctl attach imprime el pty)
+# Verify the VM booted in UTM via its serial port (pty).
+# Usage: verify-utm.exp /dev/ttysNNN     (utmctl attach prints the pty)
 set timeout 120
 log_user 1
 match_max 200000
 set DEV [lindex $argv 0]
-if {$DEV eq ""} { puts "uso: verify-utm.exp /dev/ttysNNN"; exit 1 }
+set UI_LANG [expr {[info exists env(OMARCHY_LANG)] ? $env(OMARCHY_LANG) : "auto"}]
+if {$UI_LANG eq "auto"} {
+    set locale ""
+    set keyboard ""
+    catch { set locale [exec defaults read -g AppleLocale] }
+    catch { set keyboard [exec defaults read $env(HOME)/Library/Preferences/com.apple.HIToolbox.plist AppleSelectedInputSources] }
+    if {[regexp {(_|-)(ES|MX)(@|_|-|$)|@rg=(ES|MX)} $locale] || [regexp -nocase {Spanish|Mexican|Mexico} $keyboard]} {
+        set UI_LANG es
+    } else {
+        set UI_LANG en
+    }
+}
+if {$UI_LANG ne "en" && $UI_LANG ne "es"} { puts "Invalid OMARCHY_LANG; expected auto, en, or es."; exit 1 }
+proc ui_text {english spanish} { global UI_LANG; expr {$UI_LANG eq "es" ? $spanish : $english} }
+if {$DEV eq ""} { puts [ui_text "usage: verify-utm.exp /dev/ttysNNN" "uso: verify-utm.exp /dev/ttysNNN"]; exit 1 }
+set USER [expr {[info exists env(OMARCHY_VERIFY_USER)] ? $env(OMARCHY_VERIFY_USER) : "omarchy"}]
+set PASS [expr {[info exists env(OMARCHY_VERIFY_PASSWORD)] ? $env(OMARCHY_VERIFY_PASSWORD) : $USER}]
 
 set fd [open $DEV w+]
 fconfigure $fd -mode 115200,n,8,1 -translation binary -buffering none
@@ -24,30 +40,30 @@ proc go {cmd tok {t 90}} {
 send "\r"
 expect {
     -re {omarchy login:} {}
-    timeout { puts "\n!! no aparece el login"; exit 2 }
+    timeout { puts "\n!! [ui_text {the login prompt did not appear} {no aparece el login}]"; exit 2 }
 }
-send "gabriel\r"
+send "$USER\r"
 expect -re {[Pp]assword:}
-send "gabriel\r"
+send "$PASS\r"
 expect {
     -re {\$ $|\$ } {}
-    timeout { puts "\n!! no hay shell"; exit 3 }
+    timeout { puts "\n!! [ui_text {no shell appeared} {no hay shell}]"; exit 3 }
 }
 send "export PS1='V> ' TERM=dumb; stty cols 160; echo TOK_SH_\$?\r"
 expect -re {TOK_SH_[0-9]+}
 
-puts "\n\n============== VERIFICACION =============="
-go "echo; echo '### sistema'; uname -srm; grep PRETTY /etc/os-release" T1_
-go "echo '### almacenamiento'; findmnt -no SOURCE,FSTYPE,OPTIONS / ; findmnt -no SOURCE,FSTYPE /home; findmnt -no SOURCE,FSTYPE /boot; df -h / | tail -1" T2_
-go "echo '### servicios'; systemctl is-active sddm NetworkManager systemd-logind; echo '--- fallidos:'; systemctl --failed --no-pager --no-legend" T3_
-go "echo '### paquetes'; pacman -Q hyprland waybar uwsm sddm mesa walker elephant xdg-terminal-exec 2>&1" T4_
-go "echo '### dotfiles'; ls ~/.config | tr '\\n' ' '; echo; echo -n 'tema: '; readlink -f ~/.config/omarchy/current/theme" T5_
+puts "\n\n============== [ui_text {VERIFICATION} {VERIFICACION}] =============="
+go "echo; echo '### [ui_text {system} {sistema}]'; uname -srm; grep PRETTY /etc/os-release" T1_
+go "echo '### [ui_text {storage} {almacenamiento}]'; findmnt -no SOURCE,FSTYPE,OPTIONS / ; findmnt -no SOURCE,FSTYPE /home; findmnt -no SOURCE,FSTYPE /boot; df -h / | tail -1" T2_
+go "echo '### [ui_text {services} {servicios}]'; systemctl is-active sddm NetworkManager systemd-logind; echo '--- [ui_text {failed} {fallidos}]:'; systemctl --failed --no-pager --no-legend" T3_
+go "echo '### [ui_text {packages} {paquetes}]'; pacman -Q hyprland waybar uwsm sddm mesa walker elephant xdg-terminal-exec 2>&1" T4_
+go "echo '### dotfiles'; ls ~/.config | tr '\\n' ' '; echo; echo -n '[ui_text {theme} {tema}]: '; readlink -f ~/.config/omarchy/current/theme" T5_
 go "echo '### omarchy bin'; ls ~/.local/share/omarchy/bin | wc -l; command -v omarchy-theme-set omarchy-menu 2>&1" T6_
-go "echo '### red'; ip -4 -br addr show scope global; ping -c2 -W3 mirror.archlinuxarm.org 2>&1 | tail -2" T7_
-go "echo '### sesion grafica'; loginctl list-sessions --no-legend; pgrep -a Hyprland | head -2; pgrep -a sddm | head -2" T8_
+go "echo '### [ui_text {network} {red}]'; ip -4 -br addr show scope global; ping -c2 -W3 mirror.archlinuxarm.org 2>&1 | tail -2" T7_
+go "echo '### [ui_text {graphical session} {sesion grafica}]'; loginctl list-sessions --no-legend; pgrep -a Hyprland | head -2; pgrep -a sddm | head -2" T8_
 go "echo '### GPU / virgl'; ls /dev/dri/ 2>&1; lspci 2>/dev/null | grep -i -E 'vga|display|gpu'; dmesg 2>/dev/null | grep -i -E 'virtio_gpu|drm' | tail -6" T9_
-go "echo '### errores del arranque'; journalctl -b -p err --no-pager 2>&1 | tail -25" TA_ 150
-puts "\n============== FIN =============="
+go "echo '### [ui_text {boot errors} {errores del arranque}]'; journalctl -b -p err --no-pager 2>&1 | tail -25" TA_ 150
+puts "\n============== [ui_text {END} {FIN}] =============="
 send "exit\r"
 sleep 1
 exit 0
