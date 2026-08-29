@@ -70,7 +70,7 @@ The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
 **https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
-`sha256 929eb816194a5cfc…`
+`sha256 5a00e6d73f29657e…`
 
 The plain `omarchy-arm-utm.zip` next to it is the first release (6.5 GB). It
 keeps the plain name so links and checksums published with it still resolve to
@@ -145,7 +145,7 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **439 `omarchy-*` commands**, in `/usr/bin` as
+- Dotfiles, themes and the **441 `omarchy-*` commands**, in `/usr/bin` as
   upstream's package does
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
@@ -200,8 +200,6 @@ inside it — no need to re-download. For the clipboard, run
 - **Resolution is fixed at boot** (1920x1200 by default, editable in
   `~/.config/hypr/monitors.lua`). Changing the mode at runtime whites out the
   screen under virtio-gpu.
-- **`herdr` is missing** — it wants Zig 0.15 semantics, and neither ARM nor
-  x86_64 packages that any more; both are on 0.16.
 - Single monitor.
 
 ## Clipboard and shared folder
@@ -342,16 +340,17 @@ Validated by a full from-scratch run on 2026-08-25: **8/8 phases, 76 minutes,
 The guest-side verdict, read back over the serial console:
 
 ```
-### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+### H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
 VEREDICTO_OK
 ```
 
-**16 of the 17 tools build.** `herdr` does not, and won't until the repos ship
-Zig 0.15 semantics again — it fails on x86_64 too.
+**All 17 tools build**, `herdr` included: it comes from Omarchy's own PKGBUILD,
+which declares `aarch64` and fetches the official Zig 0.15.2 from ziglang.org
+rather than relying on whatever the repos happen to ship.
 
 The *packaged* image — not the intermediate VM — was then booted read-only
 (`qemu -snapshot`) and checked from outside: generic user with the build account
-gone, 439 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
+gone, 441 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
 running with `-X` and the clipboard agent alive, `sshd` disabled, no SSH host
 keys, no build-time paths inside the compiled binaries.
 

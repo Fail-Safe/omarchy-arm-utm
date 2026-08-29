@@ -263,7 +263,10 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   # Un unico `local` expande todos los valores antes de asignar ninguno,
   # asi que $pkg no existe aun al construir $dir. Hay que separarlos.
   local src="$1" pkg="$2"
-  local dir="/tmp/omabuild/$pkg"
+  # En el disco, no en /tmp: /tmp es tmpfs (RAM/2 = 4 GB con los 8 GB de la VM
+  # de construccion) y un solo proyecto Rust grande se acerca a ese limite.
+  # ~/.cache lo borra el sanitizado, asi que no deja rastro en la imagen.
+  local dir="$HOME/.cache/omabuild/$pkg"
   pacman -Q "$pkg" >/dev/null 2>&1 && return 0
   rm -rf "$dir"; mkdir -p "$dir"
   case "$src" in
@@ -294,7 +297,7 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
   # PKGBUILD fallan en el primer paso por makedepends ausentes. No se usa -i
   # porque la instalacion se hace despues, subpaquete a subpaquete.
   # Si falla, el log es lo unico que explica por que, y hasta ahora se perdia
-  # con el `rm -rf /tmp/omabuild` de dos lineas mas abajo: la construccion
+  # con el `rm -rf "$HOME/.cache/omabuild"` de dos lineas mas abajo: la construccion
   # decia "no compilaron: X" y no habia forma de averiguar nada mas.
   # El limite de velocidad lo quita DisableDownloadTimeout en /etc/pacman.conf
   # (lo pone stage2): asi lo hereda tambien el pacman que lanza makepkg -s para
@@ -309,24 +312,28 @@ build_omarchy_tool() {                 # build_omarchy_tool <aur|omapkgs> <pkg>
     # tema no estaba: el paquete real choca con ellos. --overwrite lo resuelve.
     [ -n "$built" ] && sudo pacman -U --noconfirm --needed \
       --overwrite '/usr/share/icons/*' "$built" >>"$dir/build.log" 2>&1
+    # Se libera YA, no al final del bucle. /tmp/omabuild acumulaba el arbol de
+    # compilacion de las 17 herramientas a la vez; en /tmp, que es tmpfs y por
+    # tanto RAM, eso son varios GB. Al entrar herdr se lleno y la siguiente
+    # murio con "No space left on device", sin que el fallo tuviera nada que
+    # ver con ella.
+    rm -rf "$dir"
   else
     mkdir -p "$HOME/.omarchy-arm-prov/fallos"
     cp "$dir/build.log" "$HOME/.omarchy-arm-prov/fallos/$pkg.log" 2>/dev/null || true
     echo "  --- $pkg fallo; ultimas lineas de makepkg ---"
     tail -20 "$dir/build.log" 2>/dev/null | sed 's/^/      /'
     echo "  --- (log completo en ~/.omarchy-arm-prov/fallos/$pkg.log) ---"
+    rm -rf "$dir"
     return 1
   fi
 }
 
-# Algunos PKGBUILD invocan zig por ruta fija y versionada (/opt/zig0.15/zig).
-# En ARM solo hay una version de zig, asi que se enlaza donde la buscan.
-if pacman -Si zig >/dev/null 2>&1; then
-  sudo pacman -S --noconfirm --needed --disable-download-timeout zig >/dev/null 2>&1 || true
-  for v in zig0.15 zig0.14; do
-    sudo mkdir -p "/opt/$v" && sudo ln -sfn "$(command -v zig)" "/opt/$v/zig" 2>/dev/null || true
-  done
-fi
+# Aqui se enlazaba /opt/zig0.15 al zig del sistema, para el PKGBUILD de herdr
+# en AUR, que lo invoca por esa ruta fija. No podia funcionar nunca:
+# libghostty-vt exige 0.15.2 EXACTO -compara major, minor y patch- y los repos
+# empaquetan 0.16. Ademas instalaba ~180 MB de zig en la imagen para nada.
+# herdr se compila ahora desde omarchy-pkgs, que se trae su propio Zig.
 
 if [ "${HACER_TOOLS:-si}" != "si" ]; then
   warn "compilacion de herramientas desactivada: faltaran ttfx, tensaku, omacalc,"
@@ -340,22 +347,24 @@ for spec in \
   "omapkgs:omarchy-nvim" "omapkgs:tobi-try" "aur:mise-bin" \
   "aur:aether" "aur:cliamp" \
   "omapkgs:omacalc" "omapkgs:omacut" "omapkgs:omawrite" \
-  "aur:herdr" "omapkgs:tensaku" "omapkgs:hyprland-preview-share-picker"; do
+  "omapkgs:herdr" "omapkgs:tensaku" "omapkgs:hyprland-preview-share-picker"; do
   src=${spec%%:*}; pkg=${spec#*:}
   if build_omarchy_tool "$src" "$pkg"; then TOOLS_OK+=("$pkg"); else TOOLS_KO+=("$pkg"); fi
 done
 echo "  compiladas: ${TOOLS_OK[*]:-ninguna}"
 [ ${#TOOLS_KO[@]} -gt 0 ] && warn "no compilaron: ${TOOLS_KO[*]}"
-rm -rf /tmp/omabuild
+rm -rf "$HOME/.cache/omabuild"
 fi
 # Omarchy sustituye a proposito dos iconos de Yaru por los de Adwaita; si Yaru
 # se acaba de instalar hay que volver a aplicarlo.
 sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" >/dev/null 2>&1 || true
 
-# herdr queda fuera: su PKGBUILD usa `zig fetch` con la semantica de Zig 0.15 y
-# Arch Linux ARM solo empaqueta 0.16 ("no build.zig file found"). Construir
-# zig0.15 desde fuente son horas y es una herramienta de desarrollo, no del
-# escritorio.
+# herdr se compila desde omarchy-pkgs y NO desde AUR. El PKGBUILD de AUR invoca
+# /opt/zig0.15/zig y depende de un paquete zig0.15 que en ARM no existe (el de
+# AUR es arch=(x86_64) y compila LLVM desde fuente). El de Omarchy declara
+# arch=('x86_64' 'aarch64') y se descarga el tarball oficial
+# zig-aarch64-linux-0.15.2.tar.xz de ziglang.org -sha256 958ed7d1e00d0ea7...-,
+# que es la unica version que libghostty-vt acepta.
 
 # --- el aviso de reinicio por kernel, que en ARM no se apaga nunca -------
 # omarchy-update-restart decide si el kernel cambio buscando un vmlinuz dentro

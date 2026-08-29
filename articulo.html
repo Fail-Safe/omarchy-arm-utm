@@ -914,12 +914,17 @@ cargo build --release &amp;&amp; sudo install -Dm755 target/release/ttfx /usr/lo
 
       <h3>El resultado</h3>
       <p>
-        De las 25 ausencias, <strong>20 quedaron instaladas</strong>. Solo una resistió, y
-        por un motivo concreto: <code>herdr</code> invoca <code>zig fetch</code> con la
-        semántica de Zig 0.15 y los repos van por la 0.16 —el mismo <code>zig 0.16.0-1</code> en ARM que en x86_64, así que esto no es cosa de ARM— y falla con
-        <em>«no build.zig file found»</em>—. Construir Zig 0.15 desde fuente son horas, y es
-        una herramienta de desarrollo, no parte del escritorio. El resto de ausencias son
-        las genuinamente imposibles: binarios propietarios solo para x86_64.
+        De las 25 ausencias, <strong>las 21 que tenían arreglo quedaron instaladas</strong>.
+        <code>herdr</code> resistió mucho tiempo, y el diagnóstico que yo daba era
+        incompleto: su PKGBUILD de AUR falla con <em>«no build.zig file found»</em> porque
+        invoca <code>zig fetch</code> con la semántica de Zig 0.15 y los repos van por la
+        0.16 —en ARM y en x86_64 por igual—, pero la conclusión que saqué de ahí, que hacía
+        falta compilar Zig 0.15 desde fuente y no merecía la pena, era falsa. El propio
+        Omarchy ya lo había resuelto: su PKGBUILD en <code>omacom-io/omarchy-pkgs</code>
+        declara <code>aarch64</code> y se descarga el tarball oficial
+        <code>zig-aarch64-linux-0.15.2.tar.xz</code> de ziglang.org. El arreglo fue cambiar
+        una palabra. El resto de ausencias son las genuinamente imposibles: binarios
+        propietarios solo para x86_64.
       </p>
       <p>
         Cuatro de los cinco tropiezos del camino fueron defectos de mi propio script, no
@@ -1170,10 +1175,9 @@ zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
           <h4>No funciona</h4>
           <p>
             La aceleración GL dentro de la VM: el render va por software y el blur y las
-            sombras vienen desactivados. Y falta <code>herdr</code>, que exige la semántica
-            de Zig 0.15 cuando los repositorios van ya por la 0.16, en ARM y en x86_64 por
-            igual. Las apps propietarias no viajan dentro por licencia, pero todas tienen
-            build ARM64 oficial y <code>omarchy-arm-extras</code> las trae de su origen.
+            sombras vienen desactivados. Las apps propietarias no viajan dentro por
+            licencia, pero todas tienen build ARM64 oficial y
+            <code>omarchy-arm-extras</code> las trae de su origen.
           </p>
         </div>
       </div>
@@ -1271,10 +1275,10 @@ zip -r -1 omarchy-arm-utm.zip "Omarchy ARM.utm"</code></pre>
         Los dos primeros los introduje yo al arreglar los otros treinta y siete. El tercero
         llevaba ahí desde el principio. Y el resultado, ya con todo corregido:
       </p>
-<pre><code>16/17 herramientas compiladas <span class="o">(solo falla herdr, por la version de Zig)</span>
+<pre><code>17/17 herramientas compiladas
 extras=si  menu=si  hook=si   <span class="o">← los tres bloqueantes, resueltos</span>
-verify dentro del invitado: H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 → VEREDICTO_OK
-imagen final: 3,6 GB · 76 min <span class="o">(de deps a package, con todo incluido)</span></code></pre>
+verify dentro del invitado: H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 → VEREDICTO_OK
+imagen final: 3,6 GB · 80 min <span class="o">(de deps a package, con todo incluido)</span></code></pre>
       <p>
         Ese <code>extras=si menu=si hook=si</code> es la prueba que importa: son los tres
         que llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa

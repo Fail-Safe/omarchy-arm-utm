@@ -669,13 +669,23 @@ es tiempo de máquina, no de persona.
 
 ### El resultado
 
-De las 25 ausencias, **20 quedaron instaladas**. Solo una resistió, y por un
-motivo concreto: `herdr` invoca `zig fetch` con la semántica de Zig 0.15 y los repos van por la
-0.16 —falla con *«no build.zig file found»*—. Conviene precisar que **esto no es
-cosa de ARM**: `zig 0.16.0-1` es la versión tanto en Arch Linux ARM como en
-x86_64, así que el mismo tropiezo lo tendría cualquiera.
-Construir Zig 0.15 desde fuente son horas, y es una herramienta de desarrollo,
-no parte del escritorio.
+De las 25 ausencias, **las 21 que tenían arreglo quedaron instaladas**. `herdr`
+resistió mucho tiempo, y el diagnóstico que yo daba era incompleto: sí, su
+PKGBUILD de AUR falla con *«no build.zig file found»* porque invoca `zig fetch`
+con la semántica de Zig 0.15 y los repos van por la 0.16 —en ARM y en x86_64 por
+igual—. Pero la conclusión que saqué de ahí, que hacía falta compilar Zig 0.15
+desde fuente y no merecía la pena, era falsa.
+
+El propio Omarchy ya lo había resuelto aguas arriba. Su PKGBUILD en
+`omacom-io/omarchy-pkgs` declara `arch=('x86_64' 'aarch64')` y se descarga el
+tarball oficial `zig-aarch64-linux-0.15.2.tar.xz` de ziglang.org, con su
+`sha256`. El arreglo fue cambiar una palabra —`aur:herdr` por `omapkgs:herdr`—
+y borrar el enlace `/opt/zig0.15` que yo había puesto apuntando al zig del
+sistema, que era justo lo que no podía funcionar: `libghostty-vt` exige 0.15.2
+**exacto**, comparando major, minor y patch.
+
+La lección se repite: antes de declarar algo imposible, mirar si upstream ya lo
+resolvió.
 
 El resto de ausencias son las genuinamente imposibles: binarios propietarios
 compilados solo para x86_64.
@@ -897,11 +907,10 @@ qemu-img create -f qcow2 -b slim.qcow2 -F qcow2 prueba.qcow2
 **Funciona:** Arch Linux ARM aarch64 nativo con HVF, kernel `linux-aarch64` 7.2,
 btrfs con subvolúmenes y compresión zstd, Hyprland 0.56.1 con el stack completo
 de Omarchy 4 —quickshell como barra, menú, OSD y demonio de notificaciones,
-hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 439 comandos `omarchy-*`, y `omarchy-update`.
+hyprlock, hypridle, uwsm, SDDM con autologin—, los temas, los 441 comandos `omarchy-*`, y `omarchy-update`.
 
-**No funciona:** la aceleración GL dentro de la VM (render por software), y
-`herdr`, que exige la semántica de Zig 0.15 cuando los repositorios ya van por la
-0.16 —en ARM y en x86_64 por igual—. Las apps propietarias (1Password, Obsidian,
+**No funciona:** la aceleración GL dentro de la VM (render por software). Las
+apps propietarias (1Password, Obsidian,
 Typora, LocalSend, Chrome) no viajan dentro por licencia, pero todas tienen build
 ARM64 oficial y `omarchy-arm-extras` las trae de su origen.
 
@@ -1009,10 +1018,10 @@ tercero llevaba ahí desde el principio.
 Y el resultado, ya con todo corregido:
 
 ```
-16/17 herramientas compiladas (solo falla herdr, por la version de Zig)
+17/17 herramientas compiladas
 extras=si  menu=si  hook=si          ← los tres bloqueantes, resueltos
 verify dentro del invitado:
-  ### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+  ### H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
   VEREDICTO_OK
 imagen final: 3,6 GB · 76 min de deps a package
 ```

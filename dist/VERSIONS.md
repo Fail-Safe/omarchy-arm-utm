@@ -6,12 +6,12 @@
 |---|---|---|
 | | **← download this one** | the first release |
 | Size | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
-| Published | 2026-08-26 | 2026-08-23 |
+| Published | 2026-08-29 | 2026-08-23 |
 | Shared clipboard | **works, verified both ways** | does not work |
 | "Update System" notification | gone | repeats on every boot |
 | "Reboot?" after each update | gone | repeats forever |
 | `sshd` | disabled | enabled, with a trivial password |
-| `sha256` | `929eb816194a5cfc46b87ebc05f7c29bac004a8850f0ae559d220efae0355958` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| `sha256` | `5a00e6d73f29657e2ee404b9c635af1022f9ef865b20f484a1ce699bbde5f46e` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
 The plain name belongs to the first release and keeps it, so links and checksums
 published back in August still resolve to the exact bytes they were written
@@ -25,8 +25,18 @@ open *.utm
 
 User `omarchy`, password `omarchy` (also root). **Change it with `passwd`.**
 
-Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 439
+Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 441
 `omarchy-*` commands · 17 tools built for ARM · OBS Studio and Pinta.
+
+## What changed on 2026-08-29
+
+- **All 17 tools now build.** `herdr` was the one that never did; it now comes
+  from Omarchy's own PKGBUILD, which declares `aarch64` and fetches the official
+  Zig 0.15.2 instead of relying on the version the repos happen to ship. Its
+  desktop shortcuts stop being dead links.
+- **No orphaned packages.** The image used to ship three (`asio` and two
+  `linux-firmware-*` for hardware a VM does not have), so the very first
+  `omarchy-update` greeted you with a prompt about them. They are gone.
 
 ## What changed on 2026-08-26
 
@@ -83,8 +93,6 @@ curl -fsSL https://raw.githubusercontent.com/ggalancs/omarchy-arm-utm/main/fixes
   are off. Fine for normal use, not for video or 3D.
 - **Resolution is fixed at boot** (1920x1200, editable in
   `~/.config/hypr/monitors.lua`). Changing it at runtime whites out the screen.
-- **`herdr` is missing** — it wants Zig 0.15 semantics and the repos are on
-  0.16, on ARM and x86_64 alike.
 - Single monitor.
 - Proprietary apps are not bundled, on purpose. `omarchy-arm-extras` fetches
   1Password, Obsidian, Typora, LocalSend and Chrome from their official source.

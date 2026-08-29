@@ -74,7 +74,7 @@ de ARM que necesitan precedencia en el `PATH`.
 - **Hyprland 0.56.1** con el stack de Omarchy 4: quickshell —que es a la vez
   barra, menú, OSD y demonio de notificaciones—, hyprlock, hypridle, hyprsunset,
   uwsm, xdg-desktop-portal-hyprland, SDDM con autologin y tema Omarchy
-- **Dotfiles, temas y los 439 comandos `omarchy-*`**, en `/usr/bin` como hace
+- **Dotfiles, temas y los 441 comandos `omarchy-*`**, en `/usr/bin` como hace
   el paquete de upstream
 - **17 herramientas de Omarchy construidas para aarch64** que no se publican
   para ARM: `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`,
@@ -91,8 +91,7 @@ De los 148 paquetes de `omarchy-base.packages`, **121 existen en Arch Linux
 ARM** por nombre (123 si sustituyes `nvim`→`neovim` y
 `ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). De los que faltan,
 **17 se compilan desde fuente**. Quedan fuera las
-apps propietarias (1Password, Spotify, Obsidian, Typora) y `herdr`, que necesita la semántica de
-Zig 0.15: ni ARM ni x86_64 empaquetan ya esa versión, los dos van por la 0.16.
+apps propietarias: 1Password, Spotify, Obsidian y Typora.
 
 Y algo que tardé en ver: **no todo lo que falta hay que compilarlo**. `mako`,
 `swayosd`, `walker` y `elephant` los instalé por inercia de Omarchy 3, y
@@ -332,16 +331,17 @@ Validado con una construcción completa desde cero el 25-08-2026: **8 de 8 fases
 El veredicto que emite el invitado por la consola serie:
 
 ```
-### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+### H=1 Q=1 BINS=441 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
 VEREDICTO_OK
 ```
 
-**Compilan 16 de las 17 herramientas.** `herdr` no, y no lo hará mientras los
-repositorios no vuelvan a la semántica de Zig 0.15; también falla en x86_64.
+**Compilan las 17 herramientas**, `herdr` incluida: sale del PKGBUILD del propio
+Omarchy, que declara `aarch64` y se descarga el Zig 0.15.2 oficial de ziglang.org
+en vez de depender de la versión que empaqueten los repositorios.
 
 Después se arrancó la **imagen ya empaquetada** —no la VM intermedia— en modo
 solo lectura (`qemu -snapshot`) y se comprobó desde fuera: usuario genérico y la
-cuenta de construcción borrada, 439 comandos `omarchy-*`, Hyprland y quickshell
+cuenta de construcción borrada, 441 comandos `omarchy-*`, Hyprland y quickshell
 vivos, `spice-vdagentd` con `-X` y el agente del portapapeles activo, `sshd`
 deshabilitado, cero claves SSH de host y ninguna ruta de compilación dentro de
 los binarios.

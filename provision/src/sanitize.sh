@@ -261,6 +261,22 @@ echo "  referencias en /etc:"; grep -rl "\b$OLD\b" /etc 2>/dev/null | head -5 ||
 echo "  home:"; ls -ld "/home/$NEW"; ls /home/
 echo "  propietario de ficheros sueltos:"; find /home/$NEW -maxdepth 2 ! -user "$NEW" 2>/dev/null | head -3 || echo "    todo correcto"
 
+log "paquetes huerfanos"
+# Dependencias de compilacion que quedan tras makepkg -s, y firmware de
+# hardware que una VM no tiene. Si se quedan, la PRIMERA actualizacion del
+# usuario le pregunta por ellos, que es una bienvenida rara para una imagen
+# recien instalada. `-Qtdq` lista solo lo instalado como dependencia y que ya
+# no requiere nadie: quitarlo no puede romper nada instalado a proposito.
+# El bucle es porque quitar uno puede dejar huerfano al siguiente.
+for _vuelta in 1 2 3 4; do
+  mapfile -t HUERFANOS < <(pacman -Qtdq 2>/dev/null || true)
+  [ "${#HUERFANOS[@]}" -gt 0 ] && [ -n "${HUERFANOS[0]:-}" ] || break
+  echo "  vuelta $_vuelta: ${HUERFANOS[*]}"
+  pacman -Rns --noconfirm "${HUERFANOS[@]}" >/dev/null 2>&1 \
+    || { warn "no pude quitar: ${HUERFANOS[*]}"; break; }
+done
+echo "  huerfanos restantes: $(pacman -Qtdq 2>/dev/null | wc -l)"
+
 log "10/10 liberando espacio no usado (para que comprima mejor)"
 sync
 fstrim -av 2>&1 | head -3 || true
@@ -442,6 +458,10 @@ if [ "$OLD" != "$NEW" ]; then
 fi
 [ -f /root/failed-packages.txt ] && mal "queda /root/failed-packages.txt" \
                                  || bien "sin residuos del constructor en /root"
+
+N_HUERF=$(pacman -Qtdq 2>/dev/null | wc -l)
+[ "$N_HUERF" -eq 0 ] && bien "sin paquetes huerfanos" \
+                     || mal "$N_HUERF paquetes huerfanos: la primera actualizacion preguntara por ellos"
 
 echo ""
 if [ "$FALLOS" -ne 0 ]; then
