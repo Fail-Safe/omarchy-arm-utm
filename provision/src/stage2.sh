@@ -219,14 +219,21 @@ systemctl disable sshd.socket  2>/dev/null || true
 # Y hace falta -X: la comprobacion de "sesion activa de seat0"
 # (vdagentd.c:746, systemd-login.c:272) falla con Hyprland lanzado por SDDM, y
 # entonces el demonio descarta el portapapeles en silencio.
-mkdir -p /etc/systemd/system/spice-vdagentd.service.d
-cat > /etc/systemd/system/spice-vdagentd.service.d/override.conf <<'OVR'
-[Service]
 # -X: sin integracion con logind. Sin esto el demonio no encuentra "la sesion
 # activa de seat0" bajo Hyprland y descarta el portapapeles sin avisar.
-ExecStart=
-ExecStart=/usr/bin/spice-vdagentd -X -x -f
-OVR
+#
+# Se pone por la variable de entorno, no sobrescribiendo ExecStart: el unit de
+# Arch ya lee /etc/conf.d/spice-vdagentd y anade $SPICE_VDAGENTD_EXTRA_ARGS,
+# que es el punto de extension previsto. Asi los cambios que haga Arch en su
+# unit siguen valiendo.
+#
+# Y OJO con lo que NO se pone: aqui hubo un `-f`, que NO es "foreground" -eso
+# es `-x`- sino `--fake-uinput`: trata /dev/uinput como falso y se salta los
+# ioctl que configuran el dispositivo. Con el, el demonio no llegaba a crear el
+# puntero absoluto virtual y luego fallaba con "write /dev/uinput: Invalid
+# argument" en cada arranque. El raton dejaba de comportarse como antes.
+rm -rf /etc/systemd/system/spice-vdagentd.service.d
+printf 'SPICE_VDAGENTD_EXTRA_ARGS=-X\n' > /etc/conf.d/spice-vdagentd
 systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 echo "  spice-vdagentd con -X (necesario bajo Hyprland)"

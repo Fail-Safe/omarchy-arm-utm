@@ -426,8 +426,13 @@ fi
 
 # El portapapeles: las cinco piezas que pueden romperlo.
 [ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
-grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
-  && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+# Aqui estamos en un chroot y el demonio no corre, asi que se comprueba el
+# fichero que le pasa la bandera. En la imagen arrancada se comprueba el
+# proceso, que es mas fuerte (scripts/chequeo-invitado.sh).
+grep -qs -- '-X' /etc/conf.d/spice-vdagentd \
+  && bien "spice-vdagentd recibira -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+[ -e /etc/systemd/system/spice-vdagentd.service.d/override.conf ] \
+  && mal "queda el override antiguo de spice-vdagentd" || bien "sin override antiguo"
 [ -e "/home/$NEW/.config/systemd/user/graphical-session.target.wants/omarchy-arm-vdagent.service" ] \
   && bien "agente habilitado en la sesion grafica" \
   || mal "el agente no quedo habilitado para $NEW"

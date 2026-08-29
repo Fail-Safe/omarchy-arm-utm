@@ -713,14 +713,21 @@ systemctl disable sshd.socket  2>/dev/null || true
 # Y hace falta -X: la comprobacion de "sesion activa de seat0"
 # (vdagentd.c:746, systemd-login.c:272) falla con Hyprland lanzado por SDDM, y
 # entonces el demonio descarta el portapapeles en silencio.
-mkdir -p /etc/systemd/system/spice-vdagentd.service.d
-cat > /etc/systemd/system/spice-vdagentd.service.d/override.conf <<'OVR'
-[Service]
 # -X: sin integracion con logind. Sin esto el demonio no encuentra "la sesion
 # activa de seat0" bajo Hyprland y descarta el portapapeles sin avisar.
-ExecStart=
-ExecStart=/usr/bin/spice-vdagentd -X -x -f
-OVR
+#
+# Se pone por la variable de entorno, no sobrescribiendo ExecStart: el unit de
+# Arch ya lee /etc/conf.d/spice-vdagentd y anade $SPICE_VDAGENTD_EXTRA_ARGS,
+# que es el punto de extension previsto. Asi los cambios que haga Arch en su
+# unit siguen valiendo.
+#
+# Y OJO con lo que NO se pone: aqui hubo un `-f`, que NO es "foreground" -eso
+# es `-x`- sino `--fake-uinput`: trata /dev/uinput como falso y se salta los
+# ioctl que configuran el dispositivo. Con el, el demonio no llegaba a crear el
+# puntero absoluto virtual y luego fallaba con "write /dev/uinput: Invalid
+# argument" en cada arranque. El raton dejaba de comportarse como antes.
+rm -rf /etc/systemd/system/spice-vdagentd.service.d
+printf 'SPICE_VDAGENTD_EXTRA_ARGS=-X\n' > /etc/conf.d/spice-vdagentd
 systemctl enable spice-vdagentd.service 2>/dev/null || true
 systemctl enable spice-vdagentd.socket 2>/dev/null || true
 echo "  spice-vdagentd con -X (necesario bajo Hyprland)"
@@ -1962,8 +1969,13 @@ fi
 
 # El portapapeles: las cinco piezas que pueden romperlo.
 [ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente del portapapeles instalado" || mal "falta /usr/local/bin/omarchy-arm-vdagent"
-grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf \
-  && bien "spice-vdagentd con -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+# Aqui estamos en un chroot y el demonio no corre, asi que se comprueba el
+# fichero que le pasa la bandera. En la imagen arrancada se comprueba el
+# proceso, que es mas fuerte (scripts/chequeo-invitado.sh).
+grep -qs -- '-X' /etc/conf.d/spice-vdagentd \
+  && bien "spice-vdagentd recibira -X" || mal "spice-vdagentd sin -X: el portapapeles no funcionara"
+[ -e /etc/systemd/system/spice-vdagentd.service.d/override.conf ] \
+  && mal "queda el override antiguo de spice-vdagentd" || bien "sin override antiguo"
 [ -e "/home/$NEW/.config/systemd/user/graphical-session.target.wants/omarchy-arm-vdagent.service" ] \
   && bien "agente habilitado en la sesion grafica" \
   || mal "el agente no quedo habilitado para $NEW"
@@ -3417,7 +3429,7 @@ expect {
 #
 # C cuenta las cinco maneras conocidas de que el portapapeles muera. Ninguna
 # necesita un cliente SPICE conectado, asi que se puede comprobar aqui.
-send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
+send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); pgrep -af spice-vdagentd | grep -q -- ' -X' && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ]; then echo VERED\"ICTO_OK\"; else echo VERED\"ICTO_KO\"; fi\r"
 expect { -re {VEREDICTO_(OK|KO)} {} timeout {} }
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
@@ -3580,7 +3592,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los 439 comandos `omarchy-*`.
+menú, terminal, navegador, y los 441 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -3599,8 +3611,6 @@ Limitaciones propias de correr Omarchy en ARM:
   (llvmpipe). Bajo virtio-gpu los clientes GPU se mapean pero no se pintan; el
   blur y las sombras vienen desactivados para compensar. Es fluido para uso
   normal, no para vídeo ni 3D.
-- **Falta `herdr`**: quiere la semántica de Zig 0.15, y ni ARM ni x86_64
-  empaquetan ya esa versión (los dos van por la 0.16).
 - **El disco viene comprimido** dentro del `.qcow2`. Ocupa la mitad y se
   descomprime al vuelo; si prefieres velocidad de lectura sobre espacio,
   `qemu-img convert -O qcow2 disco.qcow2 sin-comprimir.qcow2`.

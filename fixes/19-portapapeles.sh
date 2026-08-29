@@ -61,9 +61,22 @@ echo
 echo "==> demonio con -X"
 # Sin -X, vdagentd no encuentra "la sesión activa de seat0" bajo Hyprland y
 # descarta el portapapeles sin dar ningún error.
-sudo mkdir -p /etc/systemd/system/spice-vdagentd.service.d
-printf '[Service]\nExecStart=\nExecStart=/usr/bin/spice-vdagentd -X -x -f\n' \
-  | sudo tee /etc/systemd/system/spice-vdagentd.service.d/override.conf >/dev/null
+#
+# Va por la variable de entorno que el propio unit de Arch ya lee, no
+# sobrescribiendo ExecStart: así los cambios que haga Arch siguen valiendo.
+#
+# Y se RETIRA el override anterior, que ponía `-f`. Esa bandera no es
+# "foreground" —eso es `-x`— sino `--fake-uinput`: trata /dev/uinput como falso
+# y se salta los ioctl que configuran el dispositivo. Con ella, el demonio no
+# llegaba a crear el puntero absoluto virtual y fallaba con
+# "write /dev/uinput: Invalid argument" en cada arranque, cambiando el
+# comportamiento del ratón. Si aplicaste una versión anterior de este script,
+# esto lo deshace.
+if [ -e /etc/systemd/system/spice-vdagentd.service.d/override.conf ]; then
+  echo "  quitando el override anterior (llevaba -f, que rompía el puntero)"
+  sudo rm -rf /etc/systemd/system/spice-vdagentd.service.d
+fi
+printf 'SPICE_VDAGENTD_EXTRA_ARGS=-X\n' | sudo tee /etc/conf.d/spice-vdagentd >/dev/null
 sudo systemctl daemon-reload
 
 echo
@@ -105,6 +118,12 @@ sudo systemctl start spice-vdagentd.socket 2>/dev/null || true
 sudo systemctl restart spice-vdagentd
 sleep 3
 echo "  spice-vdagentd: $(systemctl is-active spice-vdagentd)"
+pgrep -af spice-vdagentd | grep -q -- ' -X' \
+  && echo "  el demonio corre con -X" || echo "  ✗ el demonio no ha cogido -X"
+# El puntero absoluto virtual: si esto se queja, el ratón no se captura solo.
+journalctl -u spice-vdagentd -b --no-pager 2>/dev/null | grep -q "uinput" \
+  && echo "  ✗ sigue habiendo errores de uinput (el ratón no se capturará)" \
+  || echo "  sin errores de uinput (el ratón se captura solo)"
 [ -S "$SOCK" ] && echo "  socket listo" || { echo "  ✗ no hay socket en $SOCK"; exit 1; }
 case "$(systemctl is-enabled spice-vdagentd.socket 2>/dev/null)" in
   masked) echo "  ✗ spice-vdagentd.socket está enmascarado; el portapapeles no volverá tras reiniciar:"

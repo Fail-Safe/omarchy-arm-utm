@@ -29,7 +29,9 @@ V=$(cut -d. -f1 < /usr/share/omarchy/version)
 
 echo "== portapapeles =="
 [ -x /usr/local/bin/omarchy-arm-vdagent ] && bien "agente instalado" || mal "falta el agente"
-grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && bien "demonio con -X" || mal "demonio sin -X"
+# Se comprueba la linea del PROCESO, no un fichero de configuracion: es lo
+# unico que demuestra que la bandera llego a aplicarse, venga de donde venga.
+pgrep -af spice-vdagentd | grep -q -- ' -X' && bien "demonio con -X" || mal "demonio sin -X"
 systemctl is-active --quiet spice-vdagentd && bien "demonio activo" || mal "demonio inactivo"
 pgrep -af python3 | grep -q omarchy-arm-vdagent && bien "agente corriendo" || mal "agente no corre"
 grep -vs -- '^[[:space:]]*--' /home/omarchy/.config/hypr/autostart.lua 2>/dev/null | grep -qs spice-vdagent \
