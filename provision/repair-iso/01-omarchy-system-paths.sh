@@ -1,13 +1,14 @@
 #!/bin/bash
-# Replica en las rutas fijas del sistema lo que hace el paquete pacman
-# `omarchy` (que solo existe para x86_64). La rama quattro espera el arbol en
-# /usr/share/omarchy y los binarios en el PATH del sistema; sin eso
-# OMARCHY_PATH queda vacio, el bashrc falla y Hyprland cae en modo emergencia
-# por no encontrar /usr/share/omarchy/default/hypr/bootstrap.lua
+# Replicate in the system's fixed paths what the pacman package does
+# `omarchy` (which exists only for x86_64). The quattro branch expects the tree in
+# /usr/share/omarchy and the binaries in the system PATH; without this
+# OMARCHY_PATH remains empty, bashrc fails, and Hyprland falls into emergency mode
+# because it cannot find /usr/share/omarchy/default/hypr/bootstrap.lua
 #
-# Se ejecuta como ROOT dentro del chroot (sin sudo).
+# Executed as ROOT inside the chroot (without sudo).
 set -uo pipefail
-USR=gabriel
+[ -f /root/prov/config.env ] && . /root/prov/config.env
+USR="${VM_USER:-builder}"
 OM=/home/$USR/.local/share/omarchy
 log() { echo ""; echo "==> $*"; }
 
@@ -19,9 +20,9 @@ ls -ld /usr/share/omarchy
 ls /usr/share/omarchy/default/hypr/ | head
 
 log "2/8 binarios de Omarchy en el PATH del sistema"
-# El paquete los publica como /usr/bin/omarchy-*; usamos /usr/local/bin para no
-# invadir territorio de pacman. Va antes que /usr/bin y esta en el secure_path
-# de sudo, asi que tambien lo ven SDDM y systemd.
+# The package publishes them as /usr/bin/omarchy-*; we use /usr/local/bin to avoid
+# encroaching on pacman's territory. It comes before /usr/bin and is in the secure_path
+# of sudo, so SDDM and systemd also see it.
 mkdir -p /usr/local/bin
 n=0
 for f in "$OM"/bin/*; do
@@ -70,7 +71,7 @@ log "7/8 servicios y acceso"
 systemctl enable systemd-oomd.service 2>/dev/null || true
 systemctl enable sshd.service 2>/dev/null || true
 systemctl mask NetworkManager-wait-online.service 2>/dev/null || true
-# clave SSH del host para poder verificar sin tocar la consola serie
+# host SSH key to be able to verify without touching the serial console
 install -d -m700 -o $USR -g $USR /home/$USR/.ssh
 cp /root/prov/omkey.pub /home/$USR/.ssh/authorized_keys
 chown $USR:$USR /home/$USR/.ssh/authorized_keys

@@ -1,70 +1,70 @@
 #!/bin/bash
-# 17 · Los 37 defectos que encontro la auditoria del builder
+# 17 · The 37 defects found by the builder's audit
 #
-# No es un script que se ejecute: es el registro de lo que se corrigio en
-# build-omarchy-arm.sh y en provision/src/* despues de auditarlo contra sus
-# propias fuentes de verdad (los 16 fixes anteriores y los hallazgos del
-# articulo), con un refutador independiente por hallazgo.
+# This is not a script that runs: it is the record of what was fixed in
+# build-omarchy-arm.sh and in provision/src/* after auditing it against its
+# own sources of truth (the 16 fixes above and the findings from the
+# article), with an independent refuter for each finding.
 #
-# BLOQUEANTES
-#  1. sanitize.sh borraba /root/prov en el paso 7 y lo leia en los pasos 8a/8b:
-#     la imagen salia sin el hook post-update ni omarchy-arm-extras, en
-#     silencio. El borrado lo hace ahora repair.sh al salir del chroot.
-#  2. stage3 corre como usuario y /root es 0750: sus guardas [ -f /root/prov/... ]
-#     daban falso sin error. stage2 deja una copia en ~/.omarchy-arm-prov.
-#  3. DIST_OLD_USER/DIST_NEW_USER se exportaban en el anfitrion y nunca cruzaban
-#     al invitado: el sanitizado renombraba siempre el literal "gabriel". Ahora
-#     viajan en config.env y sanitize aborta si el usuario no existe.
-#  4. Un fallo total de stage3 se degradaba a warn y el build se declaraba
-#     correcto. stage2 emite TOK_STAGE3_<rc> y ph_build lo comprueba.
-#  5. El config.plist del bundle distribuible anunciaba "Usuario: gabriel /
-#     gabriel": falso y una fuga. Parametrizado y con comprobacion en ph_package.
-#  6. ph_utm borraba sin preguntar cualquier VM de UTM con el mismo nombre.
-#  7. make-utm.sh mataba la aplicacion UTM entera, con las VMs del usuario dentro.
-#  8. ALPINE_ISO fijado a 3.24.1, que Alpine retira del CDN al publicar el
-#     siguiente parche. Ahora se resuelve el ultimo y se verifica su sha256.
-#  9. OMARCHY_REF=quattro sin respaldo: si la rama desaparece, prepare muere sin
-#     explicar por que. Ahora cae a la rama por defecto avisando.
+# BLOCKERS
+#  1. sanitize.sh deleted /root/prov in step 7 and read it in steps 8a/8b:
+#     the image ended up without the post-update hook or omarchy-arm-extras, in
+#     silence. The deletion is now performed by repair.sh upon exiting the chroot.
+#  2. stage3 runs as a user and /root is 0750: its guards [ -f /root/prov/... ]
+#     returned false without error. stage2 leaves a copy in ~/.omarchy-arm-prov.
+#  3. DIST_OLD_USER/DIST_NEW_USER were exported on the host and never crossed
+#     to the guest: sanitization always renamed the literal "gabriel". Now
+#     they travel in config.env and sanitize aborts if the user does not exist.
+#  4. A total failure in stage3 degraded to a warning and the build was declared
+#     correct. stage2 emits TOK_STAGE3_<rc> and ph_build checks it.
+#  5. The distributable bundle's config.plist announced "User: gabriel /
+#     gabriel": false and a leak. Parameterized and with verification in ph_package.
+#  6. ph_utm deleted any UTM VM with the same name without asking.
+#  7. make-utm.sh killed the entire UTM application, including the user's VMs.
+#  8. ALPINE_ISO set to 3.24.1, which Alpine removes from the CDN upon publishing the
+#     next patch. Now the last one is resolved and its sha256 is verified.
+#  9. OMARCHY_REF=quattro without backup: if the branch disappears, prepare dies without
+#     explaining why. Now it falls back to the default branch with a warning.
 #
-# GRAVES (seleccion)
-#  · ph_verify recogia metricas y no las comparaba: no podia fallar.
-#  · ph_utm se tragaba el error de make-utm.sh con "| tail -4".
-#  · ph_fetch anunciaba "MD5 verificado" aunque el curl del checksum fallara.
-#  · ph_package no usaba -c: no reproducia la imagen comprimida que se distribuyo.
-#  · write_readme() generaba un LEEME de 17 lineas con dos afirmaciones falsas.
-#    Ahora se embebe dist/LEEME.md tal cual.
-#  · El bucle de compilacion habia perdido el -s de makepkg: sin dependencias
-#    de compilacion, la mayoria de los PKGBUILD fallan en el primer paso.
-#  · El fix 15 (adelgazado) no estaba plegado en ninguna parte.
-#  · ph_build destruia el disco anterior (40 min de trabajo) sin avisar.
+# MAJOR FINDINGS (selection)
+#  · ph_verify collected metrics but did not compare them: it could not fail.
+#  · ph_utm swallowed the make-utm.sh error with "| tail -4".
+#  · ph_fetch announced "MD5 verified" even though the checksum curl failed.
+#  · ph_package did not use -c: it did not reproduce the compressed image that was distributed.
+#  · write_readme() generated a 17-line README with two false statements.
+#    Now dist/LEEME.md is embedded as-is.
+#  · The compilation loop had lost the -s from makepkg: without dependencies
+#    compilation dependencies, most PKGBUILDs fail at the first step.
+#  · Fix 15 (thinned) was not folded anywhere.
+#  · ph_build destroyed the previous disk (40 min of work) without warning.
 #
-# MENORES (seleccion)
-#  · El respaldo de $TERMINAL apuntaba a alacritty, que quattro no instala (foot).
-#  · spice-vdagentd nunca se habilitaba: sin portapapeles compartido.
-#  · Faltaban cuatro pasos del fix 01: /etc/gnupg, systemd-oomd,
-#    NetworkManager-wait-online y el PAM de gnome-keyring en SDDM.
-#  · /root/STAGE2_OK y la semilla de aleatoriedad viajaban en la imagen.
-#  · build.exp comprobaba los dotfiles en /mnt/home/gabriel, fijo.
+# MINOR FINDINGS (selection)
+#  · The backup of $TERMINAL pointed to alacritty, which quattro does not install (foot).
+#  · spice-vdagentd was never enabled: no shared clipboard.
+#  · Four steps from fix 01 were missing: /etc/gnupg, systemd-oomd,
+#    NetworkManager-wait-online and gnome-keyring PAM in SDDM.
+#  · /root/STAGE2_OK and the random seed were included in the image.
+#  · build.exp checked the dotfiles in /mnt/home/gabriel, fixed.
 #
-# Y CUATRO COMETIDOS AL ARREGLAR, que solo aparecieron EJECUTANDO
-#  · confirm() usaba ${ans,,}, de bash 4: macOS trae bash 3.2 y ahi el error de
-#    expansion aborta la funcion, devolviendo "si" por accidente. Aparecio al
-#    probar el cuestionario bajo un pty con expect; bash -n no lo ve.
-#  · config.env se escribia sin comillas y VM_FULLNAME="Omarchy ARM" hacia que
-#    "ARM" se ejecutara como comando al hacer source: chroot muerto con rc=127.
-#  · El heredoc de ph_verify no iba entrecomillado, asi que el bash del
-#    anfitrion expandia los $(...) y las comprobaciones se ejecutaban EN EL MAC
-#    (pgrep con sintaxis BSD, systemctl inexistente) en vez de dentro de la VM.
-#    Reescrito con <<'"'"'EXPEOF'"'"' y las variables por $env(...) de Tcl.
-#  · spice-vdagentd es una unidad "static": no se habilita. Hay que habilitar
-#    spice-vdagentd.socket. Lo revelo la VM recien construida.
+# AND FOUR ISSUES FOUND WHILE FIXING, which only appeared WHEN RUNNING
+#  · confirm() used ${ans,,}, from bash 4: macOS ships with bash 3.2 and there the error occurs
+#    expansion aborts the function, accidentally returning "yes". It appeared when
+#    testing the questionnaire under a pty with expect; bash -n does not catch it.
+#  · config.env was written without quotes and VM_FULLNAME="Omarchy ARM" caused
+#    "ARM" to be executed as a command upon sourcing: chroot died with rc=127.
+#  · The ph_verify heredoc was not quoted, so the host's bash
+#    expanded the $(...) and the checks ran ON THE HOST
+#    (pgrep with BSD syntax, systemctl nonexistent) instead of inside the VM.
+#    Rewritten with <<'"'"'EXPEOF'"'"' and variables via $env(...) from Tcl.
+#  · spice-vdagentd is a "static" unit: it is not enabled. One must enable
+#    spice-vdagentd.socket. This was revealed by the freshly built VM.
 #
-# VALIDACION
-#  Construccion completa de cero (8/8 fases) el 2026-08-23 sobre un M3 Max:
-#   · 17/17 herramientas compiladas (solo falla herdr, por la version de Zig)
-#   · extras=si menu=si hook=si  <- los tres bloqueantes, resueltos
-#   · verify dentro del invitado: H=1 Q=1 BINS=436 -> VEREDICTO_OK
-#   · imagen final 4,1 GB; ~57 min sin OBS/Pinta, ~1 h 50 con ellos
-#  Y la llamada que stage3 hace para OBS y Pinta, probada aparte en esa misma
+# VALIDATION
+#  Complete build from scratch (8/8 phases) on 2026-08-23 on an M3 Max:
+#   · 17/17 tools compiled (only herdr fails, due to the Zig version)
+#   · extras=yes menu=yes hook=yes  <- the three blocking ones, resolved
+#   · verify inside the guest: H=1 Q=1 BINS=436 -> VERDICT_OK
+#   · final image 4.1 GB; ~57 min without OBS/Pinta, ~1 h 50 with them
+#  And the call that stage3 makes for OBS and Pinta, tested separately on that same
 #  VM: rc=0, obs-studio 32.2.2-1, pinta 3.1.2-2, /usr/bin/obs ELF ARM aarch64.
 echo "Registro documental. Los arreglos estan en build-omarchy-arm.sh y provision/src/."

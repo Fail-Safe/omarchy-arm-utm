@@ -1,10 +1,10 @@
 #!/bin/bash
-# Teclado en una VM sobre macOS:
-#  1. Hyprland leia XKBLAYOUT de /etc/vconsole.conf, que solo tenia KEYMAP.
-#  2. macOS se queda con Cmd (Super) antes de que UTM lo vea: Cmd+Space abre
-#     Spotlight, asi que los atajos SUPER de Omarchy son inalcanzables.
-#     altwin:swap_lalt_lwin intercambia Alt y Super, de modo que la tecla
-#     Option (Alt) del Mac actua como SUPER dentro de la VM.
+# Keyboard in a VM on macOS:
+#  1. Hyprland reads XKBLAYOUT from /etc/vconsole.conf, which only had KEYMAP.
+#  2. macOS captures Cmd (Super) before UTM sees it: Cmd+Space opens
+#     Spotlight, so Omarchy's SUPER shortcuts are unreachable.
+#     altwin:swap_lalt_lwin swaps Alt and Super, so the Mac's
+#     Option (Alt) key acts as SUPER inside the VM.
 set -uo pipefail
 log() { echo ""; echo "==> $*"; }
 export XDG_RUNTIME_DIR=/run/user/1000
@@ -22,18 +22,18 @@ cat /etc/vconsole.conf
 
 log "input.lua: layout es + Option como SUPER"
 cat > ~/.config/hypr/input.lua <<'LUA'
--- Ajustes de teclado para esta VM sobre macOS.
+-- Keyboard settings for this VM on macOS.
 --
--- altwin:swap_lalt_lwin intercambia Alt y Super. Motivo: macOS intercepta la
--- tecla Cmd antes de que UTM la reciba (Cmd+Space abre Spotlight), asi que los
--- atajos SUPER de Omarchy serian inalcanzables. Con el intercambio:
+-- altwin:swap_lalt_lwin swaps Alt and Super. Reason: macOS intercepts the
+-- Cmd key before UTM receives it (Cmd+Space opens Spotlight), so Omarchy's
+-- SUPER shortcuts would be unreachable. With the swap:
 --
---     Option (⌥) del Mac  ->  SUPER en la VM   (Option+Space = menu de Omarchy)
---     Cmd (⌘) del Mac     ->  ALT en la VM
+--     Mac Option (⌥)  ->  SUPER in the VM   (Option+Space = Omarchy menu)
+--     Mac Cmd (⌘)     ->  ALT in the VM
 --
--- Si prefieres el comportamiento original, borra "altwin:swap_lalt_lwin" y en su
--- lugar activa la captura de entrada de UTM (necesita permisos de Accesibilidad
--- y Monitorizacion de entrada para UTM en Ajustes del Sistema > Privacidad).
+-- If you prefer the original behavior, remove "altwin:swap_lalt_lwin" and instead
+-- enable UTM's input capture (requires Accessibility and Input Monitoring permissions
+-- for UTM in System Settings > Privacy).
 hl.config({
   input = {
     kb_layout  = "es",

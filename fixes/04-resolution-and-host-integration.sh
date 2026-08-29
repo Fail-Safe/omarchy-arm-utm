@@ -1,5 +1,5 @@
 #!/bin/bash
-# Fleco 3: resolucion utilizable + integracion con el host (portapapeles).
+# Fleco 3: usable resolution + host integration (clipboard).
 set -uo pipefail
 log() { echo ""; echo "==> $*"; }
 export XDG_RUNTIME_DIR=/run/user/1000
@@ -14,13 +14,13 @@ cat /usr/share/omarchy/config/hypr/autostart.lua 2>/dev/null | head -6
 log "monitors.lua: 1920x1200 por defecto"
 cat > ~/.config/hypr/monitors.lua <<'LUA'
 -- See https://wiki.hypr.land/Configuring/Basics/Monitors/
--- Modos disponibles:  hyprctl monitors all
+-- Available modes: hyprctl monitors all
 --
--- Ajustado para VM en UTM/QEMU (virtio-gpu). Omarchy asume pantallas retina 2x;
--- en la VM eso deja todo gigante, asi que aqui va escala 1.
+-- Adjusted for VM in UTM/QEMU (virtio-gpu). Omarchy assumes 2x retina displays;
+-- in the VM that makes everything huge, so scale is set to 1 here.
 --
--- Resolucion FIJA de 1920x1200 (16:10, como la pantalla del Mac). Si prefieres
--- que la resolucion siga al tamano de la ventana de UTM, cambia mode por
+-- FIXED resolution of 1920x1200 (16:10, like the Mac screen). If you prefer
+-- the resolution to follow the UTM window size, change mode to
 -- "preferred":
 --   hl.monitor({ output = "", mode = "preferred", position = "auto", scale = 1 })
 hl.env("GDK_SCALE", "1")
@@ -34,12 +34,12 @@ echo "  configerrors: [$(hyprctl configerrors 2>&1 | head -2)]"
 log "portapapeles compartido con macOS (spice-vdagent)"
 sudo systemctl start spice-vdagentd.socket 2>&1 | tail -2 || true
 sudo systemctl enable spice-vdagentd.socket 2>&1 | tail -1 || true
-# En Wayland spice-vdagent aporta portapapeles (la resolucion la lleva virtio-gpu).
-# Se lanza con la sesion desde el autostart del usuario.
+# In Wayland, spice-vdagent provides clipboard support (resolution is handled by virtio-gpu).
+# It is launched from the user's autostart along with the session.
 cat > ~/.config/hypr/autostart.lua <<'LUA'
--- Procesos extra al iniciar la sesion.
+-- Extra processes to start with the session.
 hl.on("hyprland.start", function()
-  -- Portapapeles compartido con el host de UTM
+  -- Shared clipboard with the UTM host
   hl.exec_cmd("uwsm-app -- spice-vdagent")
 end)
 LUA

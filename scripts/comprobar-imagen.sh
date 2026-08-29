@@ -34,6 +34,7 @@ hdiutil makehybrid -quiet -iso -joliet -default-volume-name CHEQUEO \
 cat > "$TMP/t.exp" <<'EXPEOF'
 set timeout 1200
 log_user 1  # sin esto expect no emite nada y el informe se pierde
+match_max 200000
 # log_file escribe la sesion SIN BUFFER a disco. Sin esto, la salida de expect
 # se queda en el buffer de stdout (8 KB) y el fichero va muy por detras de lo
 # que de verdad esta pasando: he perdido horas leyendo un log congelado y
@@ -63,8 +64,19 @@ send "mount -o ro /dev/vdb /mnt 2>/dev/null || mount -o ro /dev/vdc /mnt; bash /
 expect -re {[❯#] $|[❯#]$|\$ $} { }
 sleep 3
 send "cat /tmp/informe.txt\r"
-expect { -re {FIN_CHEQUEO} { } timeout { puts "TIMEOUT_INFORME" } }
+set timeout 120
+expect {
+  -re {[❯#] $|[❯#]$|\$ $} { }
+  timeout { puts "TIMEOUT_INFORME"; exit 4 }
+}
 sleep 2
+# Close the QEMU monitor directly after the read-only verdict. Guest shutdown
+# can spend a minute stopping services, while the snapshot overlay is disposable.
+send "\001c"
+sleep 1
+send "quit\r"
+set timeout 30
+expect { eof { } timeout { puts "TIMEOUT_QEMU_EXIT"; exit 5 } }
 EXPEOF
 
 TR="${TRANSCRIPT:-/tmp/comprobar-imagen-sesion.log}"; : > "$TR"

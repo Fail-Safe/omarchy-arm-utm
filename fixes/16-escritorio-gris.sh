@@ -1,23 +1,23 @@
 #!/bin/bash
-# 16 · El escritorio gris
+# 16 · The gray desktop
 #
-# Sintoma: la imagen ya sanitizada arrancaba con el fondo en gris liso y las
-# notificaciones como cajas grises sin estilo. Ningun error en journalctl.
+# Symptom: the already sanitized image started with a plain gray background and
+# notifications as gray boxes without styling. No errors in journalctl.
 #
-# Dos causas independientes, ninguna visible con las comprobaciones que hacia:
+# Two independent causes, none visible with the checks I performed:
 #
-#  a) `grep -rl gabriel` daba 0 coincidencias porque grep lee CONTENIDO, y el
-#     destino de un symlink no lo es. Quedaban 439 enlaces apuntando al home
-#     antiguo, incluidos los 431 comandos omarchy-* de /usr/local/bin y el
-#     fondo activo (~/.local/state/omarchy/current/background).
+#  a) `grep -rl gabriel` returned 0 matches because grep reads CONTENT, and the
+#     target of a symlink is not content. 439 links remained pointing to the old home
+#     directory, including the 431 omarchy-* commands in /usr/local/bin and the
+#     active background (~/.local/state/omarchy/current/background).
 #
-#  b) Tenia instalados mako, swayosd, walker y elephant. Omarchy 4 los jubila
-#     (bin/omarchy-upgrade-to-quattro los desinstala) porque quickshell hace
-#     ese trabajo. mako se activa por D-Bus y le roba el nombre
-#     org.freedesktop.Notifications al shell.
+#  b) I had mako, swayosd, walker, and elephant installed. Omarchy 4 retires them
+#     (bin/omarchy-upgrade-to-quattro uninstalls them) because quickshell handles
+#     that work. mako activates via D-Bus and steals its name
+#     org.freedesktop.Notifications from the shell.
 #
-# Corregido en origen: provision/src/sanitize.sh reescribe los symlinks y
-# verifica que el fondo resuelve; stage3.sh ya no instala esos cuatro paquetes.
+# Fixed at the source: provision/src/sanitize.sh rewrites the symlinks and
+# verifies that the background resolves; stage3.sh no longer installs those four packages.
 set -uo pipefail
 NEW=omarchy; OLD=gabriel
 
