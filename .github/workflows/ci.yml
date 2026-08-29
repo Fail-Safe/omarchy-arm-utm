@@ -19,7 +19,7 @@ jobs:
       - name: Install test dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes libarchive-tools
+          sudo apt-get install --yes libarchive-tools ripgrep shellcheck
 
       - name: Verify generated payloads
         run: python3 scripts/sync-payloads.py --check
