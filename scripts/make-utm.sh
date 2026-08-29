@@ -38,6 +38,21 @@ detect_ui_language() {
 detect_ui_language || exit $?
 ui_text() { if [[ $OMARCHY_LANG == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi; }
 
+validate_plist() {
+  if command -v plutil >/dev/null 2>&1; then
+    plutil -lint "$1"
+    return
+  fi
+  python3 - "$1" <<'PY'
+import plistlib
+import sys
+
+with open(sys.argv[1], "rb") as plist_file:
+    plistlib.load(plist_file)
+print(f"{sys.argv[1]}: OK")
+PY
+}
+
 [ -f "$SRC_QCOW" ] || { echo "!! $(ui_text "missing $SRC_QCOW" "falta $SRC_QCOW")"; exit 1; }
 [ -f "$VARS_TPL" ] || { echo "!! $(ui_text "missing UEFI NVRAM template $VARS_TPL" "falta la plantilla de NVRAM UEFI $VARS_TPL")"; exit 1; }
 
@@ -255,7 +270,7 @@ cat > "$BUNDLE/config.plist" <<PLIST
 PLIST
 
 echo "==> $(ui_text 'validating the plist' 'validando el plist')"
-plutil -lint "$BUNDLE/config.plist"
+validate_plist "$BUNDLE/config.plist"
 du -sh "$BUNDLE"
 ls -la "$BUNDLE" "$BUNDLE/Data"
 
