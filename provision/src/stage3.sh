@@ -233,6 +233,22 @@ sudo install -Dm644 "$OMARCHY_PATH/etc/sddm.conf.d/10-wayland.conf" /etc/sddm.co
 sudo install -Dm644 "$OMARCHY_PATH/default/wayland-sessions/omarchy.desktop" /usr/local/share/wayland-sessions/omarchy.desktop
 sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" 2>&1 | tail -2 || true
 
+# Omarchy 4 keeps Chromium policy-directory hardening separate from its theme
+# setup. This project runs selected upstream setup scripts instead of config/all.sh,
+# so the policy step must be invoked explicitly when the reviewed source pin
+# contains it. Treat absence or an unsafe result as a build failure: a writable
+# managed-policy directory would let a desktop user alter browser policy.
+log "hardening Chromium's managed-policy directory" "protegiendo el directorio de politicas administradas de Chromium"
+BROWSER_POLICY_SCRIPT="$OMARCHY_PATH/install/config/browser-policy.sh"
+BROWSER_POLICY_DIR=/etc/chromium/policies/managed
+[ -f "$BROWSER_POLICY_SCRIPT" ] \
+  || { warn "the reviewed Omarchy source is missing browser-policy.sh" "la fuente revisada de Omarchy no contiene browser-policy.sh"; exit 1; }
+bash "$BROWSER_POLICY_SCRIPT" \
+  || { warn "browser policy hardening failed" "fallo la proteccion de politicas del navegador"; exit 1; }
+[ -d "$BROWSER_POLICY_DIR" ] && [ ! -L "$BROWSER_POLICY_DIR" ] \
+  && [ "$(stat -c '%U:%G:%a' "$BROWSER_POLICY_DIR")" = root:root:755 ] \
+  || { warn "unsafe Chromium policy directory: $BROWSER_POLICY_DIR" "directorio inseguro de politicas de Chromium: $BROWSER_POLICY_DIR"; exit 1; }
+
 export OMARCHY_PATH=/usr/share/omarchy
 export PATH="/usr/local/bin:$PATH"
 
@@ -535,6 +551,51 @@ done
 TTFX_FALLBACK
   echo "  /usr/local/bin/ttfx ($(ui_text 'static fallback' 'alternativa estatica'))"
 fi
+
+# The default build promises seventeen ARM tools. Keep that promise executable:
+# herdr remains the one documented upstream/Zig exception, while every listed
+# package plus the native ttfx binary is required when tool compilation is on.
+sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-arm-verify-tools <<'TOOL_CONTRACT'
+#!/bin/bash
+set -uo pipefail
+
+mode="${1:-si}"
+full_packages=(
+  yay xdg-terminal-exec yaru-icon-theme ttf-ia-writer tzupdate ufw-docker
+  omarchy-nvim tobi-try mise-bin aether cliamp omacalc omacut omawrite tensaku
+  hyprland-preview-share-picker
+)
+
+case "$mode" in
+  si)
+    missing=()
+    for package in "${full_packages[@]}"; do
+      pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
+    done
+    ttfx_path=$(command -v ttfx 2>/dev/null || true)
+    if [[ -z $ttfx_path ]] || grep -aq '^# OMARCHY_TTFX_FALLBACK=1$' "$ttfx_path" 2>/dev/null; then
+      missing+=(ttfx-native)
+    fi
+    if ((${#missing[@]})); then
+      printf 'TOOLS_KO mode=full missing=%s\n' "${missing[*]}" >&2
+      exit 1
+    fi
+    printf 'TOOLS_OK mode=full verified=17/17 known-exception=herdr\n'
+    ;;
+  no)
+    command -v ttfx >/dev/null 2>&1 \
+      || { printf 'TOOLS_KO mode=lightweight missing=ttfx-fallback\n' >&2; exit 1; }
+    printf 'TOOLS_OK mode=lightweight verified=1/1\n'
+    ;;
+  *)
+    printf 'TOOLS_KO invalid-mode=%s\n' "$mode" >&2
+    exit 2
+    ;;
+esac
+TOOL_CONTRACT
+
+log "verifying the selected tool contract" "verificando el contrato de herramientas elegido"
+/usr/local/bin/omarchy-arm-verify-tools "${HACER_TOOLS:-si}" || exit 1
 
 # --- keyboard: layout is y and Super usable from macOS -------------------
 # macOS intercepts Cmd before UTM sees it (Cmd+Space opens Spotlight), making

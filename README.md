@@ -69,18 +69,19 @@ Most existing guides for Apple Silicon target **Omarchy 3.x**. This one targets 
 The image this produces is on the Internet Archive, sanitised and ready to
 import — no build, no Homebrew, no waiting:
 
-**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v2.zip`** · 3.6 GB ·
-`sha256 929eb816194a5cfc…`
+**https://archive.org/details/omarchy-arm-utm** — download **`omarchy-arm-utm-v3.zip`** · 3.8 GB ·
+`sha256 12b060c287326ba2…`
 
-The plain `omarchy-arm-utm.zip` next to it is the first release (6.5 GB). It
-keeps the plain name so links and checksums published with it still resolve to
-the exact bytes they were written for — which is the only reason the better file
-is the one with `-v2` in its name. Take the `-v2`: same desktop, 45% smaller,
-and the shared clipboard works. `VERSIONS.md` on the item compares them.
+The plain `omarchy-arm-utm.zip` is the first release (6.5 GB), and `-v2` is the
+previous repaired image (3.6 GB). Both keep their names so published links and
+checksums continue to identify the same bytes. Take `-v3`: it adds current
+reviewed source pins, enforced 17-tool and browser-policy contracts, CI, and
+first/second-boot release verification. `VERSIONS.md` on the item compares all
+three.
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-unzip omarchy-arm-utm-v2.zip
+shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
+unzip omarchy-arm-utm-v3.zip
 open *.utm
 ```
 
@@ -181,7 +182,7 @@ Every phase is resumable: `--from build`, `--only package`, `--list`.
 - **Hyprland 0.56.1** with the full Omarchy 4 stack: quickshell (bar, menu, OSD
   *and* notification daemon), hyprlock, hypridle, hyprsunset, uwsm,
   xdg-desktop-portal-hyprland, SDDM with autologin and the Omarchy theme
-- Dotfiles, themes and the **439 `omarchy-*` commands**, in `/usr/bin` as
+- Dotfiles, themes and the **442 `omarchy-*` commands**, in `/usr/bin` as
   upstream's package does
 - **17 Omarchy tools built for aarch64** that upstream does not ship for ARM:
   `tensaku`, `omacalc`, `omacut`, `omawrite`, `aether`, `cliamp`, `ttfx`,
@@ -199,9 +200,9 @@ by name (123 once you substitute `nvim`→`neovim` and
 `ttf-jetbrains-mono-nerd-basic`→`ttf-jetbrains-mono-nerd`). 17 of the rest are
 built from source; the build prints the list every run.
 
-## Known issue in the published image
+## Known issue in the first published image
 
-The image on the Internet Archive installs the `omarchy-*` commands into
+The original plain-name image on the Internet Archive installs the `omarchy-*` commands into
 `/usr/local/bin`. That was my choice — upstream's package uses `/usr/bin` — and
 it turns out the tree hardcodes `/usr/bin/omarchy-*` in thirteen places, five of
 them `.service` files. Two visible symptoms:
@@ -222,7 +223,7 @@ never installed into `/usr/lib/systemd/user/` at all. Upstream ships them in the
 reproduce that step — so `enable-user-units.sh` could not have worked whatever
 the paths were.
 
-**All three are fixed in `omarchy-arm-utm-v2.zip`.** To repair a VM you already
+**All three are fixed in `omarchy-arm-utm-v2.zip` and `-v3.zip`.** To repair a VM you already
 have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apagan.sh)
 inside it — no need to re-download. For the clipboard, run
 [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh) the same way.
@@ -372,24 +373,34 @@ dist/LEEME.md          the README that ships inside the image (ES)
 
 ## Status
 
-Validated by a full from-scratch run on 2026-08-25: **8/8 phases, 76 minutes,
-`rc=0`**, from an empty working directory with `--yes`.
+Validated on 2026-08-29 with a fresh full distribution build from an empty
+working directory: native ARM tools enabled, OBS and Pinta included, and
+sanitisation/packaging enabled. The final corrected disk passed the full build,
+two consecutive UTM boots, sanitisation, packaging, and a read-only packaged
+boot.
 
 The guest-side verdict, read back over the serial console:
 
 ```
-### H=1 Q=1 BINS=439 ROTOS=1 UNITS=7 VER=4 CLIP=5/5
+SNAPSHOT_OK
+BROWSER_POLICY_OK
+TOOLS_OK mode=full verified=17/17 known-exception=herdr
+### H=1 Q=1 BINS=442 ROTOS=1 UNITS=7 VER=4 CLIP=5/5 TTFX=1 PIN=1 FREE=2/2
 VERDICT_OK
+### REBOOT H=1 Q=1 CLIP=5/5 TOOLS=1 SNAPSHOT=1 BROWSER_POLICY=1
+REBOOT_OK
 ```
 
-**16 of the 17 tools build.** `herdr` does not, and won't until the repos ship
-Zig 0.15 semantics again — it fails on x86_64 too.
+**All 17 supported ARM tools are required and verified.** `herdr` remains the
+separate known exception: its package requires Zig 0.15, which current ARM and
+x86_64 repositories do not provide.
 
 The *packaged* image — not the intermediate VM — was then booted read-only
 (`qemu -snapshot`) and checked from outside: generic user with the build account
-gone, 439 `omarchy-*` commands, Hyprland and quickshell up, `spice-vdagentd`
-running with `-X` and the clipboard agent alive, `sshd` disabled, no SSH host
-keys, no build-time paths inside the compiled binaries.
+gone, 442 `omarchy-*` commands, Hyprland and quickshell up, all five clipboard
+components installed, exact source provenance, Chromium policy ownership,
+`sshd` disabled, and no build-time paths inside the compiled binaries. The
+QCOW2 SHA-256 was identical before and after that snapshot boot.
 
 The shared clipboard was then checked with real data, in both directions, on a
 VM booted in UTM: a unique token copied on the Mac read back identically inside

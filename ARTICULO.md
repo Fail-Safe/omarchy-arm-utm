@@ -1030,6 +1030,14 @@ Ese `extras=si menu=si hook=si` es la prueba que importa: son los tres que
 llevaban días sin instalarse nunca, en silencio, y que ninguna ejecución previa
 había denunciado porque el script se declaraba correcto igualmente.
 
+**Actualización del 29-08-2026:** la certificación actual exige las 17
+herramientas ARM compatibles (con `herdr` como excepción Zig independiente),
+procedencia de fuentes y paquetes, políticas de Chromium seguras y un segundo
+arranque real. El resultado final fue 442 comandos, `CLIP=5/5`, `TOOLS=1`,
+`SNAPSHOT=1`, `BROWSER_POLICY=1` y `REBOOT_OK`; la imagen empaquetada arrancó
+además con `qemu -snapshot` sin cambiar el hash del QCOW2, y el portapapeles se
+probó con datos reales en ambos sentidos.
+
 ---
 
 ## Reproducirlo

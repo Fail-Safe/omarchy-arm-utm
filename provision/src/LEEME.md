@@ -11,8 +11,8 @@ Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
 
 - Mac con Apple Silicon (M1 o superior)
 - [UTM](https://mac.getutm.app) 4.7 o posterior
-- ~11 GB de disco libre: el `.zip` ocupa 3,6 GB y la imagen descomprimida
-  otros 7,2 GB, más lo que crezca al usarla
+- ~9 GB de disco libre: el `.zip` y la imagen descomprimida ocupan unos
+  3,8 GB cada uno, más lo que crezca al usarla
 
 ## Instalación
 
@@ -52,7 +52,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los 439 comandos `omarchy-*`.
+menú, terminal, navegador, y los 442 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -64,6 +64,10 @@ del salvapantallas), `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`,
 Y dos aplicaciones de software libre ya compiladas para ARM: **OBS Studio
 32.2.2** (sin el plugin de navegador, cuyo CEF es x86-only) y **Pinta 3.1.2**
 (sobre el .NET arm64 oficial de Microsoft).
+
+Esta imagen se validó el **29-08-2026** con las 17 herramientas ARM, OBS y
+Pinta; dos arranques consecutivos en UTM; portapapeles real en ambos sentidos;
+y un arranque adicional del disco empaquetado en modo `qemu -snapshot`.
 
 Limitaciones propias de correr Omarchy en ARM:
 

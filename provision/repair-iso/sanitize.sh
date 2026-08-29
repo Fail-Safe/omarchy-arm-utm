@@ -414,6 +414,19 @@ N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
 N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
 [ "$N_ROTO" -le 5 ] && bien "$N_ROTO dangling links" "$N_ROTO enlaces colgando" || mal "$N_ROTO dangling links" "$N_ROTO enlaces colgando"
 
+if [ -x /usr/local/bin/omarchy-arm-verify-tools ]; then
+  TOOL_RESULT=$(/usr/local/bin/omarchy-arm-verify-tools "${HACER_TOOLS:-si}" 2>&1)
+  [ $? -eq 0 ] && bien "$TOOL_RESULT" || mal "$TOOL_RESULT"
+else
+  mal "the ARM tool verifier is missing" "falta el verificador de herramientas ARM"
+fi
+
+BROWSER_POLICY_DIR=/etc/chromium/policies/managed
+[ -d "$BROWSER_POLICY_DIR" ] && [ ! -L "$BROWSER_POLICY_DIR" ] \
+  && [ "$(stat -c '%U:%G:%a' "$BROWSER_POLICY_DIR" 2>/dev/null)" = root:root:755 ] \
+  && bien "Chromium policy directory is root-owned and mode 755" "el directorio de politicas de Chromium pertenece a root y tiene modo 755" \
+  || mal "Chromium policy directory is not safely owned" "el directorio de politicas de Chromium no tiene propiedad segura"
+
 # Filenames, not just content: the scan above uses grep -rl, which
 # looks inside files. A file that HAS the builder's name in
 # its own path (mise saves one per trusted directory) would pass

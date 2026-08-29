@@ -1,32 +1,46 @@
 # Which file should I download?
 
-**`omarchy-arm-utm-v2.zip`** — smaller, and everything works.
+**`omarchy-arm-utm-v3.zip`** — current reviewed sources and enforced release gates.
 
-| | `omarchy-arm-utm-v2.zip` | `omarchy-arm-utm.zip` |
-|---|---|---|
-| | **← download this one** | the first release |
-| Size | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
-| Published | 2026-08-26 | 2026-08-23 |
-| Shared clipboard | **works, verified both ways** | does not work |
-| "Update System" notification | gone | repeats on every boot |
-| "Reboot?" after each update | gone | repeats forever |
-| `sshd` | disabled | enabled, with a trivial password |
-| `sha256` | `929eb816194a5cfc46b87ebc05f7c29bac004a8850f0ae559d220efae0355958` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
+| | `omarchy-arm-utm-v3.zip` | `omarchy-arm-utm-v2.zip` | `omarchy-arm-utm.zip` |
+|---|---|---|---|
+| | **← download this one** | previous repaired image | first release |
+| Size | 3.8 GB | 3.6 GB (7.2 GB unpacked) | 6.5 GB (13 GB unpacked) |
+| Published | 2026-08-29 | 2026-08-26 | 2026-08-23 |
+| Shared clipboard | **works, verified both ways** | **works, verified both ways** | does not work |
+| Release verification | two boots + packaged snapshot | one boot + packaged snapshot | incomplete |
+| ARM tool contract | **17/17 required** | not enforced | not enforced |
+| Chromium policy hardening | **verified** | not present | not present |
+| `sshd` | disabled | disabled | enabled, with a trivial password |
+| `sha256` | `12b060c287326ba2932a811a7a97fb1bd3d0d4e45e08f45ce84359ed3c2eb539` | `929eb816194a5cfc46b87ebc05f7c29bac004a8850f0ae559d220efae0355958` | `9d6afb16843bd868c9503dbfdaaa5f1ff7634b23f9a972b344ec27ca0a795fb4` |
 
-The plain name belongs to the first release and keeps it, so links and checksums
-published back in August still resolve to the exact bytes they were written
-for. That is the only reason the better file is the one with `-v2` in its name.
+The plain name belongs to the first release and keeps it, and v2 keeps its own
+name and checksum. That preserves every previously published byte identity;
+the current recommendation therefore carries the `-v3` suffix.
 
 ```bash
-shasum -a 256 -c omarchy-arm-utm-v2.zip.sha256
-unzip omarchy-arm-utm-v2.zip
+shasum -a 256 -c omarchy-arm-utm-v3.zip.sha256
+unzip omarchy-arm-utm-v3.zip
 open *.utm
 ```
 
 User `omarchy`, password `omarchy` (also root). **Change it with `passwd`.**
 
-Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 439
+Arch Linux ARM aarch64 · Hyprland 0.56.1 · the Omarchy 4 desktop · 442
 `omarchy-*` commands · 17 tools built for ARM · OBS Studio and Pinta.
+
+## What changed on 2026-08-29
+
+- Refreshed reviewed Omarchy, `omarchy-pkgs`, and Aether source pins.
+- Chromium's managed-policy directory is created through upstream's hardened
+  helper and verified root-owned/mode 755 after provisioning and sanitisation.
+- Full images must pass a 17/17 native ARM tool contract; `herdr` remains the
+  separate documented Zig 0.15 exception.
+- Release verification now forces a real second boot and rechecks desktop,
+  clipboard components, tools, repository provenance, and browser policy.
+- The final packaged QCOW2 was booted with `qemu -snapshot`; its hash was
+  unchanged, and real clipboard data passed in both directions in UTM.
+- Lightweight static/unit CI now runs on pushes and pull requests.
 
 ## What changed on 2026-08-26
 

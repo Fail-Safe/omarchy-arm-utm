@@ -50,6 +50,7 @@ MAPA={
 
 }
 MIRRORS={
+ "dist/LEEME.md":"provision/src/LEEME.md",
  "provision/repair-iso/repair.sh":"provision/src/repair.sh",
  "provision/repair-iso/sanitize.sh":"provision/src/sanitize.sh",
  "provision/repair-iso/extras.sh":"provision/src/omarchy-arm-extras",

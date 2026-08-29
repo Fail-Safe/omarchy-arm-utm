@@ -22,6 +22,7 @@ rm -f "$VARS" "$MON"
 dd if=/dev/zero of="$VARS" bs=1m count=64 status=none
 
 qemu-system-aarch64 \
+  -snapshot \
   -accel hvf -cpu host -smp 8 -m 8192 \
   -M virt,highmem=on,gic-version=3 \
   -drive if=pflash,format=raw,unit=0,readonly=on,file="$FW" \

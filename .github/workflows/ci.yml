@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main, next]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify generated payloads
+        run: python3 scripts/sync-payloads.py --check
+
+      - name: Run unit tests
+        run: |
+          set -euo pipefail
+          for test_file in tests/*.sh; do
+            bash "$test_file"
+          done
+
+      - name: Check shell syntax and ShellCheck errors
+        run: |
+          set -euo pipefail
+          while IFS= read -r shell_file; do
+            bash -n "$shell_file"
+            shellcheck --severity=error "$shell_file"
+          done < <(rg -l '^#!.*(bash|sh)' \
+            --glob '*.sh' --glob 'scripts/omssh' --glob 'provision/src/omarchy-arm-*')
+
+      - name: Check Python syntax and whitespace
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for name in (
+              "scripts/sync-payloads.py",
+              "provision/src/alarm-repository-snapshot.py",
+              "provision/src/omarchy-arm-vdagent",
+          ):
+              source = Path(name).read_text()
+              compile(source, name, "exec")
+          PY
+          git diff --check

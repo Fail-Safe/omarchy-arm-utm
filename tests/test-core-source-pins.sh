@@ -56,7 +56,7 @@ if validate_core_source_lock >"$TMP/url.out" 2>&1; then
 fi
 grep -q 'invalid core Git source-lock record' "$TMP/url.out"
 
-sed 's/83881e979b35468c3e7d60b171e319ede61a88fd/HEAD/' "$LOCK" > "$SOURCE_LOCK"
+awk 'BEGIN { OFS=" " } $1 == "omarchy" { $4="HEAD" } { print }' "$LOCK" > "$SOURCE_LOCK"
 if validate_core_source_lock >"$TMP/commit.out" 2>&1; then
   echo "moving source ref was accepted as a commit" >&2; exit 1
 fi

@@ -354,8 +354,8 @@ write_core_source_lock() {
 #
 # The build fetches only the commit in column 4. Column 3 is used by the
 # maintainer refresh tool and, for Omarchy, by the post-install update hook.
-omarchy https://github.com/basecamp/omarchy.git refs/heads/quattro 83881e979b35468c3e7d60b171e319ede61a88fd
-omarchy-pkgs https://github.com/omacom-io/omarchy-pkgs.git HEAD dbb5e720510695381dbc7a23195f99b570a2479f
+omarchy https://github.com/basecamp/omarchy.git refs/heads/quattro 56fbaf4689e3eb6867c0b7f375ae49964f183774
+omarchy-pkgs https://github.com/omacom-io/omarchy-pkgs.git HEAD 6daa7c90e481c61b4e65fbed1e3c048bd25c790e
 ttfx https://github.com/omacom-io/ttfx.git HEAD 7203e354498462064b7c0a89375051f65cf2ce99
 yay https://aur.archlinux.org/yay.git HEAD cb43f84828ab4f9700f7c6f9c6d7a923d4cfaff0
 xdg-terminal-exec https://aur.archlinux.org/xdg-terminal-exec.git HEAD a52e8f23c0be7d482b944c6cf5ddee172da171e4
@@ -364,7 +364,7 @@ ttf-ia-writer https://aur.archlinux.org/ttf-ia-writer.git HEAD e9aa94080338d7a7f
 tzupdate https://aur.archlinux.org/tzupdate.git HEAD 1b3c3bdf6289a348da09eed57d653d3f6dce1956
 ufw-docker https://aur.archlinux.org/ufw-docker.git HEAD 76e18ac8c40a4e8f018f4b35289718a29eca3d6d
 mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fbc7f1904ba6f88
-aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
+aether https://aur.archlinux.org/aether.git HEAD 0f047f40a200121075ca3cedce59ddf226f2a0f1
 cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
 herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
 1password-cli https://aur.archlinux.org/1password-cli.git HEAD b0d208821677a5dbb883a8b92f06a5c92b9e861a
@@ -1823,6 +1823,22 @@ sudo install -Dm644 "$OMARCHY_PATH/etc/sddm.conf.d/10-wayland.conf" /etc/sddm.co
 sudo install -Dm644 "$OMARCHY_PATH/default/wayland-sessions/omarchy.desktop" /usr/local/share/wayland-sessions/omarchy.desktop
 sudo bash "$OMARCHY_PATH/install/config/theme-system.sh" 2>&1 | tail -2 || true
 
+# Omarchy 4 keeps Chromium policy-directory hardening separate from its theme
+# setup. This project runs selected upstream setup scripts instead of config/all.sh,
+# so the policy step must be invoked explicitly when the reviewed source pin
+# contains it. Treat absence or an unsafe result as a build failure: a writable
+# managed-policy directory would let a desktop user alter browser policy.
+log "hardening Chromium's managed-policy directory" "protegiendo el directorio de politicas administradas de Chromium"
+BROWSER_POLICY_SCRIPT="$OMARCHY_PATH/install/config/browser-policy.sh"
+BROWSER_POLICY_DIR=/etc/chromium/policies/managed
+[ -f "$BROWSER_POLICY_SCRIPT" ] \
+  || { warn "the reviewed Omarchy source is missing browser-policy.sh" "la fuente revisada de Omarchy no contiene browser-policy.sh"; exit 1; }
+bash "$BROWSER_POLICY_SCRIPT" \
+  || { warn "browser policy hardening failed" "fallo la proteccion de politicas del navegador"; exit 1; }
+[ -d "$BROWSER_POLICY_DIR" ] && [ ! -L "$BROWSER_POLICY_DIR" ] \
+  && [ "$(stat -c '%U:%G:%a' "$BROWSER_POLICY_DIR")" = root:root:755 ] \
+  || { warn "unsafe Chromium policy directory: $BROWSER_POLICY_DIR" "directorio inseguro de politicas de Chromium: $BROWSER_POLICY_DIR"; exit 1; }
+
 export OMARCHY_PATH=/usr/share/omarchy
 export PATH="/usr/local/bin:$PATH"
 
@@ -2125,6 +2141,51 @@ done
 TTFX_FALLBACK
   echo "  /usr/local/bin/ttfx ($(ui_text 'static fallback' 'alternativa estatica'))"
 fi
+
+# The default build promises seventeen ARM tools. Keep that promise executable:
+# herdr remains the one documented upstream/Zig exception, while every listed
+# package plus the native ttfx binary is required when tool compilation is on.
+sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-arm-verify-tools <<'TOOL_CONTRACT'
+#!/bin/bash
+set -uo pipefail
+
+mode="${1:-si}"
+full_packages=(
+  yay xdg-terminal-exec yaru-icon-theme ttf-ia-writer tzupdate ufw-docker
+  omarchy-nvim tobi-try mise-bin aether cliamp omacalc omacut omawrite tensaku
+  hyprland-preview-share-picker
+)
+
+case "$mode" in
+  si)
+    missing=()
+    for package in "${full_packages[@]}"; do
+      pacman -Q "$package" >/dev/null 2>&1 || missing+=("$package")
+    done
+    ttfx_path=$(command -v ttfx 2>/dev/null || true)
+    if [[ -z $ttfx_path ]] || grep -aq '^# OMARCHY_TTFX_FALLBACK=1$' "$ttfx_path" 2>/dev/null; then
+      missing+=(ttfx-native)
+    fi
+    if ((${#missing[@]})); then
+      printf 'TOOLS_KO mode=full missing=%s\n' "${missing[*]}" >&2
+      exit 1
+    fi
+    printf 'TOOLS_OK mode=full verified=17/17 known-exception=herdr\n'
+    ;;
+  no)
+    command -v ttfx >/dev/null 2>&1 \
+      || { printf 'TOOLS_KO mode=lightweight missing=ttfx-fallback\n' >&2; exit 1; }
+    printf 'TOOLS_OK mode=lightweight verified=1/1\n'
+    ;;
+  *)
+    printf 'TOOLS_KO invalid-mode=%s\n' "$mode" >&2
+    exit 2
+    ;;
+esac
+TOOL_CONTRACT
+
+log "verifying the selected tool contract" "verificando el contrato de herramientas elegido"
+/usr/local/bin/omarchy-arm-verify-tools "${HACER_TOOLS:-si}" || exit 1
 
 # --- keyboard: layout is y and Super usable from macOS -------------------
 # macOS intercepts Cmd before UTM sees it (Cmd+Space opens Spotlight), making
@@ -2813,6 +2874,19 @@ N_CMD=$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l)
 
 N_ROTO=$(find /usr/bin /usr/local/bin /home/"$NEW" -xdev -xtype l 2>/dev/null | wc -l)
 [ "$N_ROTO" -le 5 ] && bien "$N_ROTO dangling links" "$N_ROTO enlaces colgando" || mal "$N_ROTO dangling links" "$N_ROTO enlaces colgando"
+
+if [ -x /usr/local/bin/omarchy-arm-verify-tools ]; then
+  TOOL_RESULT=$(/usr/local/bin/omarchy-arm-verify-tools "${HACER_TOOLS:-si}" 2>&1)
+  [ $? -eq 0 ] && bien "$TOOL_RESULT" || mal "$TOOL_RESULT"
+else
+  mal "the ARM tool verifier is missing" "falta el verificador de herramientas ARM"
+fi
+
+BROWSER_POLICY_DIR=/etc/chromium/policies/managed
+[ -d "$BROWSER_POLICY_DIR" ] && [ ! -L "$BROWSER_POLICY_DIR" ] \
+  && [ "$(stat -c '%U:%G:%a' "$BROWSER_POLICY_DIR" 2>/dev/null)" = root:root:755 ] \
+  && bien "Chromium policy directory is root-owned and mode 755" "el directorio de politicas de Chromium pertenece a root y tiene modo 755" \
+  || mal "Chromium policy directory is not safely owned" "el directorio de politicas de Chromium no tiene propiedad segura"
 
 # Filenames, not just content: the scan above uses grep -rl, which
 # looks inside files. A file that HAS the builder's name in
@@ -4585,7 +4659,7 @@ PY
   [[ -n $pty ]] || die "could not open the serial port for '$VM_NAME'; verification is impossible without it (to continue anyway: --from sanitize)" "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Previously this phase collected metrics and did not compare them with anything, so
   # it ended in "ok" regardless of what happened. Now the guest emits a verdict
-  # and the host checks it. Eleven conditions, all necessary:
+  # and the host checks it. Thirteen conditions, all necessary:
   #   H  Hyprland running
   #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
   #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
@@ -4596,6 +4670,9 @@ PY
   #   V  the tree version starts with 4
   #   C  all five clipboard integration checks pass
   #   T  ttfx is available (the real binary or the static fallback)
+  #   X  the selected tool contract passes (17 native tools for a full build,
+  #      or the functional ttfx fallback for a lightweight build)
+  #   Y  Chromium's managed-policy directory is a real, root-owned mode-755 directory
   #   P  installed Omarchy is exactly the reviewed source-lock commit
   #   F  both reviewed libre-app packages are installed when INCLUDE_LIBRE_APPS=yes
   #   S  the captured repository databases and installed-package provenance validate
@@ -4605,9 +4682,12 @@ PY
   # NOTE: the heredoc is QUOTED. Without quotes, the host's bash expands
   # the $(...) before expect sees them, and the checks run on
   # the Mac instead of inside the VM (pgrep with BSD syntax, systemctl
-  # nonexistent). The three required values are passed via the environment and
-  # read with $env(...), which is a Tcl feature, not bash.
+  # nonexistent). Required values are passed via the environment and read with
+  # $env(...), which is a Tcl feature, not bash. Distribution builds repeat the
+  # verdict after a real reboot because session regressions have previously
+  # appeared only on the second boot.
   PTY="$pty" GUSER="$VM_USER" GPASS="$VM_PASSWORD" GLIBRE_APPS="$INCLUDE_LIBRE_APPS" \
+    GTOOLS="$HACER_TOOLS" GREBOOT="$HACER_DIST" \
   expect > "$vlog" 2>&1 <<'EXPEOF'
 set timeout 30
 log_user 1
@@ -4629,14 +4709,6 @@ expect {
 # long format the line starts with permissions, so `grep '^omarchy-'`
 # returns zero matches and verify marks a perfectly good image as KO. find is not
 # aliased and does not depend on output format.
-# KNOWN LIMITATION: this validates the FIRST boot. A failure that only appeared
-# on reboot -such as the one fixed by fixes/19 in older images, where the
-# the official agent was resurrected from autostart.lua - it would not be visible here. It was verified by
-# hand that the current image does indeed survive a reboot: the agent starts with the
-# graphical session. Therefore, a second pass is NOT added, as it would be a fixed cost
-# in every build against a hypothesis. If a bug of
-# that type reappears someday, this is the place to restart and repeat the verdict.
-#
 # NOTE 2: the token is SPLIT (VERD\"ICT_OK\"). The serial console echoes the
 # command, so if the token traveled whole, the log would contain the string
 # VERDICT_OK before the guest responded with anything, and the host's `grep`
@@ -4647,18 +4719,49 @@ expect {
 # require a connected SPICE client, so it can be checked here.
 send "python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance /usr/share/omarchy-arm/alarm-repositories /usr/share/omarchy-arm/alarm-repositories/manifest.tsv /usr/share/omarchy-arm/alarm-package-provenance.tsv >/dev/null 2>&1 && echo SNAP\"SHOT_OK\" || echo SNAP\"SHOT_KO\"\r"
 expect { -re {SNAPSHOT_(OK|KO)} {} timeout {} }
+send "D=/etc/chromium/policies/managed; test -d \"\$D\" && ! test -L \"\$D\" && test \"\$(stat -c '%U:%G:%a' \"\$D\")\" = root:root:755 && echo BROWSER_\"POLICY_OK\" || echo BROWSER_\"POLICY_KO\"\r"
+expect { -re {BROWSER_POLICY_(OK|KO)} {} timeout {} }
+send "/usr/local/bin/omarchy-arm-verify-tools \"$env(GTOOLS)\" >/dev/null 2>&1 && echo TOOL\"S_OK\" || echo TOOL\"S_KO\"\r"
+expect { -re {TOOLS_(OK|KO)} {} timeout {} }
 send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRE_APPS)\" = yes ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERD\"ICT_OK\"; else echo VERD\"ICT_KO\"; fi\r"
 set timeout 60
 expect { -re {VERDICT_(OK|KO)} {} timeout {} }
+if {$env(GREBOOT) eq "si"} {
+  send "sudo systemctl reboot\r"
+  set timeout 240
+  set reboot_ready 0
+  expect {
+    -re {[Pp]assword.*:} { send "$env(GPASS)\r"; exp_continue }
+    -re {login:} { set reboot_ready 1 }
+    timeout {}
+  }
+  if {$reboot_ready} {
+    send "$env(GUSER)\r"
+    expect -re {[Pp]assword:}
+    send "$env(GPASS)\r"
+    sleep 8
+    send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); grep -qs -- ' -X ' /etc/systemd/system/spice-vdagentd.service.d/override.conf && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; /usr/local/bin/omarchy-arm-verify-tools \"$env(GTOOLS)\" >/dev/null 2>&1 && T=1; S=0; python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance /usr/share/omarchy-arm/alarm-repositories /usr/share/omarchy-arm/alarm-repositories/manifest.tsv /usr/share/omarchy-arm/alarm-package-provenance.tsv >/dev/null 2>&1 && S=1; D=/etc/chromium/policies/managed; B=0; test -d \"\$D\" && ! test -L \"\$D\" && test \"\$(stat -c '%U:%G:%a' \"\$D\")\" = root:root:755 && B=1; echo \"### REBOOT H=\$H Q=\$Q CLIP=\$C/5 TOOLS=\$T SNAPSHOT=\$S BROWSER_POLICY=\$B\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$S -eq 1 ] && \[ \$B -eq 1 ]; then echo REBO\"OT_OK\"; else echo REBO\"OT_KO\"; fi\r"
+    set timeout 90
+    expect { -re {REBOOT_(OK|KO)} {} timeout { send_user "\nREBOOT_KO timeout\n" } }
+  } else {
+    send_user "\nREBOOT_KO no-login\n"
+  }
+}
 EXPEOF
   sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | grep -aE "^###" | tail -1
   # SNAPSHOT_OK is the first command result after login, so systemd's OSC shell
   # integration can prefix it on the same physical line. The echoed command
   # contains SNAP"SHOT_OK" split across quotes, so an unanchored search still
   # cannot mistake command echo for the result.
-  if grep -qa "^VERDICT_OK" "$vlog" && grep -qa "SNAPSHOT_OK" "$vlog"; then
+  local reboot_ok=1
+  [[ $HACER_DIST != si ]] || grep -qa "^REBOOT_OK" "$vlog" || reboot_ok=0
+  if grep -qa "^VERDICT_OK" "$vlog" && grep -qa "SNAPSHOT_OK" "$vlog" \
+      && grep -qa "BROWSER_POLICY_OK" "$vlog" \
+      && grep -qa "TOOLS_OK" "$vlog" && (( reboot_ok )); then
     ok "VM '$VM_NAME' verified: reviewed sources and repository snapshot, package provenance, desktop, commands, units, and clipboard" "VM '$VM_NAME' verificada: fuentes y captura de repositorios revisadas, procedencia de paquetes, escritorio, comandos, unidades y portapapeles"
-  elif grep -qa "^VERDICT_KO" "$vlog" || grep -qa "SNAPSHOT_KO" "$vlog"; then
+  elif grep -qa "^VERDICT_KO" "$vlog" || grep -qa "SNAPSHOT_KO" "$vlog" \
+      || grep -qa "BROWSER_POLICY_KO" "$vlog" \
+      || grep -qa "TOOLS_KO" "$vlog" || grep -qa "REBOOT_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "the VM boots but the desktop is incomplete; log at $vlog" "la VM arranca pero el escritorio no esta completo; log en $vlog"
   else
@@ -4769,8 +4872,8 @@ Arch Linux ARM + Hyprland y la configuración, temas y herramientas de
 
 - Mac con Apple Silicon (M1 o superior)
 - [UTM](https://mac.getutm.app) 4.7 o posterior
-- ~11 GB de disco libre: el `.zip` ocupa 3,6 GB y la imagen descomprimida
-  otros 7,2 GB, más lo que crezca al usarla
+- ~9 GB de disco libre: el `.zip` y la imagen descomprimida ocupan unos
+  3,8 GB cada uno, más lo que crezca al usarla
 
 ## Instalación
 
@@ -4810,7 +4913,7 @@ Sistema → Privacidad y seguridad).
 ## Qué esperar
 
 Funciona: el escritorio Hyprland completo con la barra de Omarchy, temas,
-menú, terminal, navegador, y los 439 comandos `omarchy-*`.
+menú, terminal, navegador, y los 442 comandos `omarchy-*`.
 
 Incluye además las herramientas propias de Omarchy **compiladas para aarch64**,
 que no se publican para ARM: `tensaku` (anotación de capturas), `omacalc`,
@@ -4822,6 +4925,10 @@ del salvapantallas), `omarchy-nvim`, `mise`, `tzupdate`, `yaru-icon-theme`,
 Y dos aplicaciones de software libre ya compiladas para ARM: **OBS Studio
 32.2.2** (sin el plugin de navegador, cuyo CEF es x86-only) y **Pinta 3.1.2**
 (sobre el .NET arm64 oficial de Microsoft).
+
+Esta imagen se validó el **29-08-2026** con las 17 herramientas ARM, OBS y
+Pinta; dos arranques consecutivos en UTM; portapapeles real en ambos sentidos;
+y un arranque adicional del disco empaquetado en modo `qemu -snapshot`.
 
 Limitaciones propias de correr Omarchy en ARM:
 

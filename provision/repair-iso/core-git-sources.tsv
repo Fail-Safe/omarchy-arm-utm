@@ -2,8 +2,8 @@
 #
 # The build fetches only the commit in column 4. Column 3 is used by the
 # maintainer refresh tool and, for Omarchy, by the post-install update hook.
-omarchy https://github.com/basecamp/omarchy.git refs/heads/quattro 83881e979b35468c3e7d60b171e319ede61a88fd
-omarchy-pkgs https://github.com/omacom-io/omarchy-pkgs.git HEAD dbb5e720510695381dbc7a23195f99b570a2479f
+omarchy https://github.com/basecamp/omarchy.git refs/heads/quattro 56fbaf4689e3eb6867c0b7f375ae49964f183774
+omarchy-pkgs https://github.com/omacom-io/omarchy-pkgs.git HEAD 6daa7c90e481c61b4e65fbed1e3c048bd25c790e
 ttfx https://github.com/omacom-io/ttfx.git HEAD 7203e354498462064b7c0a89375051f65cf2ce99
 yay https://aur.archlinux.org/yay.git HEAD cb43f84828ab4f9700f7c6f9c6d7a923d4cfaff0
 xdg-terminal-exec https://aur.archlinux.org/xdg-terminal-exec.git HEAD a52e8f23c0be7d482b944c6cf5ddee172da171e4
@@ -12,7 +12,7 @@ ttf-ia-writer https://aur.archlinux.org/ttf-ia-writer.git HEAD e9aa94080338d7a7f
 tzupdate https://aur.archlinux.org/tzupdate.git HEAD 1b3c3bdf6289a348da09eed57d653d3f6dce1956
 ufw-docker https://aur.archlinux.org/ufw-docker.git HEAD 76e18ac8c40a4e8f018f4b35289718a29eca3d6d
 mise-bin https://aur.archlinux.org/mise-bin.git HEAD 7e310939340a658f9cd3fcbf6fbc7f1904ba6f88
-aether https://aur.archlinux.org/aether.git HEAD 04592d5713f9c09ea2d81cf4b8476714d80014bc
+aether https://aur.archlinux.org/aether.git HEAD 0f047f40a200121075ca3cedce59ddf226f2a0f1
 cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c0c692ece5
 herdr https://aur.archlinux.org/herdr.git HEAD 20fa363dc05c9cf6495a5b63175564029506dfbd
 1password-cli https://aur.archlinux.org/1password-cli.git HEAD b0d208821677a5dbb883a8b92f06a5c92b9e861a
