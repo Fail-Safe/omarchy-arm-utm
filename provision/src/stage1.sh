@@ -112,6 +112,8 @@ cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-source
    "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
+[ -f "$PROV/menu-compat.sh" ] && cp "$PROV/menu-compat.sh" /mnt/root/prov/omarchy-arm-menu-compat
+[ -f "$PROV/arm-menu.jsonc" ] && cp "$PROV/arm-menu.jsonc" /mnt/root/prov/omarchy-arm-menu.jsonc
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 [ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent

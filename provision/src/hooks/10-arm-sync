@@ -27,6 +27,10 @@ if ! "${GIT[@]}" pull --ff-only 2>&1 | sed 's/^/  /'; then
   exit 0
 fi
 after=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
+if [ -r /usr/share/omarchy-arm/omarchy-menu.jsonc ] \
+    && ! grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" 2>/dev/null; then
+  printf '\033[31m  %s\033[0m\n' "$(ui_text 'ARM menu safety overlay is missing; restore it before using new Install or Channel entries.' 'Falta el overlay de seguridad del menu ARM; restauralo antes de usar entradas nuevas de Instalar o Canal.')" >&2
+fi
 if [ "$before" = "$after" ]; then echo "  $(ui_text 'already up to date' 'ya estaba al día') ($after)"; exit 0; fi
 echo "  $before → $after"
 

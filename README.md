@@ -289,7 +289,7 @@ via `altwin:swap_lalt_lwin`:
 
 ## Proprietary apps
 
-1Password, Obsidian, Typora, LocalSend and Google Chrome are **not** in the
+1Password, Obsidian, Typora, LocalSend, Google Chrome and Zed are **not** in the
 image — not because they do not work (they all have official ARM64 builds) but
 because shipping them would mean redistributing third-party binaries. The image
 carries an installer that fetches them from their official source, on your
@@ -300,6 +300,26 @@ omarchy-arm-extras --list
 omarchy-arm-extras            # interactive menu
 omarchy-arm-extras --all      # everything missing
 ```
+
+The standard Omarchy **Install → Service → 1Password**, **Spotify (Web)**,
+**Install → Browser → Chrome**, and **Install → Editor → Zed** actions are
+routed through this reviewed ARM installer instead of the x86-only Omarchy
+package repository. Zed supplies both `zed` and Omarchy's expected `zeditor`
+command.
+
+Omarchy's remaining Install catalog is not blindly exposed. Entries whose
+current package path is x86-only, incomplete on ARM, or not yet covered by a
+reviewed source and launch test are hidden by
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`; invoking the corresponding
+CLI installer directly returns a clear ARM-unsupported error. Native entries
+such as Firefox, Signal, Tailscale, Helix, Vim, Alacritty, Foot, Kitty, fonts,
+web apps, and development toolchains remain available.
+
+The **Update → Channel** submenu is also hidden and `omarchy-channel-set` is
+blocked: those channels replace pacman configuration with Omarchy's x86-only
+mirrors. Use **Update → Omarchy**, whose ARM hook updates the reviewed Git tree
+without replacing the Arch Linux ARM repositories. Presentation terminals show
+green **Done** only when their command exits successfully.
 
 Spotify has no native ARM client, but the web app works — it needs Widevine,
 which ships inside Google Chrome arm64 (`omarchy-arm-extras chrome spotify-web`).

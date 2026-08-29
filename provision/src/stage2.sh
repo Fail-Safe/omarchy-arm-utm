@@ -338,7 +338,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov returns false without error. A readable copy is left in their home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
+for f in omarchy-arm-extras omarchy-arm-menu-compat omarchy-arm-menu.jsonc 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"

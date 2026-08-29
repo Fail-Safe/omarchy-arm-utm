@@ -1,0 +1,66 @@
+{
+  // OMARCHY_ARM_MANAGED_MENU_V1
+  // This overlay keeps the upstream checkout clean while ensuring every visible
+  // Install action has an audited ARM path. Hidden entries remain callable only
+  // through explicit CLI commands, which return an ARM-specific failure.
+
+  "update.channel": {"when":"false"},
+  "update.channel.stable": {"when":"false"},
+  "update.channel.rc": {"when":"false"},
+  "update.channel.edge": {"when":"false"},
+  "update.channel.dev": {"when":"false"},
+
+  "install.windows": {"when":"false"},
+  "install.preinstalls": {"when":"false"},
+
+  "install.browser.chrome": {"disabled":"command -v google-chrome-stable >/dev/null"},
+  "install.browser.edge": {"when":"false"},
+  "install.browser.brave": {"when":"false"},
+  "install.browser.brave-origin": {"when":"false"},
+  "install.browser.zen": {"when":"false"},
+
+  "setup.default.browser.edge": {"when":"false"},
+  "setup.default.browser.brave": {"when":"false"},
+  "setup.default.browser.brave-origin": {"when":"false"},
+  "setup.default.browser.zen": {"when":"false"},
+
+  "install.service.1password": {"disabled":"command -v 1password >/dev/null"},
+  "install.service.spotify": {"label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]"},
+  "install.service.dropbox": {"when":"false"},
+  "install.service.nordvpn": {"when":"false"},
+  "install.service.once": {"when":"false"},
+  "install.service.bitwarden": {"when":"false"},
+
+  "install.editor.zed": {"disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]"},
+  "install.editor.vscode": {"when":"false"},
+  "install.editor.cursor": {"when":"false"},
+  "install.editor.sublime": {"when":"false"},
+  "install.editor.emacs": {"when":"false"},
+
+  "setup.default.editor.vscode": {"when":"false"},
+  "setup.default.editor.cursor": {"when":"false"},
+  "setup.default.editor.sublime": {"when":"false"},
+  "setup.default.editor.emacs": {"when":"false"},
+
+  "install.terminal.ghostty": {"when":"false"},
+  "setup.default.terminal.ghostty": {"when":"false"},
+
+  "install.ai.chatgpt": {"when":"false"},
+  "install.ai.dictation": {"when":"false"},
+  "install.ai.grok-bot": {"when":"false"},
+  "install.ai.lm-studio": {"when":"false"},
+  "install.ai.ollama": {"when":"false"},
+  "install.ai.t3-code": {"when":"false"},
+
+  "install.gaming.steam": {"when":"false"},
+  "install.gaming.retroarch": {"when":"false"},
+  "install.gaming.minecraft": {"when":"false"},
+  "install.gaming.geforce-now": {"when":"false"},
+  "install.gaming.xbox-controllers": {"when":"false"},
+  "install.gaming.battlenet": {"when":"false"},
+  "install.gaming.lutris": {"when":"false"},
+  "install.gaming.heroic": {"when":"false"},
+  "install.gaming.retro-launcher": {"when":"false"},
+
+  "install.development.php.symfony": {"when":"false"}
+}

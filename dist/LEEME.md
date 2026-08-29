@@ -103,7 +103,7 @@ SPICE WebDAV y la monta en `/mnt/share` de la forma que corresponda.
 
 ## Las apps que no vienen dentro
 
-1Password, Obsidian, Typora, LocalSend y Google Chrome **no están en la
+1Password, Obsidian, Typora, LocalSend, Google Chrome y Zed **no están en la
 imagen**, pero no porque no funcionen: todas tienen build ARM64 oficial. No van
 dentro porque son propietarias y empaquetarlas en una imagen que se distribuye
 sería redistribuir binarios de terceros.
@@ -126,6 +126,24 @@ SHA-256 exactos. Si falta un bloqueo o no coincide la verificación, se detiene
 antes de modificar el sistema. `--force` reinstala la versión revisada.
 
 También está en el menú de aplicaciones como **«Instalar apps que faltan (ARM)»**.
+Las opciones normales **Install → Service → 1Password**, **Spotify (Web)**,
+**Install → Browser → Chrome** e **Install → Editor → Zed** de Omarchy también
+pasan por este instalador revisado para ARM, en vez del repositorio de paquetes
+x86. Zed instala tanto `zed` como el comando `zeditor` que espera Omarchy.
+
+El resto del catálogo no se muestra a ciegas: las entradas cuyo paquete actual
+solo sirve para x86, está incompleto en ARM o aún no tiene fuente revisada y
+prueba de arranque quedan ocultas mediante
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`. Si se invoca directamente
+uno de esos instaladores por CLI, termina con un error claro de incompatibilidad
+ARM. Siguen visibles las rutas nativas comprobadas: Firefox, Signal, Tailscale,
+Helix, Vim, Alacritty, Foot, Kitty, fuentes, web apps y toolchains de desarrollo.
+
+También queda oculto **Update → Channel** y bloqueado `omarchy-channel-set`,
+porque esos canales sustituyen la configuración de pacman por mirrors de
+Omarchy que solo publican x86. Usa **Update → Omarchy**: el hook ARM actualiza el
+checkout Git revisado sin tocar los repositorios de Arch Linux ARM. La pantalla
+verde **Done** solo aparece si el comando terminó correctamente.
 
 | Clave | Qué hace |
 |---|---|
@@ -135,6 +153,7 @@ También está en el menú de aplicaciones como **«Instalar apps que faltan (AR
 | `typora` | Paquete arm64 oficial vía AUR |
 | `localsend` | Build arm64 oficial |
 | `chrome` | Trae Widevine para arm64: habilita Spotify y Netflix web |
+| `zed` | Tarball oficial Linux arm64 + integración de tema de Omarchy |
 | `spotify-web` | Lanzador de la web + reasigna `⌥+Shift+M` |
 | `pinta` | Ya viene instalada; la clave sirve para reinstalarla |
 | `obs` | Ya viene instalado; la clave sirve para reinstalarlo |

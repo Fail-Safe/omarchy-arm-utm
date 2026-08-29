@@ -67,6 +67,7 @@ CATALOG=(
   "typora|Typora|WYSIWYG Markdown editor. Official arm64 package through AUR|Editor markdown WYSIWYG. Paquete arm64 oficial via AUR"
   "localsend|LocalSend|Send files between devices. Official arm64 build|Enviar ficheros entre dispositivos. Build arm64 oficial"
   "chrome|Google Chrome|Includes Widevine for arm64: enables Spotify and Netflix web|Trae Widevine para arm64: habilita Spotify y Netflix web"
+  "zed|Zed Editor|Official Linux arm64 release with Omarchy theme integration|Build oficial Linux arm64 con integracion del tema de Omarchy"
   "spotify-web|Spotify (web app)|open.spotify.com launcher + reassigns SUPER+SHIFT+M|Lanzador de open.spotify.com + reasigna SUPER+SHIFT+M"
   "pinta|Pinta|Image editor. Built with Microsoft's arm64 .NET|Editor de imagenes. Compilado con el .NET arm64 de Microsoft"
   "obs|OBS Studio|Recording and streaming. Built without the browser plugin|Captura y streaming. Compilado sin el plugin de navegador"
@@ -115,6 +116,9 @@ require_optional_artifact() {
           && $signer == 3FEF9748469ADBE15DA7CA80AC2D62742012EA22 ]] ;;
     obsidian-package)
       [[ $url =~ ^https://github.com/obsidianmd/obsidian-releases/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/obsidian-[0-9]+\.[0-9]+\.[0-9]+-arm64\.tar\.gz$ \
+          && $signer == - ]] ;;
+    zed-package)
+      [[ $url =~ ^https://github.com/zed-industries/zed/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/zed-linux-aarch64\.tar\.gz$ \
           && $signer == - ]] ;;
     *) return 1 ;;
   esac \
@@ -170,6 +174,10 @@ validate_optional_app_locks() {
         require_source_pin localsend-bin https://aur.archlinux.org/localsend-bin.git || return 1 ;;
       chrome)
         require_source_pin google-chrome https://aur.archlinux.org/google-chrome.git || return 1 ;;
+      zed)
+        [[ -r $OPTIONAL_APP_ARTIFACT_LOCK ]] || { fail "missing reviewed optional-app artifact lock" "falta el bloqueo revisado de artefactos opcionales"; return 1; }
+        require_optional_artifact zed-package || return 1
+        require_source_pin omazed https://aur.archlinux.org/omazed.git || return 1 ;;
     esac
   done
 }
@@ -239,6 +247,7 @@ is_installed() {
     typora)        pacman -Q typora           >/dev/null 2>&1 ;;
     localsend)     pacman -Q localsend-bin    >/dev/null 2>&1 ;;
     chrome)        pacman -Q google-chrome    >/dev/null 2>&1 || have google-chrome-stable ;;
+    zed)           [ -x "$HOME/.local/zed.app/bin/zed" ] ;;
     spotify-web)   grep -q "open.spotify.com" "$HOME/.config/hypr/bindings.lua" 2>/dev/null ;;
     pinta)         pacman -Q pinta            >/dev/null 2>&1 ;;
     obs)           pacman -Q obs-studio       >/dev/null 2>&1 ;;
@@ -374,6 +383,49 @@ do_chrome() {
   info "${c_dim}Check DRM at chrome://components → 'Widevine Content Decryption Module'${c_off}" "${c_dim}Comprueba el DRM en chrome://components → 'Widevine Content Decryption Module'${c_off}"
 }
 
+do_zed() {
+  title "Zed Editor"
+  info "Installing Zed's official Linux arm64 release." "Instalando el build oficial Linux arm64 de Zed."
+  local key url digest signer dir archive src desktop_source desktop_target candidate
+  read -r key url digest signer <<< "$(optional_artifact_lock_record zed-package)"
+  dir="$WORK/zed"
+  archive="$dir/zed-linux-aarch64.tar.gz"
+  rm -rf "$dir"; mkdir -p "$dir/unpack"
+  curl -fL --progress-bar "$url" -o "$archive" || { fail "download failed" "descarga fallida"; return 1; }
+  verify_reviewed_sha256 "$archive" "$digest" || return 1
+  tar -xzf "$archive" -C "$dir/unpack" || { fail "could not extract the archive" "no se pudo extraer"; return 1; }
+  src="$dir/unpack/zed.app"
+  [[ -x $src/bin/zed ]] || { fail "the tarball has an unexpected layout" "el tarball no tiene la forma esperada"; return 1; }
+
+  mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
+  rm -rf "$HOME/.local/zed.app"
+  cp -a "$src" "$HOME/.local/zed.app"
+  ln -sfn "$HOME/.local/zed.app/bin/zed" "$HOME/.local/bin/zed"
+  ln -sfn "$HOME/.local/zed.app/bin/zed" "$HOME/.local/bin/zeditor"
+
+  desktop_source=""
+  for candidate in dev.zed.Zed.desktop zed.desktop; do
+    [[ -f $HOME/.local/zed.app/share/applications/$candidate ]] || continue
+    desktop_source="$HOME/.local/zed.app/share/applications/$candidate"
+    break
+  done
+  [[ -n $desktop_source ]] || { fail "the Zed desktop entry is missing" "falta la entrada de escritorio de Zed"; return 1; }
+  desktop_target="$HOME/.local/share/applications/dev.zed.Zed.desktop"
+  sed \
+    -e "s|Icon=zed|Icon=$HOME/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png|g" \
+    -e "s|Exec=zed|Exec=$HOME/.local/zed.app/bin/zed|g" \
+    "$desktop_source" >"$desktop_target" \
+    || { fail "could not install the Zed desktop entry" "no se pudo instalar la entrada de escritorio de Zed"; return 1; }
+  chmod 644 "$desktop_target"
+
+  if aur_build omazed omazed omazed; then
+    omazed setup || warn "Zed installed, but Omarchy theme setup reported an error" "Zed se instalo, pero fallo la configuracion del tema de Omarchy"
+  else
+    warn "Zed installed, but the optional Omarchy theme helper failed" "Zed se instalo, pero fallo el ayudante opcional del tema de Omarchy"
+  fi
+  ok "Zed installed from $(basename "$url")" "Zed instalado desde $(basename "$url")"
+}
+
 do_spotify_web() {
   title "Spotify (webapp)"
   # Omarchy treats Spotify as a native package, not as a webapp — and that package is
@@ -489,6 +541,7 @@ run_item() {
     typora)        do_typora ;;
     localsend)     do_localsend ;;
     chrome)        do_chrome ;;
+    zed)           do_zed ;;
     spotify-web)   do_spotify_web ;;
     pinta)         do_pinta ;;
     obs)           do_obs ;;
@@ -546,7 +599,7 @@ for k in "${SELECTED[@]}"; do
   case "$k" in
     pinta|obs)
       if [ "$FORCE" = 1 ] || ! is_installed "$k"; then LOCKED_SELECTED+=("$k"); fi ;;
-    1password|1password-cli|obsidian|typora|localsend|chrome)
+    1password|1password-cli|obsidian|typora|localsend|chrome|zed)
       if [ "$FORCE" = 1 ] || ! is_installed "$k"; then OPTIONAL_LOCKED_SELECTED+=("$k"); fi ;;
     spotify-web) ;;
     *) fail "unknown key '$k'" "no conozco '$k'"; exit 1 ;;

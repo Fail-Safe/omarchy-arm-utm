@@ -59,14 +59,14 @@ intentionally unsupported.
 # Optional proprietary-app inputs
 
 `optional-app-artifacts.tsv` records exact reviewed downloads for the
-user-invoked 1Password and Obsidian installers. 1Password must match both the
+user-invoked 1Password, Obsidian, and Zed installers. 1Password must match both the
 recorded SHA-256 and its mandatory detached signature from fingerprint
 `3FEF9748469ADBE15DA7CA80AC2D62742012EA22`; the signing key is downloaded from
 1Password's HTTPS key endpoint into an isolated temporary keyring and its full
-fingerprint is checked. Obsidian publishes no detached signature, so its exact
-versioned GitHub release URL and SHA-256 are the trust boundary.
+fingerprint is checked. Obsidian and Zed publish no detached signature, so their
+exact versioned GitHub release URLs and SHA-256 values are the trust boundary.
 
-The 1Password CLI, Typora, LocalSend, and Google Chrome installers use exact AUR
+The 1Password CLI, Typora, LocalSend, Google Chrome, and Zed's Omazed theme helper use exact AUR
 recipe commits from `core-git-sources.tsv`; those reviewed recipes in turn pin
 their official aarch64 artifacts with makepkg checksums or signatures. Refresh
 these security-sensitive pins promptly when reviewing a vendor update. Until

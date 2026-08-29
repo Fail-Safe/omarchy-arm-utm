@@ -16,13 +16,14 @@ rg -q 'optional-app-artifacts\.tsv' "$ROOT/provision/src/stage1.sh" \
   "$ROOT/provision/src/stage2.sh" "$REPAIR_DIR/repair.sh" "$REPAIR_DIR/sanitize.sh"
 rg -q 'checksums/optional-app-artifacts\.tsv' "$ROOT/scripts/run-build.sh"
 
-for key in 1password-cli typora localsend-bin google-chrome; do
+for key in 1password-cli typora localsend-bin google-chrome omazed; do
   [[ $(awk -v key="$key" '$1 == key { count++ } END { print count + 0 }' "$CORE_LOCK") == 1 ]]
 done
 [[ $(awk '$1 == "1password-cli" { print $2 }' "$CORE_LOCK") == https://aur.archlinux.org/1password-cli.git ]]
 [[ $(awk '$1 == "typora" { print $2 }' "$CORE_LOCK") == https://aur.archlinux.org/typora.git ]]
 [[ $(awk '$1 == "localsend-bin" { print $2 }' "$CORE_LOCK") == https://aur.archlinux.org/localsend-bin.git ]]
 [[ $(awk '$1 == "google-chrome" { print $2 }' "$CORE_LOCK") == https://aur.archlinux.org/google-chrome.git ]]
+[[ $(awk '$1 == "omazed" { print $2 }' "$CORE_LOCK") == https://aur.archlinux.org/omazed.git ]]
 
 read -r onepassword_key onepassword_url onepassword_digest onepassword_signer onepassword_extra < <(
   awk '$1 == "1password-package" { print; exit }' "$ARTIFACT_LOCK"
@@ -38,6 +39,13 @@ read -r obsidian_key obsidian_url obsidian_digest obsidian_signer obsidian_extra
 [[ -z ${obsidian_extra:-} && $obsidian_key == obsidian-package ]]
 [[ $obsidian_url =~ ^https://github\.com/obsidianmd/obsidian-releases/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/obsidian-[0-9]+\.[0-9]+\.[0-9]+-arm64\.tar\.gz$ ]]
 [[ $obsidian_digest =~ ^[0-9a-f]{64}$ && $obsidian_signer == - ]]
+
+read -r zed_key zed_url zed_digest zed_signer zed_extra < <(
+  awk '$1 == "zed-package" { print; exit }' "$ARTIFACT_LOCK"
+)
+[[ -z ${zed_extra:-} && $zed_key == zed-package ]]
+[[ $zed_url =~ ^https://github\.com/zed-industries/zed/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/zed-linux-aarch64\.tar\.gz$ ]]
+[[ $zed_digest =~ ^[0-9a-f]{64}$ && $zed_signer == - ]]
 
 awk '
   /REVIEWED_FREE_APP_HELPERS_BEGIN/ { copying = 1; next }
@@ -56,7 +64,7 @@ FREE_APP_ARTIFACT_LOCK="$ROOT/checksums/free-app-artifacts.tsv"
 OPTIONAL_APP_ARTIFACT_LOCK="$TMP/artifacts.tsv"
 cp "$CORE_LOCK" "$CORE_SOURCE_LOCK"
 cp "$ARTIFACT_LOCK" "$OPTIONAL_APP_ARTIFACT_LOCK"
-validate_optional_app_locks 1password 1password-cli obsidian typora localsend chrome
+validate_optional_app_locks 1password 1password-cli obsidian typora localsend chrome zed
 
 sed 's#https://aur.archlinux.org/google-chrome.git#https://example.invalid/google-chrome.git#' \
   "$CORE_LOCK" > "$CORE_SOURCE_LOCK"
@@ -71,6 +79,13 @@ if validate_optional_app_locks obsidian >"$TMP/bad-artifact.out" 2>&1; then
   echo "malformed Obsidian artifact digest was accepted" >&2; exit 1
 fi
 grep -q 'missing or invalid reviewed optional-app artifact' "$TMP/bad-artifact.out"
+
+cp "$CORE_LOCK" "$CORE_SOURCE_LOCK"
+sed "s/$zed_digest/HEAD/" "$ARTIFACT_LOCK" > "$OPTIONAL_APP_ARTIFACT_LOCK"
+if validate_optional_app_locks zed >"$TMP/bad-zed-artifact.out" 2>&1; then
+  echo "malformed Zed artifact digest was accepted" >&2; exit 1
+fi
+grep -q 'missing or invalid reviewed optional-app artifact' "$TMP/bad-zed-artifact.out"
 
 mkdir -p "$TMP/bin" "$TMP/gpg-work"
 printf 'reviewed bytes\n' > "$TMP/archive"
@@ -138,7 +153,8 @@ FORCE=1
 for row in '1password-cli 1password-cli 1password-cli' \
            'typora typora typora' \
            'localsend-bin localsend-bin localsend-bin' \
-           'google-chrome google-chrome google-chrome'; do
+           'google-chrome google-chrome google-chrome' \
+           'omazed omazed omazed'; do
   read -r pkg want lock_key <<< "$row"
   : > "$TMP/clone-calls"; : > "$TMP/makepkg-calls"
   if ! PATH="$TMP/force-bin:$PATH" aur_build "$pkg" "$want" "$lock_key"; then
@@ -159,6 +175,7 @@ test ! -s "$TMP/makepkg-calls"
 mkdir -p "$TMP/main-bin" "$TMP/home"
 cat > "$TMP/main-bin/pacman" <<'MOCK'
 #!/usr/bin/env bash
+[[ ${1:-} == -Q && ${2:-} == omazed ]] && exit 0
 exit 1
 MOCK
 cat > "$TMP/main-bin/sudo" <<MOCK
@@ -168,7 +185,24 @@ exit 0
 MOCK
 cat > "$TMP/main-bin/tar" <<MOCK
 #!/usr/bin/env bash
+all="\$*"
 printf '%s\n' "\$*" >> "$TMP/tar-calls"
+dest=""
+while ((\$#)); do
+  case "\$1" in
+    -C) dest="\$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+if [[ \$all == *zed-linux-aarch64.tar.gz* ]]; then
+  mkdir -p "\$dest/zed.app/bin" "\$dest/zed.app/share/applications" \
+    "\$dest/zed.app/share/icons/hicolor/512x512/apps"
+  printf '#!/usr/bin/env bash\n' > "\$dest/zed.app/bin/zed"
+  chmod +x "\$dest/zed.app/bin/zed"
+  printf '[Desktop Entry]\nName=Zed\nExec=zed %%U\nIcon=zed\n' \
+    > "\$dest/zed.app/share/applications/dev.zed.Zed.desktop"
+  printf 'icon\n' > "\$dest/zed.app/share/icons/hicolor/512x512/apps/zed.png"
+fi
 exit 0
 MOCK
 cat > "$TMP/main-bin/makepkg" <<MOCK
@@ -192,8 +226,13 @@ case "\$url" in
   *.sig) exit 22 ;;
   *1password-*.tar.gz) printf 'reviewed bytes\n' > "\$out" ;;
   *obsidian-*.tar.gz) printf 'wrong bytes\n' > "\$out" ;;
+  *zed-linux-aarch64.tar.gz) printf 'reviewed zed bytes\n' > "\$out" ;;
   *) exit 22 ;;
 esac
+MOCK
+cat > "$TMP/main-bin/omazed" <<'MOCK'
+#!/usr/bin/env bash
+[[ ${1:-} == setup ]]
 MOCK
 chmod +x "$TMP/main-bin"/*
 
@@ -221,6 +260,20 @@ grep -q 'artifact SHA-256 mismatch' "$TMP/obsidian-digest.out"
 [[ $(cat "$TMP/sudo-calls") == '-n true' ]]
 
 : > "$TMP/sudo-calls"
+zed_fixture_digest=$(printf 'reviewed zed bytes\n' | shasum -a 256 | awk '{ print $1 }')
+sed "s/$zed_digest/$zed_fixture_digest/" "$ARTIFACT_LOCK" > "$TMP/zed-artifacts.tsv"
+CORE_SOURCE_LOCK="$CORE_LOCK" OPTIONAL_APP_ARTIFACT_LOCK="$TMP/zed-artifacts.tsv" \
+  FREE_APP_ARTIFACT_LOCK="$ROOT/checksums/free-app-artifacts.tsv" \
+  PATH="$TMP/main-bin:$PATH" HOME="$TMP/home" XDG_CACHE_HOME="$TMP/cache" OMARCHY_LANG=en \
+  bash "$EXTRAS" zed >"$TMP/zed.out" 2>&1
+test -x "$TMP/home/.local/zed.app/bin/zed"
+test -L "$TMP/home/.local/bin/zed"
+grep -Fq "Exec=$TMP/home/.local/zed.app/bin/zed" \
+  "$TMP/home/.local/share/applications/dev.zed.Zed.desktop"
+grep -q 'Zed installed from zed-linux-aarch64.tar.gz' "$TMP/zed.out"
+[[ $(cat "$TMP/sudo-calls") == '-n true' ]]
+
+: > "$TMP/sudo-calls"
 sed '/^google-chrome /d' "$CORE_LOCK" > "$TMP/wrong-core.tsv"
 if CORE_SOURCE_LOCK="$TMP/wrong-core.tsv" OPTIONAL_APP_ARTIFACT_LOCK="$ARTIFACT_LOCK" \
     FREE_APP_ARTIFACT_LOCK="$ROOT/checksums/free-app-artifacts.tsv" \
@@ -235,6 +288,7 @@ rg -q 'aur_build 1password-cli 1password-cli 1password-cli' "$EXTRAS"
 rg -q 'aur_build typora typora typora' "$EXTRAS"
 rg -q 'aur_build localsend-bin localsend-bin localsend-bin' "$EXTRAS"
 rg -q 'aur_build google-chrome google-chrome google-chrome' "$EXTRAS"
+rg -q 'aur_build omazed omazed omazed' "$EXTRAS"
 python3 "$ROOT/scripts/sync-payloads.py" --check >/dev/null
 
 echo "optional-app source pin tests: pass"

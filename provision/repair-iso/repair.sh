@@ -54,6 +54,8 @@ cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/free-app-artifacts.tsv" ] && cp "$PROV/free-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/optional-app-artifacts.tsv" ] && cp "$PROV/optional-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
+[ -f "$PROV/menu-compat.sh" ] && cp "$PROV/menu-compat.sh" /mnt/root/prov/omarchy-arm-menu-compat
+[ -f "$PROV/arm-menu.jsonc" ] && cp "$PROV/arm-menu.jsonc" /mnt/root/prov/omarchy-arm-menu.jsonc
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 [ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent

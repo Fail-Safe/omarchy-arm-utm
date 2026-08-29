@@ -331,7 +331,7 @@ sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-pkg-add <<'WRAP'
 # omarchy-nvim, ttfx...) and several proprietary apps only exist for x86_64.
 # The original aborts if any are missing, which crashes omarchy-update entirely and leaves
 # migrations incomplete. Here they are skipped with a warning and the rest are installed.
-REAL=/usr/share/omarchy/bin/omarchy-pkg-add
+REAL=${OMARCHY_ARM_REAL_PKG_ADD:-/usr/share/omarchy/bin/omarchy-pkg-add}
 avail=(); skip=()
 for p in "$@"; do
   if pacman -Q "$p" &>/dev/null || pacman -Si "$p" &>/dev/null; then
@@ -341,6 +341,10 @@ for p in "$@"; do
   fi
 done
 ((${#skip[@]})) && printf '\033[33mOmitido, no existe en Arch Linux ARM: %s\033[0m\n' "${skip[*]}" >&2
+if ((${#skip[@]})) && [[ ${OMARCHY_ARM_STRICT_PACKAGES:-0} == 1 ]]; then
+  printf '\033[31mARM install aborted before making changes: unavailable package(s): %s\033[0m\n' "${skip[*]}" >&2
+  exit 1
+fi
 ((${#avail[@]})) || exit 0
 exec "$REAL" "${avail[@]}"
 WRAP
@@ -643,11 +647,43 @@ mkdir -p ~/Pictures/Screenshots ~/Videos ~/Desktop ~/Documents ~/Downloads
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
   log "optional app installer (omarchy-arm-extras)" "instalador de apps opcionales (omarchy-arm-extras)"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-extras" /usr/local/bin/omarchy-arm-extras
+  if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu-compat" ]; then
+    sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-menu-compat" /usr/local/lib/omarchy-arm/menu-compat
+    for command in \
+      omarchy-arm-menu-compat omarchy-arm-show-failed \
+      omarchy-launch-floating-terminal-with-presentation omarchy-channel-set \
+      omarchy-install-browser omarchy-install-service-1password omarchy-install-service-spotify \
+      omarchy-install-service-dropbox omarchy-install-service-nordvpn omarchy-install-service-once \
+      omarchy-install-editor-zed omarchy-install-editor-vscode omarchy-install-editor-emacs \
+      omarchy-install-terminal omarchy-install-and-launch omarchy-install-app \
+      omarchy-install-ai-chatgpt omarchy-voxtype-install omarchy-install-preinstalls \
+      omarchy-install-gaming-steam omarchy-install-gaming-retroarch \
+      omarchy-install-gaming-geforce-now omarchy-install-gaming-xbox-controllers \
+      omarchy-install-gaming-battlenet omarchy-install-gaming-lutris \
+      omarchy-install-gaming-heroic omarchy-games-retro-install; do
+      sudo ln -sfn /usr/local/lib/omarchy-arm/menu-compat "/usr/local/bin/$command"
+    done
+  else
+    warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+  fi
+  if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" ]; then
+    sudo install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" /usr/share/omarchy-arm/omarchy-menu.jsonc
+    ARM_MENU_TARGET="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+    if [ ! -e "$ARM_MENU_TARGET" ] \
+        || grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$ARM_MENU_TARGET" 2>/dev/null \
+        || ! grep -Eq '^[[:space:]]*"[^"]+"[[:space:]]*:' "$ARM_MENU_TARGET" 2>/dev/null; then
+      install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" "$ARM_MENU_TARGET"
+    else
+      warn "Existing custom Omarchy menu extension preserved; unsupported ARM actions remain blocked when invoked" "Se conservo la extension personalizada del menu de Omarchy; las acciones ARM no compatibles siguen bloqueadas al invocarlas"
+    fi
+  else
+    warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+  fi
   EXTRAS_DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
 [Desktop Entry]
 Name=$EXTRAS_DESKTOP_NAME
-Comment=1Password, Obsidian, Typora, LocalSend, Google Chrome
+Comment=1Password, Obsidian, Typora, LocalSend, Google Chrome, Zed
 Exec=xdg-terminal-exec omarchy-arm-extras
 Icon=system-software-install
 Terminal=false

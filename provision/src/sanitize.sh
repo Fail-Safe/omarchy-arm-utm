@@ -267,6 +267,39 @@ if [ -n "$EXTRAS_SRC" ]; then
     install -Dm644 "/root/prov/$lock" "/usr/share/omarchy-arm/$lock"
   done
   install -Dm755 "$EXTRAS_SRC" /usr/local/bin/omarchy-arm-extras
+  if [ -f /root/prov/omarchy-arm-menu-compat ]; then
+    install -Dm755 /root/prov/omarchy-arm-menu-compat /usr/local/lib/omarchy-arm/menu-compat
+    for command in \
+      omarchy-arm-menu-compat omarchy-arm-show-failed \
+      omarchy-launch-floating-terminal-with-presentation omarchy-channel-set \
+      omarchy-install-browser omarchy-install-service-1password omarchy-install-service-spotify \
+      omarchy-install-service-dropbox omarchy-install-service-nordvpn omarchy-install-service-once \
+      omarchy-install-editor-zed omarchy-install-editor-vscode omarchy-install-editor-emacs \
+      omarchy-install-terminal omarchy-install-and-launch omarchy-install-app \
+      omarchy-install-ai-chatgpt omarchy-voxtype-install omarchy-install-preinstalls \
+      omarchy-install-gaming-steam omarchy-install-gaming-retroarch \
+      omarchy-install-gaming-geforce-now omarchy-install-gaming-xbox-controllers \
+      omarchy-install-gaming-battlenet omarchy-install-gaming-lutris \
+      omarchy-install-gaming-heroic omarchy-games-retro-install; do
+      ln -sfn /usr/local/lib/omarchy-arm/menu-compat "/usr/local/bin/$command"
+    done
+  else
+    warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+  fi
+  if [ -f /root/prov/omarchy-arm-menu.jsonc ]; then
+    install -Dm644 /root/prov/omarchy-arm-menu.jsonc /usr/share/omarchy-arm/omarchy-menu.jsonc
+    ARM_MENU_TARGET="/home/$NEW/.config/omarchy/extensions/omarchy-menu.jsonc"
+    if [ ! -e "$ARM_MENU_TARGET" ] \
+        || grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$ARM_MENU_TARGET" 2>/dev/null \
+        || ! grep -Eq '^[[:space:]]*"[^"]+"[[:space:]]*:' "$ARM_MENU_TARGET" 2>/dev/null; then
+      install -Dm644 /root/prov/omarchy-arm-menu.jsonc "$ARM_MENU_TARGET"
+      chown "$NEW:$NEW" "$ARM_MENU_TARGET"
+    else
+      warn "Existing custom Omarchy menu extension preserved; unsupported ARM actions remain blocked when invoked" "Se conservo la extension personalizada del menu de Omarchy; las acciones ARM no compatibles siguen bloqueadas al invocarlas"
+    fi
+  else
+    warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+  fi
   DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
 [Desktop Entry]

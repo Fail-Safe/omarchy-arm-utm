@@ -1,3 +1,4 @@
 # key  exact-url  sha256  required-signing-fingerprint
 1password-package https://downloads.1password.com/linux/tar/stable/aarch64/1password-8.12.34.arm64.tar.gz ea5102363d6cf3442b96a7abd6743da8c1d261f56a628e1a3c183d84fa65fdcb 3FEF9748469ADBE15DA7CA80AC2D62742012EA22
 obsidian-package https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/obsidian-1.13.7-arm64.tar.gz 98aac34d1f132a35cf506fc3fa196d595dcdeefdebd44b0cc5faaa7a1a210de2 -
+zed-package https://github.com/zed-industries/zed/releases/download/v1.17.2/zed-linux-aarch64.tar.gz 4f75332ab8155a5a62b0cdc473473cf8938959cf3cd2b0145e2975969d7e8929 -

@@ -376,6 +376,7 @@ cliamp https://aur.archlinux.org/cliamp.git HEAD 76b9ce02837a49de0fa50cfa3da5d1c
 typora https://aur.archlinux.org/typora.git HEAD 029ff738d5928db82edfa34fc365fcb6743a74e5
 localsend-bin https://aur.archlinux.org/localsend-bin.git HEAD a408db7b17712e0d56c49ca3feb5546808a3220c
 google-chrome https://aur.archlinux.org/google-chrome.git HEAD 1cf56b57305f59919b74a559906d60002edd95a3
+omazed https://aur.archlinux.org/omazed.git HEAD 8ca767b734d455000b37919c2aa71038b9a04290
 dotnet-runtime-bin https://aur.archlinux.org/dotnet-core-bin.git HEAD 2c499d7ce634efb8e93eee4c4239490b02e98e09
 obs-studio-pkgbuild https://gitlab.archlinux.org/archlinux/packaging/packages/obs-studio.git HEAD 8a0774a179eba2c08b7fff44252098d609c9c6d5
 obs-studio-source https://github.com/obsproject/obs-studio.git refs/tags/32.2.2^{} ba2f32bdf791005443988a4955e963663e16b1ed
@@ -399,6 +400,7 @@ write_optional_app_artifact_lock() {
 # key  exact-url  sha256  required-signing-fingerprint
 1password-package https://downloads.1password.com/linux/tar/stable/aarch64/1password-8.12.34.arm64.tar.gz ea5102363d6cf3442b96a7abd6743da8c1d261f56a628e1a3c183d84fa65fdcb 3FEF9748469ADBE15DA7CA80AC2D62742012EA22
 obsidian-package https://github.com/obsidianmd/obsidian-releases/releases/download/v1.13.7/obsidian-1.13.7-arm64.tar.gz 98aac34d1f132a35cf506fc3fa196d595dcdeefdebd44b0cc5faaa7a1a210de2 -
+zed-package https://github.com/zed-industries/zed/releases/download/v1.17.2/zed-linux-aarch64.tar.gz 4f75332ab8155a5a62b0cdc473473cf8938959cf3cd2b0145e2975969d7e8929 -
 __PAYLOAD_OPTIONAL_APP_ARTIFACTS_TSV__
 }
 
@@ -444,7 +446,7 @@ validate_optional_app_artifact_lock() {
   while IFS= read -r line || [[ -n $line ]]; do
     [[ -z $line || $line == \#* ]] && continue
     read -r key url digest signer extra <<< "$line"
-    [[ -z ${extra:-} && $key =~ ^(1password-package|obsidian-package)$ \
+    [[ -z ${extra:-} && $key =~ ^(1password-package|obsidian-package|zed-package)$ \
         && $url == https://* && $digest =~ ^[0-9a-f]{64}$ \
         && $signer =~ ^(-|[0-9A-F]{40})$ ]] \
       || die "invalid optional-app artifact-lock record: $line" "registro invalido en el bloqueo de artefactos opcionales: $line"
@@ -1121,6 +1123,8 @@ cp "$PROV/stage2.sh" "$PROV/stage3.sh" "$PROV/config.env" "$PROV/core-git-source
    "$PROV/alarm-repository-snapshot.py" "$PROV/packages-core.txt" "$PROV/packages-extra.txt" /mnt/root/prov/
 cp -R "$PROV/alarm-repositories" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
+[ -f "$PROV/menu-compat.sh" ] && cp "$PROV/menu-compat.sh" /mnt/root/prov/omarchy-arm-menu-compat
+[ -f "$PROV/arm-menu.jsonc" ] && cp "$PROV/arm-menu.jsonc" /mnt/root/prov/omarchy-arm-menu.jsonc
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 [ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent
@@ -1492,7 +1496,7 @@ install -d -o "$VM_USER" -g "$VM_USER" "/home/$VM_USER"
 # /root/prov returns false without error. A readable copy is left in their home.
 PROVDIR="/home/$VM_USER/.omarchy-arm-prov"
 mkdir -p "$PROVDIR"
-for f in omarchy-arm-extras 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
+for f in omarchy-arm-extras omarchy-arm-menu-compat omarchy-arm-menu.jsonc 10-arm-sync omarchy-arm-clipboard omarchy-arm-vdagent omarchy-arm-share; do
   [ -f "/root/prov/$f" ] && install -m 0644 "/root/prov/$f" "$PROVDIR/$f"
 done
 cp /root/prov/stage3.sh /root/prov/config.env "/home/$VM_USER/"
@@ -1927,7 +1931,7 @@ sudo install -Dm755 /dev/stdin /usr/local/bin/omarchy-pkg-add <<'WRAP'
 # omarchy-nvim, ttfx...) and several proprietary apps only exist for x86_64.
 # The original aborts if any are missing, which crashes omarchy-update entirely and leaves
 # migrations incomplete. Here they are skipped with a warning and the rest are installed.
-REAL=/usr/share/omarchy/bin/omarchy-pkg-add
+REAL=${OMARCHY_ARM_REAL_PKG_ADD:-/usr/share/omarchy/bin/omarchy-pkg-add}
 avail=(); skip=()
 for p in "$@"; do
   if pacman -Q "$p" &>/dev/null || pacman -Si "$p" &>/dev/null; then
@@ -1937,6 +1941,10 @@ for p in "$@"; do
   fi
 done
 ((${#skip[@]})) && printf '\033[33mOmitido, no existe en Arch Linux ARM: %s\033[0m\n' "${skip[*]}" >&2
+if ((${#skip[@]})) && [[ ${OMARCHY_ARM_STRICT_PACKAGES:-0} == 1 ]]; then
+  printf '\033[31mARM install aborted before making changes: unavailable package(s): %s\033[0m\n' "${skip[*]}" >&2
+  exit 1
+fi
 ((${#avail[@]})) || exit 0
 exec "$REAL" "${avail[@]}"
 WRAP
@@ -2239,11 +2247,43 @@ mkdir -p ~/Pictures/Screenshots ~/Videos ~/Desktop ~/Documents ~/Downloads
 if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
   log "optional app installer (omarchy-arm-extras)" "instalador de apps opcionales (omarchy-arm-extras)"
   sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-extras" /usr/local/bin/omarchy-arm-extras
+  if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu-compat" ]; then
+    sudo install -Dm755 "$HOME/.omarchy-arm-prov/omarchy-arm-menu-compat" /usr/local/lib/omarchy-arm/menu-compat
+    for command in \
+      omarchy-arm-menu-compat omarchy-arm-show-failed \
+      omarchy-launch-floating-terminal-with-presentation omarchy-channel-set \
+      omarchy-install-browser omarchy-install-service-1password omarchy-install-service-spotify \
+      omarchy-install-service-dropbox omarchy-install-service-nordvpn omarchy-install-service-once \
+      omarchy-install-editor-zed omarchy-install-editor-vscode omarchy-install-editor-emacs \
+      omarchy-install-terminal omarchy-install-and-launch omarchy-install-app \
+      omarchy-install-ai-chatgpt omarchy-voxtype-install omarchy-install-preinstalls \
+      omarchy-install-gaming-steam omarchy-install-gaming-retroarch \
+      omarchy-install-gaming-geforce-now omarchy-install-gaming-xbox-controllers \
+      omarchy-install-gaming-battlenet omarchy-install-gaming-lutris \
+      omarchy-install-gaming-heroic omarchy-games-retro-install; do
+      sudo ln -sfn /usr/local/lib/omarchy-arm/menu-compat "/usr/local/bin/$command"
+    done
+  else
+    warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+  fi
+  if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" ]; then
+    sudo install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" /usr/share/omarchy-arm/omarchy-menu.jsonc
+    ARM_MENU_TARGET="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
+    if [ ! -e "$ARM_MENU_TARGET" ] \
+        || grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$ARM_MENU_TARGET" 2>/dev/null \
+        || ! grep -Eq '^[[:space:]]*"[^"]+"[[:space:]]*:' "$ARM_MENU_TARGET" 2>/dev/null; then
+      install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" "$ARM_MENU_TARGET"
+    else
+      warn "Existing custom Omarchy menu extension preserved; unsupported ARM actions remain blocked when invoked" "Se conservo la extension personalizada del menu de Omarchy; las acciones ARM no compatibles siguen bloqueadas al invocarlas"
+    fi
+  else
+    warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+  fi
   EXTRAS_DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
 [Desktop Entry]
 Name=$EXTRAS_DESKTOP_NAME
-Comment=1Password, Obsidian, Typora, LocalSend, Google Chrome
+Comment=1Password, Obsidian, Typora, LocalSend, Google Chrome, Zed
 Exec=xdg-terminal-exec omarchy-arm-extras
 Icon=system-software-install
 Terminal=false
@@ -2436,6 +2476,8 @@ cp "$PROV/$FIXSCRIPT" /mnt/root/prov/
 [ -f "$PROV/free-app-artifacts.tsv" ] && cp "$PROV/free-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/optional-app-artifacts.tsv" ] && cp "$PROV/optional-app-artifacts.tsv" /mnt/root/prov/
 [ -f "$PROV/extras.sh" ] && cp "$PROV/extras.sh" /mnt/root/prov/omarchy-arm-extras
+[ -f "$PROV/menu-compat.sh" ] && cp "$PROV/menu-compat.sh" /mnt/root/prov/omarchy-arm-menu-compat
+[ -f "$PROV/arm-menu.jsonc" ] && cp "$PROV/arm-menu.jsonc" /mnt/root/prov/omarchy-arm-menu.jsonc
 [ -f "$PROV/armsync.sh" ] && cp "$PROV/armsync.sh" /mnt/root/prov/10-arm-sync
 [ -f "$PROV/clipbrd.sh" ] && cp "$PROV/clipbrd.sh" /mnt/root/prov/omarchy-arm-clipboard
 [ -f "$PROV/vdagent.py" ] && cp "$PROV/vdagent.py" /mnt/root/prov/omarchy-arm-vdagent
@@ -2739,6 +2781,39 @@ if [ -n "$EXTRAS_SRC" ]; then
     install -Dm644 "/root/prov/$lock" "/usr/share/omarchy-arm/$lock"
   done
   install -Dm755 "$EXTRAS_SRC" /usr/local/bin/omarchy-arm-extras
+  if [ -f /root/prov/omarchy-arm-menu-compat ]; then
+    install -Dm755 /root/prov/omarchy-arm-menu-compat /usr/local/lib/omarchy-arm/menu-compat
+    for command in \
+      omarchy-arm-menu-compat omarchy-arm-show-failed \
+      omarchy-launch-floating-terminal-with-presentation omarchy-channel-set \
+      omarchy-install-browser omarchy-install-service-1password omarchy-install-service-spotify \
+      omarchy-install-service-dropbox omarchy-install-service-nordvpn omarchy-install-service-once \
+      omarchy-install-editor-zed omarchy-install-editor-vscode omarchy-install-editor-emacs \
+      omarchy-install-terminal omarchy-install-and-launch omarchy-install-app \
+      omarchy-install-ai-chatgpt omarchy-voxtype-install omarchy-install-preinstalls \
+      omarchy-install-gaming-steam omarchy-install-gaming-retroarch \
+      omarchy-install-gaming-geforce-now omarchy-install-gaming-xbox-controllers \
+      omarchy-install-gaming-battlenet omarchy-install-gaming-lutris \
+      omarchy-install-gaming-heroic omarchy-games-retro-install; do
+      ln -sfn /usr/local/lib/omarchy-arm/menu-compat "/usr/local/bin/$command"
+    done
+  else
+    warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+  fi
+  if [ -f /root/prov/omarchy-arm-menu.jsonc ]; then
+    install -Dm644 /root/prov/omarchy-arm-menu.jsonc /usr/share/omarchy-arm/omarchy-menu.jsonc
+    ARM_MENU_TARGET="/home/$NEW/.config/omarchy/extensions/omarchy-menu.jsonc"
+    if [ ! -e "$ARM_MENU_TARGET" ] \
+        || grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$ARM_MENU_TARGET" 2>/dev/null \
+        || ! grep -Eq '^[[:space:]]*"[^"]+"[[:space:]]*:' "$ARM_MENU_TARGET" 2>/dev/null; then
+      install -Dm644 /root/prov/omarchy-arm-menu.jsonc "$ARM_MENU_TARGET"
+      chown "$NEW:$NEW" "$ARM_MENU_TARGET"
+    else
+      warn "Existing custom Omarchy menu extension preserved; unsupported ARM actions remain blocked when invoked" "Se conservo la extension personalizada del menu de Omarchy; las acciones ARM no compatibles siguen bloqueadas al invocarlas"
+    fi
+  else
+    warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+  fi
   DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
 [Desktop Entry]
@@ -3061,6 +3136,7 @@ CATALOG=(
   "typora|Typora|WYSIWYG Markdown editor. Official arm64 package through AUR|Editor markdown WYSIWYG. Paquete arm64 oficial via AUR"
   "localsend|LocalSend|Send files between devices. Official arm64 build|Enviar ficheros entre dispositivos. Build arm64 oficial"
   "chrome|Google Chrome|Includes Widevine for arm64: enables Spotify and Netflix web|Trae Widevine para arm64: habilita Spotify y Netflix web"
+  "zed|Zed Editor|Official Linux arm64 release with Omarchy theme integration|Build oficial Linux arm64 con integracion del tema de Omarchy"
   "spotify-web|Spotify (web app)|open.spotify.com launcher + reassigns SUPER+SHIFT+M|Lanzador de open.spotify.com + reasigna SUPER+SHIFT+M"
   "pinta|Pinta|Image editor. Built with Microsoft's arm64 .NET|Editor de imagenes. Compilado con el .NET arm64 de Microsoft"
   "obs|OBS Studio|Recording and streaming. Built without the browser plugin|Captura y streaming. Compilado sin el plugin de navegador"
@@ -3109,6 +3185,9 @@ require_optional_artifact() {
           && $signer == 3FEF9748469ADBE15DA7CA80AC2D62742012EA22 ]] ;;
     obsidian-package)
       [[ $url =~ ^https://github.com/obsidianmd/obsidian-releases/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/obsidian-[0-9]+\.[0-9]+\.[0-9]+-arm64\.tar\.gz$ \
+          && $signer == - ]] ;;
+    zed-package)
+      [[ $url =~ ^https://github.com/zed-industries/zed/releases/download/v[0-9]+\.[0-9]+\.[0-9]+/zed-linux-aarch64\.tar\.gz$ \
           && $signer == - ]] ;;
     *) return 1 ;;
   esac \
@@ -3164,6 +3243,10 @@ validate_optional_app_locks() {
         require_source_pin localsend-bin https://aur.archlinux.org/localsend-bin.git || return 1 ;;
       chrome)
         require_source_pin google-chrome https://aur.archlinux.org/google-chrome.git || return 1 ;;
+      zed)
+        [[ -r $OPTIONAL_APP_ARTIFACT_LOCK ]] || { fail "missing reviewed optional-app artifact lock" "falta el bloqueo revisado de artefactos opcionales"; return 1; }
+        require_optional_artifact zed-package || return 1
+        require_source_pin omazed https://aur.archlinux.org/omazed.git || return 1 ;;
     esac
   done
 }
@@ -3233,6 +3316,7 @@ is_installed() {
     typora)        pacman -Q typora           >/dev/null 2>&1 ;;
     localsend)     pacman -Q localsend-bin    >/dev/null 2>&1 ;;
     chrome)        pacman -Q google-chrome    >/dev/null 2>&1 || have google-chrome-stable ;;
+    zed)           [ -x "$HOME/.local/zed.app/bin/zed" ] ;;
     spotify-web)   grep -q "open.spotify.com" "$HOME/.config/hypr/bindings.lua" 2>/dev/null ;;
     pinta)         pacman -Q pinta            >/dev/null 2>&1 ;;
     obs)           pacman -Q obs-studio       >/dev/null 2>&1 ;;
@@ -3368,6 +3452,49 @@ do_chrome() {
   info "${c_dim}Check DRM at chrome://components → 'Widevine Content Decryption Module'${c_off}" "${c_dim}Comprueba el DRM en chrome://components → 'Widevine Content Decryption Module'${c_off}"
 }
 
+do_zed() {
+  title "Zed Editor"
+  info "Installing Zed's official Linux arm64 release." "Instalando el build oficial Linux arm64 de Zed."
+  local key url digest signer dir archive src desktop_source desktop_target candidate
+  read -r key url digest signer <<< "$(optional_artifact_lock_record zed-package)"
+  dir="$WORK/zed"
+  archive="$dir/zed-linux-aarch64.tar.gz"
+  rm -rf "$dir"; mkdir -p "$dir/unpack"
+  curl -fL --progress-bar "$url" -o "$archive" || { fail "download failed" "descarga fallida"; return 1; }
+  verify_reviewed_sha256 "$archive" "$digest" || return 1
+  tar -xzf "$archive" -C "$dir/unpack" || { fail "could not extract the archive" "no se pudo extraer"; return 1; }
+  src="$dir/unpack/zed.app"
+  [[ -x $src/bin/zed ]] || { fail "the tarball has an unexpected layout" "el tarball no tiene la forma esperada"; return 1; }
+
+  mkdir -p "$HOME/.local/bin" "$HOME/.local/share/applications"
+  rm -rf "$HOME/.local/zed.app"
+  cp -a "$src" "$HOME/.local/zed.app"
+  ln -sfn "$HOME/.local/zed.app/bin/zed" "$HOME/.local/bin/zed"
+  ln -sfn "$HOME/.local/zed.app/bin/zed" "$HOME/.local/bin/zeditor"
+
+  desktop_source=""
+  for candidate in dev.zed.Zed.desktop zed.desktop; do
+    [[ -f $HOME/.local/zed.app/share/applications/$candidate ]] || continue
+    desktop_source="$HOME/.local/zed.app/share/applications/$candidate"
+    break
+  done
+  [[ -n $desktop_source ]] || { fail "the Zed desktop entry is missing" "falta la entrada de escritorio de Zed"; return 1; }
+  desktop_target="$HOME/.local/share/applications/dev.zed.Zed.desktop"
+  sed \
+    -e "s|Icon=zed|Icon=$HOME/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png|g" \
+    -e "s|Exec=zed|Exec=$HOME/.local/zed.app/bin/zed|g" \
+    "$desktop_source" >"$desktop_target" \
+    || { fail "could not install the Zed desktop entry" "no se pudo instalar la entrada de escritorio de Zed"; return 1; }
+  chmod 644 "$desktop_target"
+
+  if aur_build omazed omazed omazed; then
+    omazed setup || warn "Zed installed, but Omarchy theme setup reported an error" "Zed se instalo, pero fallo la configuracion del tema de Omarchy"
+  else
+    warn "Zed installed, but the optional Omarchy theme helper failed" "Zed se instalo, pero fallo el ayudante opcional del tema de Omarchy"
+  fi
+  ok "Zed installed from $(basename "$url")" "Zed instalado desde $(basename "$url")"
+}
+
 do_spotify_web() {
   title "Spotify (webapp)"
   # Omarchy treats Spotify as a native package, not as a webapp — and that package is
@@ -3483,6 +3610,7 @@ run_item() {
     typora)        do_typora ;;
     localsend)     do_localsend ;;
     chrome)        do_chrome ;;
+    zed)           do_zed ;;
     spotify-web)   do_spotify_web ;;
     pinta)         do_pinta ;;
     obs)           do_obs ;;
@@ -3540,7 +3668,7 @@ for k in "${SELECTED[@]}"; do
   case "$k" in
     pinta|obs)
       if [ "$FORCE" = 1 ] || ! is_installed "$k"; then LOCKED_SELECTED+=("$k"); fi ;;
-    1password|1password-cli|obsidian|typora|localsend|chrome)
+    1password|1password-cli|obsidian|typora|localsend|chrome|zed)
       if [ "$FORCE" = 1 ] || ! is_installed "$k"; then OPTIONAL_LOCKED_SELECTED+=("$k"); fi ;;
     spotify-web) ;;
     *) fail "unknown key '$k'" "no conozco '$k'"; exit 1 ;;
@@ -3576,6 +3704,225 @@ echo
 __PAYLOAD_PROVISION_EXTRAS_SH__
 chmod +x "$W/provision/extras.sh"
 
+cat > "$W/provision/menu-compat.sh" <<'__PAYLOAD_PROVISION_MENU_COMPAT_SH__'
+#!/bin/bash
+# ARM compatibility dispatcher for Omarchy menu and CLI actions.
+set -uo pipefail
+
+REAL=${OMARCHY_ARM_REAL_BIN:-/usr/share/omarchy/bin}
+SELF=$(basename "$0")
+
+ui_text() {
+  if [[ ${OMARCHY_LANG:-en} == es ]]; then printf '%s' "${2:-$1}"; else printf '%s' "$1"; fi
+}
+
+unsupported() {
+  local name="$1"
+  printf '\n\033[31m%s\033[0m\n' "$(ui_text "$name is not supported by this ARM image." "$name no es compatible con esta imagen ARM.")" >&2
+  printf '%s\n' "$(ui_text 'The menu hides this entry because its current Linux distribution is x86-only or has not passed the ARM review and launch tests.' 'El menu oculta esta entrada porque su distribucion Linux actual solo sirve para x86 o aun no ha pasado la revision y las pruebas de arranque en ARM.')" >&2
+  return 1
+}
+
+run_real() {
+  local command="$1"
+  shift
+  exec "$REAL/$command" "$@"
+}
+
+case "$SELF" in
+  omarchy-arm-menu-compat)
+    echo "This program is invoked through the Omarchy ARM compatibility links in /usr/local/bin."
+    ;;
+
+  omarchy-arm-show-failed)
+    status=${1:-1}
+    : 2>/dev/null <>/dev/tty || exit "$status"
+    while read -rsn 1 -t 0.1 _ </dev/tty; do :; done
+    printf '\n\033[31m● \033[0mInstallation failed (status %s). Press any key to close...' "$status" >/dev/tty
+    read -rsn 1 </dev/tty
+    echo >/dev/tty
+    exit "$status"
+    ;;
+
+  omarchy-launch-floating-terminal-with-presentation)
+    # Keep upstream's presentation, but show Done only for actual success. Menu
+    # installers also opt into strict ARM package resolution so a missing app
+    # cannot be skipped while its dependencies are partially installed.
+    # shellcheck disable=SC1091
+    source omarchy-restart-gum
+    cmd="$*"
+    strict=""
+    case "$cmd" in
+      omarchy-install-*|omarchy-voxtype-install*|omarchy-games-retro-install*|omarchy-default-*\ --install*)
+        strict='export OMARCHY_ARM_STRICT_PACKAGES=1; ' ;;
+    esac
+    presentation_script="omarchy-show-logo; ${strict}${cmd}; status=\$?; if (( status == 0 )); then omarchy-show-done; elif (( status != 130 )); then omarchy-arm-show-failed \"\$status\"; fi; exit \$status"
+    exec setsid uwsm-app -- xdg-terminal-exec --app-id=org.omarchy.terminal --title=Omarchy -e bash -c "$presentation_script"
+    ;;
+
+  omarchy-channel-set)
+    printf '%s\n' "$(ui_text 'Omarchy package channels are x86_64-only and cannot be selected on this ARM image.' 'Los canales de paquetes de Omarchy solo sirven para x86_64 y no se pueden seleccionar en esta imagen ARM.')" >&2
+    printf '%s\n' "$(ui_text 'Use Update > Omarchy; the ARM post-update hook tracks the reviewed upstream Git branch without replacing the Arch Linux ARM repositories.' 'Usa Actualizar > Omarchy; el hook ARM sigue la rama Git revisada sin sustituir los repositorios de Arch Linux ARM.')" >&2
+    exit 1
+    ;;
+
+  omarchy-install-browser)
+    case "${1:-}" in
+      chrome) exec omarchy-arm-extras chrome ;;
+      chromium|firefox) run_real "$SELF" "$@" ;;
+      edge) unsupported "Microsoft Edge" ;;
+      brave) unsupported "Brave" ;;
+      brave-origin) unsupported "Brave Origin" ;;
+      zen) unsupported "Zen Browser" ;;
+      *) echo "Usage: omarchy-install-browser <chromium|chrome|firefox>" >&2; exit 1 ;;
+    esac
+    ;;
+
+  omarchy-install-service-1password)
+    if ! omarchy-arm-extras 1password 1password-cli; then exit 1; fi
+    extension_id=aeblfdkhhhdcdjpifhhbdiojplfjncoa
+    extension_dir=/usr/share/chromium/extensions
+    if command -v chromium >/dev/null 2>&1; then
+      sudo mkdir -p "$extension_dir" || exit 1
+      printf '{ "external_update_url": "%s" }\n' 'https://clients2.google.com/service/update2/crx' \
+        | sudo tee "$extension_dir/$extension_id.json" >/dev/null || exit 1
+      sudo chmod 644 "$extension_dir/$extension_id.json" || exit 1
+    fi
+    command -v uwsm-app >/dev/null 2>&1 && command -v 1password >/dev/null 2>&1 \
+      && uwsm-app -- 1password >/dev/null 2>&1 &
+    ;;
+
+  omarchy-install-service-spotify)
+    exec omarchy-arm-extras spotify-web
+    ;;
+
+  omarchy-install-editor-zed)
+    omarchy-arm-extras zed || exit 1
+    command -v uwsm-app >/dev/null 2>&1 \
+      && setsid uwsm-app -- gtk-launch dev.zed.Zed >/dev/null 2>&1 &
+    ;;
+
+  omarchy-install-terminal)
+    [[ ${1:-} == ghostty ]] && { unsupported "Ghostty"; exit 1; }
+    run_real "$SELF" "$@"
+    ;;
+
+  omarchy-install-and-launch)
+    packages=${2:-}
+    case "$packages" in
+      'bitwarden bitwarden-cli') unsupported "Bitwarden" ;;
+      cursor-bin) unsupported "Cursor" ;;
+      sublime-text-4) unsupported "Sublime Text" ;;
+      grok-bot) unsupported "Grok Bot" ;;
+      t3code-bin) unsupported "T3 Code" ;;
+      minecraft-launcher) unsupported "Minecraft" ;;
+      *) run_real "$SELF" "$@" ;;
+    esac
+    ;;
+
+  omarchy-install-app)
+    packages=${2:-}
+    case "$packages" in
+      lmstudio-bin) unsupported "LM Studio" ;;
+      ollama|ollama-cuda|ollama-rocm) unsupported "Ollama" ;;
+      *) run_real "$SELF" "$@" ;;
+    esac
+    ;;
+
+  omarchy-install-service-dropbox) unsupported "Dropbox" ;;
+  omarchy-install-service-nordvpn) unsupported "NordVPN" ;;
+  omarchy-install-service-once) unsupported "ONCE" ;;
+  omarchy-install-editor-vscode) unsupported "Visual Studio Code" ;;
+  omarchy-install-editor-emacs) unsupported "Omarchy Emacs" ;;
+  omarchy-install-ai-chatgpt) unsupported "ChatGPT Desktop" ;;
+  omarchy-voxtype-install) unsupported "Voxtype" ;;
+  omarchy-install-preinstalls) unsupported "Restore Preinstalls" ;;
+  omarchy-install-gaming-steam) unsupported "Steam" ;;
+  omarchy-install-gaming-retroarch) unsupported "RetroArch full-core setup" ;;
+  omarchy-install-gaming-geforce-now) unsupported "GeForce NOW" ;;
+  omarchy-install-gaming-xbox-controllers) unsupported "Xbox controller DKMS driver" ;;
+  omarchy-install-gaming-battlenet) unsupported "Battle.net" ;;
+  omarchy-install-gaming-lutris) unsupported "Lutris Windows-game stack" ;;
+  omarchy-install-gaming-heroic) unsupported "Heroic Games Launcher" ;;
+  omarchy-games-retro-install) unsupported "RetroArch Game Launcher" ;;
+
+  *)
+    echo "Unknown Omarchy ARM compatibility entry point: $SELF" >&2
+    exit 127
+    ;;
+esac
+__PAYLOAD_PROVISION_MENU_COMPAT_SH__
+chmod +x "$W/provision/menu-compat.sh"
+
+cat > "$W/provision/arm-menu.jsonc" <<'__PAYLOAD_PROVISION_ARM_MENU_JSONC__'
+{
+  // OMARCHY_ARM_MANAGED_MENU_V1
+  // This overlay keeps the upstream checkout clean while ensuring every visible
+  // Install action has an audited ARM path. Hidden entries remain callable only
+  // through explicit CLI commands, which return an ARM-specific failure.
+
+  "update.channel": {"when":"false"},
+  "update.channel.stable": {"when":"false"},
+  "update.channel.rc": {"when":"false"},
+  "update.channel.edge": {"when":"false"},
+  "update.channel.dev": {"when":"false"},
+
+  "install.windows": {"when":"false"},
+  "install.preinstalls": {"when":"false"},
+
+  "install.browser.chrome": {"disabled":"command -v google-chrome-stable >/dev/null"},
+  "install.browser.edge": {"when":"false"},
+  "install.browser.brave": {"when":"false"},
+  "install.browser.brave-origin": {"when":"false"},
+  "install.browser.zen": {"when":"false"},
+
+  "setup.default.browser.edge": {"when":"false"},
+  "setup.default.browser.brave": {"when":"false"},
+  "setup.default.browser.brave-origin": {"when":"false"},
+  "setup.default.browser.zen": {"when":"false"},
+
+  "install.service.1password": {"disabled":"command -v 1password >/dev/null"},
+  "install.service.spotify": {"label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]"},
+  "install.service.dropbox": {"when":"false"},
+  "install.service.nordvpn": {"when":"false"},
+  "install.service.once": {"when":"false"},
+  "install.service.bitwarden": {"when":"false"},
+
+  "install.editor.zed": {"disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]"},
+  "install.editor.vscode": {"when":"false"},
+  "install.editor.cursor": {"when":"false"},
+  "install.editor.sublime": {"when":"false"},
+  "install.editor.emacs": {"when":"false"},
+
+  "setup.default.editor.vscode": {"when":"false"},
+  "setup.default.editor.cursor": {"when":"false"},
+  "setup.default.editor.sublime": {"when":"false"},
+  "setup.default.editor.emacs": {"when":"false"},
+
+  "install.terminal.ghostty": {"when":"false"},
+  "setup.default.terminal.ghostty": {"when":"false"},
+
+  "install.ai.chatgpt": {"when":"false"},
+  "install.ai.dictation": {"when":"false"},
+  "install.ai.grok-bot": {"when":"false"},
+  "install.ai.lm-studio": {"when":"false"},
+  "install.ai.ollama": {"when":"false"},
+  "install.ai.t3-code": {"when":"false"},
+
+  "install.gaming.steam": {"when":"false"},
+  "install.gaming.retroarch": {"when":"false"},
+  "install.gaming.minecraft": {"when":"false"},
+  "install.gaming.geforce-now": {"when":"false"},
+  "install.gaming.xbox-controllers": {"when":"false"},
+  "install.gaming.battlenet": {"when":"false"},
+  "install.gaming.lutris": {"when":"false"},
+  "install.gaming.heroic": {"when":"false"},
+  "install.gaming.retro-launcher": {"when":"false"},
+
+  "install.development.php.symfony": {"when":"false"}
+}
+__PAYLOAD_PROVISION_ARM_MENU_JSONC__
+
 mkdir -p "$W/provision"
 cat > "$W/provision/armsync.sh" <<'__PAYLOAD_PROVISION_ARMSYNC_SH__'
 #!/bin/bash
@@ -3607,6 +3954,10 @@ if ! "${GIT[@]}" pull --ff-only 2>&1 | sed 's/^/  /'; then
   exit 0
 fi
 after=$("${GIT[@]}" rev-parse --short HEAD 2>/dev/null)
+if [ -r /usr/share/omarchy-arm/omarchy-menu.jsonc ] \
+    && ! grep -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" 2>/dev/null; then
+  printf '\033[31m  %s\033[0m\n' "$(ui_text 'ARM menu safety overlay is missing; restore it before using new Install or Channel entries.' 'Falta el overlay de seguridad del menu ARM; restauralo antes de usar entradas nuevas de Instalar o Canal.')" >&2
+fi
 if [ "$before" = "$after" ]; then echo "  $(ui_text 'already up to date' 'ya estaba al día') ($after)"; exit 0; fi
 echo "  $before → $after"
 
@@ -5019,7 +5370,7 @@ SPICE WebDAV y la monta en `/mnt/share` de la forma que corresponda.
 
 ## Las apps que no vienen dentro
 
-1Password, Obsidian, Typora, LocalSend y Google Chrome **no están en la
+1Password, Obsidian, Typora, LocalSend, Google Chrome y Zed **no están en la
 imagen**, pero no porque no funcionen: todas tienen build ARM64 oficial. No van
 dentro porque son propietarias y empaquetarlas en una imagen que se distribuye
 sería redistribuir binarios de terceros.
@@ -5042,6 +5393,24 @@ SHA-256 exactos. Si falta un bloqueo o no coincide la verificación, se detiene
 antes de modificar el sistema. `--force` reinstala la versión revisada.
 
 También está en el menú de aplicaciones como **«Instalar apps que faltan (ARM)»**.
+Las opciones normales **Install → Service → 1Password**, **Spotify (Web)**,
+**Install → Browser → Chrome** e **Install → Editor → Zed** de Omarchy también
+pasan por este instalador revisado para ARM, en vez del repositorio de paquetes
+x86. Zed instala tanto `zed` como el comando `zeditor` que espera Omarchy.
+
+El resto del catálogo no se muestra a ciegas: las entradas cuyo paquete actual
+solo sirve para x86, está incompleto en ARM o aún no tiene fuente revisada y
+prueba de arranque quedan ocultas mediante
+`~/.config/omarchy/extensions/omarchy-menu.jsonc`. Si se invoca directamente
+uno de esos instaladores por CLI, termina con un error claro de incompatibilidad
+ARM. Siguen visibles las rutas nativas comprobadas: Firefox, Signal, Tailscale,
+Helix, Vim, Alacritty, Foot, Kitty, fuentes, web apps y toolchains de desarrollo.
+
+También queda oculto **Update → Channel** y bloqueado `omarchy-channel-set`,
+porque esos canales sustituyen la configuración de pacman por mirrors de
+Omarchy que solo publican x86. Usa **Update → Omarchy**: el hook ARM actualiza el
+checkout Git revisado sin tocar los repositorios de Arch Linux ARM. La pantalla
+verde **Done** solo aparece si el comando terminó correctamente.
 
 | Clave | Qué hace |
 |---|---|
@@ -5051,6 +5420,7 @@ También está en el menú de aplicaciones como **«Instalar apps que faltan (AR
 | `typora` | Paquete arm64 oficial vía AUR |
 | `localsend` | Build arm64 oficial |
 | `chrome` | Trae Widevine para arm64: habilita Spotify y Netflix web |
+| `zed` | Tarball oficial Linux arm64 + integración de tema de Omarchy |
 | `spotify-web` | Lanzador de la web + reasigna `⌥+Shift+M` |
 | `pinta` | Ya viene instalada; la clave sirve para reinstalarla |
 | `obs` | Ya viene instalado; la clave sirve para reinstalarlo |
