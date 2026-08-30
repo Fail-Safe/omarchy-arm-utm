@@ -139,7 +139,7 @@ clone_reviewed_source() {
 mkdir -p "$TMP/force-bin"
 cat > "$TMP/force-bin/pacman" <<'MOCK'
 #!/usr/bin/env bash
-exit 0
+[[ ${PACMAN_TEST_INSTALLED:-1} == 1 ]]
 MOCK
 cat > "$TMP/force-bin/makepkg" <<MOCK
 #!/usr/bin/env bash
@@ -161,7 +161,7 @@ for row in '1password-cli 1password-cli 1password-cli' \
     echo "--force did not rebuild $pkg" >&2; exit 1
   fi
   grep -qx "$lock_key" "$TMP/clone-calls"
-  grep -q -- '-si --noconfirm --noprogressbar' "$TMP/makepkg-calls"
+  grep -q -- '-sri --noconfirm --noprogressbar' "$TMP/makepkg-calls"
   ! grep -q -- '--needed' "$TMP/makepkg-calls"
 done
 
@@ -171,6 +171,19 @@ FORCE=0
 PATH="$TMP/force-bin:$PATH" aur_build typora typora typora
 test ! -s "$TMP/clone-calls"
 test ! -s "$TMP/makepkg-calls"
+
+# A package that is not already installed takes the normal --needed path and
+# still removes only the dependencies makepkg installed for its build.
+: > "$TMP/clone-calls"; : > "$TMP/makepkg-calls"
+if ! PACMAN_TEST_INSTALLED=0 PATH="$TMP/force-bin:$PATH" aur_build typora typora typora; then
+  echo "normal AUR build path failed" >&2; exit 1
+fi
+grep -qx 'typora' "$TMP/clone-calls"
+grep -q -- '-sri --noconfirm --needed --noprogressbar' "$TMP/makepkg-calls"
+
+# The standalone OBS path must preserve the same cleanup invariant.
+[[ $(rg -o 'makepkg -sri --noconfirm' "$EXTRAS" | wc -l | tr -d ' ') == 3 ]]
+! rg -q 'makepkg -si ' "$EXTRAS"
 
 mkdir -p "$TMP/main-bin" "$TMP/home"
 cat > "$TMP/main-bin/pacman" <<'MOCK'

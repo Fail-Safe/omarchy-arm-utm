@@ -302,10 +302,12 @@ aur_build() {
     info "patched arch= to include aarch64" "arch= parcheado para incluir aarch64"
   fi
 
+  # -r removes only dependencies makepkg installed for this build. Without it,
+  # the next Omarchy update offers to remove those build tools as orphans.
   if [[ ${FORCE:-0} == 1 ]]; then
-    ( cd "$dir" && makepkg -si --noconfirm --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
+    ( cd "$dir" && makepkg -sri --noconfirm --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
   else
-    ( cd "$dir" && makepkg -si --noconfirm --needed --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
+    ( cd "$dir" && makepkg -sri --noconfirm --needed --noprogressbar ) >"$dir/build.log" 2>&1 && return 0
   fi
   fail "$pkg build failed — log: $dir/build.log" "falló la compilación de $pkg — log: $dir/build.log"
   tail -5 "$dir/build.log" | sed 's/^/      /'
@@ -541,7 +543,9 @@ do_obs() {
     return 1
   fi
   info "PKGBUILD patched: aarch64, no CEF, no browser plugin" "PKGBUILD parcheado: aarch64, sin CEF, sin plugin de navegador"
-  if makepkg -si --noconfirm --needed --noprogressbar >"$dir/build.log" 2>&1; then
+  # OBS has a large makedepends set; remove only the packages makepkg brought in
+  # for this build so they do not become updater-visible orphans afterward.
+  if makepkg -sri --noconfirm --needed --noprogressbar >"$dir/build.log" 2>&1; then
     ok "$(pacman -Q obs-studio)"
     info "${c_dim}No hardware acceleration in the VM: encoding will use CPU x264${c_off}" "${c_dim}Sin aceleración por hardware en la VM: codificará con x264 por CPU${c_off}"
   else
