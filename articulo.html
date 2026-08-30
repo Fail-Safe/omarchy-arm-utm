@@ -679,21 +679,24 @@ alacritty  <span class="c"># dibuja con EGL/GPU (dma-buf)</span>                
 
       <div class="finding">
         <span class="eyebrow">Hallazgo 05 · Resolución</span>
-        <h3>Cambiar el modo en caliente rompe el render</h3>
+        <h3>La pila gráfica original falló al recargar la resolución</h3>
         <p>
           Al fijar 1920×1200 con <code>hyprctl reload</code>, la pantalla se quedó
           <strong>en blanco</strong>. Las capas seguían ahí —<code>hyprctl layers</code> las
           listaba, con alfa 1— pero no se pintaban. Reiniciar el shell no bastó; hizo falta
           reiniciar la VM entera. Aplicada <em>desde el arranque</em>, la misma resolución
-          funciona perfectamente.
+          funcionó perfectamente.
         </p>
 <pre><code><span class="c">-- ~/.config/hypr/monitors.lua</span>
 hl.env("GDK_SCALE", "1")
 hl.monitor({ output = "Virtual-1", mode = "1920x1200@60", position = "0x0", scale = 1 })</code></pre>
         <p>
-          Si tocas ese fichero, reinicia la VM en lugar de recargar la configuración. El
-          <code>scale = 1</code> también importa: Omarchy asume pantallas retina y con el
-          valor por defecto todo sale gigante en una VM.
+          <strong>Actualización con UTM 5.0.4 beta:</strong> este fallo ya no se reprodujo.
+          Al guardar <code>monitors.lua</code> desde Vim, Hyprland aplicó inmediatamente
+          los cambios de modo y escala, incluido 3840×2160 a escala 2, sin reiniciar la
+          VM. La pantalla en blanco queda documentada como comportamiento de la pila
+          anterior, no como una regla actual. El valor de escala sigue importando: debe
+          acompañar a la resolución elegida.
         </p>
       </div>
 

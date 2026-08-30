@@ -6,10 +6,10 @@
 #
 # REQUISITO
 #   Apaga la VM, abre sus ajustes en UTM -> Display y activa "Retina Mode".
-#   Arráncala, ejecuta este script dentro de la VM y vuelve a reiniciarla.
+#   Arráncala y ejecuta este script dentro de la VM.
 #
-# No se recarga Hyprland aquí: cambiar el modo en caliente bajo virtio-gpu
-# deja el escritorio en blanco hasta el siguiente arranque.
+# Al escribir monitors.lua, Hyprland recarga la configuración automáticamente;
+# no hace falta reiniciar la VM ni ejecutar hyprctl reload a mano.
 set -euo pipefail
 
 config="$HOME/.config/hypr/monitors.lua"
@@ -29,8 +29,8 @@ cat > "$config" <<'LUA'
 -- escala 2 da un escritorio logico de 1920x1080 y texto nitido en macOS.
 -- Se fija el modo porque "preferred" negocia 1280x800 y reduce la ventana UTM.
 --
--- IMPORTANTE: cambiar el modo en caliente rompe el renderizado bajo virgl.
--- Si modificas este archivo, reinicia la VM en vez de recargar Hyprland.
+-- Hyprland aplica los cambios al guardar este archivo. Comprobado con UTM
+-- 5.0.4 beta: no hace falta reiniciar la VM ni ejecutar hyprctl reload a mano.
 -- 3840x2160@120 tambien funciono con un panel de 120 Hz, pero 60 Hz es el
 -- valor compatible y de menor coste que se aplica por defecto.
 hl.env("GDK_SCALE", "2")
@@ -38,4 +38,4 @@ hl.monitor({ output = "Virtual-1", mode = "3840x2160@60", position = "auto", sca
 LUA
 
 echo "Configuración Retina escrita en $config"
-echo "Reinicia la VM para aplicarla; no ejecutes hyprctl reload."
+echo "Hyprland debería aplicarla inmediatamente."

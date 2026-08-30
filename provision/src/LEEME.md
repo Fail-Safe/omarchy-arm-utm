@@ -142,10 +142,10 @@ lógico de 1920x1080 con texto nítido. Activa **Retina Mode** en la pantalla de
 la VM dentro de UTM. El modo es fijo porque `preferred` negocia 1280x800 y
 reduce la ventana de UTM. La imagen usa 60 Hz por compatibilidad y menor coste;
 también comprobamos que 120 Hz funciona con un panel anfitrión compatible. Para
-usarlo, cambia `3840x2160@60` por `3840x2160@120` y reinicia.
+usarlo, cambia `3840x2160@60` por `3840x2160@120` y guarda el archivo.
 
-Para cambiarlo, edita `~/.config/hypr/monitors.lua` y **reinicia la VM** —
-cambiar el modo en caliente deja la pantalla en blanco bajo virtio-gpu.
+Para cambiarlo, edita `~/.config/hypr/monitors.lua`. Hyprland aplica la nueva
+configuración inmediatamente al guardar; no hace falta reiniciar la VM.
 
 ## Nota
 

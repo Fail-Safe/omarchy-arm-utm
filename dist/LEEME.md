@@ -139,9 +139,10 @@ luego `spotify-web`. En terminal ya tienes `spotify-player` instalado.
 
 ## Resolución
 
-Fija en 1920x1200. Para cambiarla, edita `~/.config/hypr/monitors.lua` y
-**reinicia la VM** — cambiar el modo en caliente deja la pantalla en blanco bajo
-virtio-gpu.
+Esta imagen publicada usa 1920x1200. Para cambiarlo, edita
+`~/.config/hypr/monitors.lua`. Con UTM 5.0.4 beta, Hyprland aplicó los cambios
+inmediatamente al guardar; no hizo falta reiniciar la VM. La pila anterior sí
+había mostrado una pantalla en blanco al recargar el modo.
 
 ## Nota
 

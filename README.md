@@ -194,8 +194,9 @@ inside it — no need to re-download. For the clipboard, run
 New builds use a Retina-ready 3840x2160 framebuffer at scale 2. Existing VMs
 from the published archives retain their original display configuration; enable
 **Retina Mode** in UTM and run
-[`fixes/20-retina-display.sh`](fixes/20-retina-display.sh), then reboot, to apply
-the sharper defaults.
+[`fixes/20-retina-display.sh`](fixes/20-retina-display.sh) to apply the sharper
+defaults. In the tested UTM 5.0.4 beta VM, Hyprland reloaded the monitor
+configuration when the file was written.
 
 ## What does not work
 
@@ -203,14 +204,15 @@ the sharper defaults.
   never paint; only `wl_shm` clients render. Fixed with
   `LIBGL_ALWAYS_SOFTWARE=1`, so blur and shadows are disabled. Fine for normal
   use, not for video or 3D.
-- **Resolution is fixed at boot** at 3840x2160 with scale 2, giving a logical
-  1920x1080 desktop with crisp text when UTM's **Retina Mode** is enabled.
+- **Resolution defaults to a fixed mode** at 3840x2160 with scale 2, giving a
+  logical 1920x1080 desktop with crisp text when UTM's **Retina Mode** is enabled.
   `preferred` negotiates a small 1280x800 desktop and makes UTM shrink its
-  window. The setting is editable in `~/.config/hypr/monitors.lua`; reboot after
-  changing it because a runtime mode change whites out the virtio-gpu display.
+  window. The setting is editable in `~/.config/hypr/monitors.lua`; in the
+  tested UTM 5.0.4 beta VM, Hyprland applied changes immediately when the file
+  was saved in Vim.
   The distributed default is 60 Hz for compatibility and lower rendering cost;
   120 Hz was also observed working on a compatible 120 Hz host panel by changing
-  the mode from `3840x2160@60` to `3840x2160@120` and rebooting.
+  the mode from `3840x2160@60` to `3840x2160@120` and saving the file.
 - Single monitor.
 
 ## Clipboard and shared folder
