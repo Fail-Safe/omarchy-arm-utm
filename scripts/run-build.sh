@@ -31,6 +31,13 @@ cp provision/src/stage1.sh provision/src/stage2.sh provision/src/stage3.sh \
    provision/iso/
 cp "$OMARCHY_BUILD_WORK/provision"/{packages-core.txt,packages-extra.txt} provision/iso/
 cp -R "$SNAPSHOT_DIR" provision/iso/alarm-repositories
+cp provision/src/omarchy-arm-extras provision/iso/extras.sh
+cp provision/src/omarchy-arm-menu-compat provision/iso/menu-compat.sh
+cp provision/src/omarchy-arm-menu.jsonc provision/iso/arm-menu.jsonc
+cp provision/src/hooks/10-arm-sync provision/iso/armsync.sh
+cp provision/src/omarchy-arm-clipboard provision/iso/clipbrd.sh
+cp provision/src/omarchy-arm-vdagent provision/iso/vdagent.py
+cp provision/src/omarchy-arm-share provision/iso/share.sh
 # short name to avoid dependency on ISO9660 extensions
 ln dl/ArchLinuxARM-aarch64-latest.tar.gz provision/iso/alarm-rootfs.tgz 2>/dev/null \
   || cp dl/ArchLinuxARM-aarch64-latest.tar.gz provision/iso/alarm-rootfs.tgz

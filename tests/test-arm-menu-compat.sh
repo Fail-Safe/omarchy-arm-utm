@@ -129,5 +129,16 @@ rg -q 'failed to launch.*zed-launch.log' "$COMPAT"
 rg -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$MENU" "$ROOT/provision/src/hooks/10-arm-sync"
 rg -q 'Existing custom Omarchy menu extension preserved' \
   "$STAGE3" "$ROOT/provision/src/sanitize.sh"
+rg -q 'extras\.sh,menu-compat\.sh,arm-menu\.jsonc,armsync\.sh' \
+  "$ROOT/build-omarchy-arm.sh"
+rg -q 'omarchy-arm-menu-compat provision/iso/menu-compat\.sh' \
+  "$ROOT/scripts/run-build.sh"
+rg -q 'omarchy-arm-menu\.jsonc provision/iso/arm-menu\.jsonc' \
+  "$ROOT/scripts/run-build.sh"
+grep -Fq 'echo ARM_\"MENU_OK\"' "$ROOT/build-omarchy-arm.sh"
+grep -Fq 'grep -qa "ARM_MENU_OK"' "$ROOT/build-omarchy-arm.sh"
+grep -Fq 'grep -qa "ARM_MENU_KO"' "$ROOT/build-omarchy-arm.sh"
+rg -Uq 'ARM menu compatibility dispatcher is missing.*\n    exit 1' "$STAGE3"
+rg -Uq 'ARM menu overlay is missing.*\n    exit 1' "$STAGE3"
 
 echo "ARM menu compatibility tests: pass"

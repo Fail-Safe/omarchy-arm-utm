@@ -268,7 +268,7 @@ CORE_SOURCE_LOCK="$CORE_LOCK" OPTIONAL_APP_ARTIFACT_LOCK="$TMP/zed-artifacts.tsv
   bash "$EXTRAS" zed >"$TMP/zed.out" 2>&1
 test -x "$TMP/home/.local/zed.app/bin/zed"
 test -L "$TMP/home/.local/bin/zed"
-grep -Fq "Exec=$TMP/home/.local/zed.app/bin/zed" \
+grep -Fq "Exec=env ZED_ALLOW_EMULATED_GPU=1 $TMP/home/.local/zed.app/bin/zed" \
   "$TMP/home/.local/share/applications/dev.zed.Zed.desktop"
 grep -q 'Zed installed from zed-linux-aarch64.tar.gz' "$TMP/zed.out"
 [[ $(cat "$TMP/sudo-calls") == '-n true' ]]

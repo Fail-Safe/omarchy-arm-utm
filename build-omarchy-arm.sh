@@ -2265,6 +2265,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
     done
   else
     warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+    exit 1
   fi
   if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" ]; then
     sudo install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" /usr/share/omarchy-arm/omarchy-menu.jsonc
@@ -2278,6 +2279,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
     fi
   else
     warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+    exit 1
   fi
   EXTRAS_DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
@@ -5048,7 +5050,7 @@ ph_build() {
   local d; d=$(mktemp -d)
   cp "$W/provision"/{stage1.sh,stage2.sh,stage3.sh,config.env,core-git-sources.tsv,free-app-artifacts.tsv,optional-app-artifacts.tsv,alarm-repository-snapshot.py,packages-core.txt,packages-extra.txt} "$d"/
   cp -R "$W/provision/alarm-repositories" "$d"/
-  cp "$W/provision"/{extras.sh,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
+  cp "$W/provision"/{extras.sh,menu-compat.sh,arm-menu.jsonc,armsync.sh,clipbrd.sh,vdagent.py,share.sh} "$d"/
   ln "$W/dl/alarm-rootfs.tgz" "$d/alarm-rootfs.tgz" 2>/dev/null || cp "$W/dl/alarm-rootfs.tgz" "$d/"
   rm -f "$W/provision/provision.iso"
   hdiutil makehybrid -iso -joliet -default-volume-name PROVISION -o "$W/provision/provision.iso" "$d" >/dev/null
@@ -5154,7 +5156,7 @@ PY
   [[ -n $pty ]] || die "could not open the serial port for '$VM_NAME'; verification is impossible without it (to continue anyway: --from sanitize)" "no se pudo abrir el puerto serie de '$VM_NAME'; sin el no hay verificacion posible (si quieres continuar igualmente: --from sanitize)"
   # Previously this phase collected metrics and did not compare them with anything, so
   # it ended in "ok" regardless of what happened. Now the guest emits a verdict
-  # and the host checks it. Thirteen conditions, all necessary:
+  # and the host checks it. Fourteen conditions, all necessary:
   #   H  Hyprland running
   #   Q  quickshell running (if it were waybar, this would be Omarchy 3)
   #   B  >=400 omarchy-* commands in /usr/bin (counted by name, not by
@@ -5168,6 +5170,7 @@ PY
   #   X  the selected tool contract passes (18 native tools for a full build,
   #      or the functional ttfx fallback for a lightweight build)
   #   Y  Chromium's managed-policy directory is a real, root-owned mode-755 directory
+  #   M  the ARM menu dispatcher, key command links, and managed overlay are installed
   #   P  installed Omarchy is exactly the reviewed source-lock commit
   #   F  both reviewed libre-app packages are installed when INCLUDE_LIBRE_APPS=yes
   #   S  the captured repository databases and installed-package provenance validate
@@ -5216,6 +5219,8 @@ send "python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-prove
 expect { -re {SNAPSHOT_(OK|KO)} {} timeout {} }
 send "D=/etc/chromium/policies/managed; test -d \"\$D\" && ! test -L \"\$D\" && test \"\$(stat -c '%U:%G:%a' \"\$D\")\" = root:root:755 && echo BROWSER_\"POLICY_OK\" || echo BROWSER_\"POLICY_KO\"\r"
 expect { -re {BROWSER_POLICY_(OK|KO)} {} timeout {} }
+send "M=~/.config/omarchy/extensions/omarchy-menu.jsonc; test -x /usr/local/lib/omarchy-arm/menu-compat && test -L /usr/local/bin/omarchy-install-browser && test -L /usr/local/bin/omarchy-install-service-1password && test -L /usr/local/bin/omarchy-install-editor-zed && grep -q OMARCHY_ARM_MANAGED_MENU_V1 /usr/share/omarchy-arm/omarchy-menu.jsonc && grep -q OMARCHY_ARM_MANAGED_MENU_V1 \"\$M\" && echo ARM_\"MENU_OK\" || echo ARM_\"MENU_KO\"\r"
+expect { -re {ARM_MENU_(OK|KO)} {} timeout {} }
 send "/usr/local/bin/omarchy-arm-verify-tools \"$env(GTOOLS)\" >/dev/null 2>&1 && echo TOOL\"S_OK\" || echo TOOL\"S_KO\"\r"
 expect { -re {TOOLS_(OK|KO)} {} timeout {} }
 send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); B=\$(find /usr/bin -maxdepth 1 -name 'omarchy-*' | wc -l); R=\$(find /usr/bin /usr/local/bin -xtype l | wc -l); U=\$(find /usr/lib/systemd/user -maxdepth 1 -name 'omarchy-*.service' | wc -l); V=\$(cat /usr/share/omarchy/version 2>/dev/null | cut -d. -f1); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); pgrep -af spice-vdagentd | grep -q -- ' -X' && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; command -v ttfx >/dev/null 2>&1 && T=1; P=0; L=\$(awk '\$1 == \"omarchy\" { print \$4 }' /usr/share/omarchy-arm/core-git-sources.tsv 2>/dev/null); A=\$(git -C /usr/share/omarchy rev-parse HEAD 2>/dev/null); \[ -n \"\$L\" ] && \[ \"\$A\" = \"\$L\" ] && P=1; F=0; pacman -Q pinta >/dev/null 2>&1 && F=\$((F+1)); pacman -Q obs-studio >/dev/null 2>&1 && F=\$((F+1)); E=0; \[ \"$env(GLIBRE_APPS)\" = yes ] && E=2; echo \"### H=\$H Q=\$Q BINS=\$B ROTOS=\$R UNITS=\$U VER=\$V CLIP=\$C/5 TTFX=\$T PIN=\$P FREE=\$F/\$E\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$B -ge 400 ] && \[ \$R -le 5 ] && \[ \$U -ge 6 ] && \[ \"\$V\" = 4 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$P -eq 1 ] && \[ \$F -ge \$E ]; then echo VERD\"ICT_OK\"; else echo VERD\"ICT_KO\"; fi\r"
@@ -5235,7 +5240,7 @@ if {$env(GREBOOT) eq "si"} {
     expect -re {[Pp]assword:}
     send "$env(GPASS)\r"
     sleep 8
-    send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); pgrep -af spice-vdagentd | grep -q -- ' -X' && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; /usr/local/bin/omarchy-arm-verify-tools \"$env(GTOOLS)\" >/dev/null 2>&1 && T=1; S=0; python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance /usr/share/omarchy-arm/alarm-repositories /usr/share/omarchy-arm/alarm-repositories/manifest.tsv /usr/share/omarchy-arm/alarm-package-provenance.tsv >/dev/null 2>&1 && S=1; D=/etc/chromium/policies/managed; B=0; test -d \"\$D\" && ! test -L \"\$D\" && test \"\$(stat -c '%U:%G:%a' \"\$D\")\" = root:root:755 && B=1; echo \"### REBOOT H=\$H Q=\$Q CLIP=\$C/5 TOOLS=\$T SNAPSHOT=\$S BROWSER_POLICY=\$B\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$S -eq 1 ] && \[ \$B -eq 1 ]; then echo REBO\"OT_OK\"; else echo REBO\"OT_KO\"; fi\r"
+    send "H=\$(pgrep -c Hyprland); Q=\$(pgrep -c quickshell); C=0; test -x /usr/local/bin/omarchy-arm-vdagent && C=\$((C+1)); pgrep -af spice-vdagentd | grep -q -- ' -X' && C=\$((C+1)); systemctl is-active --quiet spice-vdagentd && C=\$((C+1)); systemctl --user is-active --quiet omarchy-arm-vdagent.service && C=\$((C+1)); grep -vs -- '^\[\[:space:]]*--' ~/.config/hypr/autostart.lua | grep -qs spice-vdagent || C=\$((C+1)); T=0; /usr/local/bin/omarchy-arm-verify-tools \"$env(GTOOLS)\" >/dev/null 2>&1 && T=1; S=0; python3 /usr/share/omarchy-arm/alarm-repository-snapshot.py validate-provenance /usr/share/omarchy-arm/alarm-repositories /usr/share/omarchy-arm/alarm-repositories/manifest.tsv /usr/share/omarchy-arm/alarm-package-provenance.tsv >/dev/null 2>&1 && S=1; D=/etc/chromium/policies/managed; B=0; test -d \"\$D\" && ! test -L \"\$D\" && test \"\$(stat -c '%U:%G:%a' \"\$D\")\" = root:root:755 && B=1; M=0; test -x /usr/local/lib/omarchy-arm/menu-compat && test -L /usr/local/bin/omarchy-install-browser && test -L /usr/local/bin/omarchy-install-service-1password && test -L /usr/local/bin/omarchy-install-editor-zed && grep -q OMARCHY_ARM_MANAGED_MENU_V1 /usr/share/omarchy-arm/omarchy-menu.jsonc && grep -q OMARCHY_ARM_MANAGED_MENU_V1 ~/.config/omarchy/extensions/omarchy-menu.jsonc && M=1; echo \"### REBOOT H=\$H Q=\$Q CLIP=\$C/5 TOOLS=\$T SNAPSHOT=\$S BROWSER_POLICY=\$B ARM_MENU=\$M\"; if \[ \$H -ge 1 ] && \[ \$Q -ge 1 ] && \[ \$C -eq 5 ] && \[ \$T -eq 1 ] && \[ \$S -eq 1 ] && \[ \$B -eq 1 ] && \[ \$M -eq 1 ]; then echo REBO\"OT_OK\"; else echo REBO\"OT_KO\"; fi\r"
     set timeout 90
     expect { -re {REBOOT_(OK|KO)} {} timeout { send_user "\nREBOOT_KO timeout\n" } }
   } else {
@@ -5252,10 +5257,12 @@ EXPEOF
   [[ $HACER_DIST != si ]] || grep -qa "^REBOOT_OK" "$vlog" || reboot_ok=0
   if grep -qa "^VERDICT_OK" "$vlog" && grep -qa "SNAPSHOT_OK" "$vlog" \
       && grep -qa "BROWSER_POLICY_OK" "$vlog" \
+      && grep -qa "ARM_MENU_OK" "$vlog" \
       && grep -qa "TOOLS_OK" "$vlog" && (( reboot_ok )); then
     ok "VM '$VM_NAME' verified: reviewed sources and repository snapshot, package provenance, desktop, commands, units, and clipboard" "VM '$VM_NAME' verificada: fuentes y captura de repositorios revisadas, procedencia de paquetes, escritorio, comandos, unidades y portapapeles"
   elif grep -qa "^VERDICT_KO" "$vlog" || grep -qa "SNAPSHOT_KO" "$vlog" \
       || grep -qa "BROWSER_POLICY_KO" "$vlog" \
+      || grep -qa "ARM_MENU_KO" "$vlog" \
       || grep -qa "TOOLS_KO" "$vlog" || grep -qa "REBOOT_KO" "$vlog"; then
     sed 's/\x1b\[[0-9;?=]*[a-zA-Z]//g' "$vlog" | tail -20
     die "the VM boots but the desktop is incomplete; log at $vlog" "la VM arranca pero el escritorio no esta completo; log en $vlog"

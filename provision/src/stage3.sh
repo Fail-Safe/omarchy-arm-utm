@@ -665,6 +665,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
     done
   else
     warn "ARM menu compatibility dispatcher is missing" "falta el dispatcher de compatibilidad del menu ARM"
+    exit 1
   fi
   if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" ]; then
     sudo install -Dm644 "$HOME/.omarchy-arm-prov/omarchy-arm-menu.jsonc" /usr/share/omarchy-arm/omarchy-menu.jsonc
@@ -678,6 +679,7 @@ if [ -f "$HOME/.omarchy-arm-prov/omarchy-arm-extras" ]; then
     fi
   else
     warn "ARM menu overlay is missing" "falta el overlay del menu ARM"
+    exit 1
   fi
   EXTRAS_DESKTOP_NAME=$(ui_text 'Install missing apps (ARM)' 'Instalar apps que faltan (ARM)')
   sudo install -Dm644 /dev/stdin /usr/local/share/applications/omarchy-arm-extras.desktop <<DESK
