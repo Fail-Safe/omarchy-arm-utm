@@ -3387,7 +3387,7 @@ aur_build() {
 do_1password() {
   title "1Password"
   info "AgileBits publishes arm64 ONLY as a tarball; there is no .deb or .rpm for this architecture." "AgileBits publica arm64 SOLO como tarball: no hay .deb ni .rpm para esta arquitectura."
-  local key url digest signer archive signature key_file
+  local key url digest signer archive signature key_file desktop_file candidate
   read -r key url digest signer <<< "$(optional_artifact_lock_record 1password-package)"
   mkdir -p "$WORK"; rm -rf "$WORK/1p"; mkdir -p "$WORK/1p"
   archive="$WORK/1p/1p.tar.gz"; signature="$archive.sig"; key_file="$WORK/1p/1password.asc"
@@ -3402,10 +3402,27 @@ do_1password() {
   local src; src=$(find "$WORK/1p" -maxdepth 1 -type d -name '1password-*' | head -1)
   [ -n "$src" ] || { fail "the tarball has an unexpected layout" "el tarball no tiene la forma esperada"; return 1; }
   sudo mkdir -p /opt/1Password
-  sudo cp -a "$src"/. /opt/1Password/
-  ( cd /opt/1Password && sudo ./after-install.sh ) >/dev/null 2>&1 || warn "after-install.sh reported errors (usually harmless)" "after-install.sh dio errores (suele ser inocuo)"
+  sudo cp -a "$src"/. /opt/1Password/ \
+    || { fail "could not install the 1Password files" "no se pudieron instalar los archivos de 1Password"; return 1; }
+  sudo chown -R root:root /opt/1Password \
+    || { fail "could not secure the 1Password installation ownership" "no se pudo asegurar la propiedad de la instalacion de 1Password"; return 1; }
+  if ! ( cd /opt/1Password && sudo ./after-install.sh ) >"$WORK/1p/after-install.log" 2>&1; then
+    fail "1Password after-install setup failed — log: $WORK/1p/after-install.log" "fallo la configuracion posterior de 1Password — log: $WORK/1p/after-install.log"
+    tail -5 "$WORK/1p/after-install.log" | sed 's/^/      /'
+    return 1
+  fi
+  desktop_file=""
+  for candidate in /usr/local/share/applications/1password.desktop /usr/share/applications/1password.desktop; do
+    [[ -f $candidate ]] && { desktop_file=$candidate; break; }
+  done
+  [[ -n $desktop_file ]] \
+    || { fail "1Password desktop entry was not installed" "no se instalo la entrada de escritorio de 1Password"; return 1; }
+  sudo sed -i -E \
+    's|^Exec=/opt/1Password/1password( .*)?$|Exec=/opt/1Password/1password --ozone-platform=x11\1|' \
+    "$desktop_file" \
+    || { fail "could not configure the 1Password XWayland launcher" "no se pudo configurar el lanzador XWayland de 1Password"; return 1; }
   have 1password && ok "$(1password --version 2>/dev/null | head -1 || ui_text installed instalado)" || { fail "it was not added to PATH" "no quedó en el PATH"; return 1; }
-  info "${c_dim}Under Hyprland, launch it with --ozone-platform=wayland${c_off}" "${c_dim}En Hyprland conviene lanzarlo con --ozone-platform=wayland${c_off}"
+  info "${c_dim}Configured for XWayland: native Wayland does not paint in this VM${c_off}" "${c_dim}Configurado para XWayland: Wayland nativo no dibuja en esta VM${c_off}"
 }
 
 do_1password_cli() { title "1Password CLI"; aur_build 1password-cli 1password-cli 1password-cli && ok "$(op --version 2>/dev/null)"; }
@@ -3482,7 +3499,7 @@ do_zed() {
   desktop_target="$HOME/.local/share/applications/dev.zed.Zed.desktop"
   sed \
     -e "s|Icon=zed|Icon=$HOME/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png|g" \
-    -e "s|Exec=zed|Exec=$HOME/.local/zed.app/bin/zed|g" \
+    -e "s|Exec=zed|Exec=env ZED_ALLOW_EMULATED_GPU=1 $HOME/.local/zed.app/bin/zed|g" \
     "$desktop_source" >"$desktop_target" \
     || { fail "could not install the Zed desktop entry" "no se pudo instalar la entrada de escritorio de Zed"; return 1; }
   chmod 644 "$desktop_target"
@@ -3500,15 +3517,22 @@ do_spotify_web() {
   # Omarchy treats Spotify as a native package, not as a webapp — and that package is
   # x86_64. On ARM, the working method is the web version, which requires Widevine.
   if ! have google-chrome-stable; then
-    warn "Spotify web will not play without Google Chrome; install 'chrome' first" "sin Google Chrome la web de Spotify no reproducirá: instala antes 'chrome'"
+    fail "Spotify web requires Google Chrome's ARM64 Widevine; install 'chrome' first" "Spotify web necesita el Widevine ARM64 de Google Chrome; instala primero 'chrome'"
+    return 1
   fi
   if have omarchy-webapp-install; then
-    omarchy-webapp-install "Spotify" "https://open.spotify.com" \
+    if omarchy-webapp-install "Spotify" "https://open.spotify.com" \
       "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/spotify.png" \
-      "$(have google-chrome-stable && echo 'google-chrome-stable --app=https://open.spotify.com')" \
-      >/dev/null 2>&1 && ok "launcher created in the application menu" "lanzador creado en el menú de aplicaciones"
+      "google-chrome-stable --app=https://open.spotify.com" \
+      >/dev/null 2>&1; then
+      ok "launcher created in the application menu" "lanzador creado en el menú de aplicaciones"
+    else
+      fail "could not create the Spotify web launcher" "no se pudo crear el lanzador web de Spotify"
+      return 1
+    fi
   else
-    warn "omarchy-webapp-install is unavailable" "omarchy-webapp-install no está disponible"
+    fail "omarchy-webapp-install is unavailable" "omarchy-webapp-install no está disponible"
+    return 1
   fi
   # Reassign SUPER+SHIFT+M, which in Omarchy points to the native binary
   local f="$HOME/.config/hypr/bindings.lua"
@@ -3681,7 +3705,9 @@ if [ ${#OPTIONAL_LOCKED_SELECTED[@]} -gt 0 ]; then
   validate_optional_app_locks "${OPTIONAL_LOCKED_SELECTED[@]}" || exit 1
 fi
 
-need_sudo || exit 1
+if [ ${#LOCKED_SELECTED[@]} -gt 0 ] || [ ${#OPTIONAL_LOCKED_SELECTED[@]} -gt 0 ]; then
+  need_sudo || exit 1
+fi
 mkdir -p "$WORK"
 
 for k in "${SELECTED[@]}"; do
@@ -3782,24 +3808,92 @@ case "$SELF" in
     if ! omarchy-arm-extras 1password 1password-cli; then exit 1; fi
     extension_id=aeblfdkhhhdcdjpifhhbdiojplfjncoa
     extension_dir=/usr/share/chromium/extensions
+    extension_file="$extension_dir/$extension_id.json"
+    extension_json='{ "external_update_url": "https://clients2.google.com/service/update2/crx" }'
     if command -v chromium >/dev/null 2>&1; then
-      sudo mkdir -p "$extension_dir" || exit 1
-      printf '{ "external_update_url": "%s" }\n' 'https://clients2.google.com/service/update2/crx' \
-        | sudo tee "$extension_dir/$extension_id.json" >/dev/null || exit 1
-      sudo chmod 644 "$extension_dir/$extension_id.json" || exit 1
+      if [[ ! -r $extension_file ]] || ! grep -Fqx "$extension_json" "$extension_file"; then
+        sudo mkdir -p "$extension_dir" || exit 1
+        printf '%s\n' "$extension_json" \
+          | sudo tee "$extension_file" >/dev/null || exit 1
+        sudo chmod 644 "$extension_file" || exit 1
+      fi
     fi
-    command -v uwsm-app >/dev/null 2>&1 && command -v 1password >/dev/null 2>&1 \
-      && uwsm-app -- 1password >/dev/null 2>&1 &
+    command -v uwsm-app >/dev/null 2>&1 \
+      && command -v 1password >/dev/null 2>&1 \
+      || { echo "1Password was installed but its launcher is unavailable." >&2; exit 1; }
+    launch_state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+    mkdir -p "$launch_state"
+    setsid uwsm-app -- 1password --ozone-platform=x11 \
+      >"$launch_state/1password-launch.log" 2>&1 &
+    launch_pid=$!
+    launch_ok=0
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      for ((attempt=0; attempt<20; attempt++)); do
+        sleep 0.5
+        if hyprctl clients -j 2>/dev/null \
+            | jq -e 'any(.[]; .mapped == true and ((.class // "") | ascii_downcase | contains("1password")))' \
+            >/dev/null 2>&1; then
+          launch_ok=1
+          break
+        fi
+        kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x 1password >/dev/null 2>&1 \
+          || break
+      done
+    else
+      sleep 5
+      if kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x 1password >/dev/null 2>&1; then
+        launch_ok=1
+      fi
+    fi
+    if (( launch_ok == 0 )); then
+      echo "1Password was installed but failed to launch; see $launch_state/1password-launch.log" >&2
+      tail -5 "$launch_state/1password-launch.log" >&2
+      exit 1
+    fi
     ;;
 
   omarchy-install-service-spotify)
-    exec omarchy-arm-extras spotify-web
+    exec omarchy-arm-extras chrome spotify-web
     ;;
 
   omarchy-install-editor-zed)
     omarchy-arm-extras zed || exit 1
     command -v uwsm-app >/dev/null 2>&1 \
-      && setsid uwsm-app -- gtk-launch dev.zed.Zed >/dev/null 2>&1 &
+      && command -v gtk-launch >/dev/null 2>&1 \
+      || { echo "Zed was installed but its launcher is unavailable." >&2; exit 1; }
+    launch_state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+    mkdir -p "$launch_state"
+    ZED_ALLOW_EMULATED_GPU=1 setsid uwsm-app -- gtk-launch dev.zed.Zed \
+      >"$launch_state/zed-launch.log" 2>&1 &
+    launch_pid=$!
+    launch_ok=0
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      for ((attempt=0; attempt<20; attempt++)); do
+        sleep 0.5
+        if hyprctl clients -j 2>/dev/null \
+            | jq -e 'any(.[]; .mapped == true and ((.class // "") | ascii_downcase | contains("zed")))' \
+            >/dev/null 2>&1; then
+          launch_ok=1
+          break
+        fi
+        kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x zed >/dev/null 2>&1 \
+          || break
+      done
+    else
+      sleep 5
+      if kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x zed >/dev/null 2>&1; then
+        launch_ok=1
+      fi
+    fi
+    if (( launch_ok == 0 )); then
+      echo "Zed was installed but failed to launch; see $launch_state/zed-launch.log" >&2
+      tail -5 "$launch_state/zed-launch.log" >&2
+      exit 1
+    fi
     ;;
 
   omarchy-install-terminal)
@@ -3870,7 +3964,7 @@ cat > "$W/provision/arm-menu.jsonc" <<'__PAYLOAD_PROVISION_ARM_MENU_JSONC__'
   "install.windows": {"when":"false"},
   "install.preinstalls": {"when":"false"},
 
-  "install.browser.chrome": {"disabled":"command -v google-chrome-stable >/dev/null"},
+  "install.browser.chrome": {"icon":"","label":"Chrome","disabled":"command -v google-chrome-stable >/dev/null","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-install-browser chrome'"},
   "install.browser.edge": {"when":"false"},
   "install.browser.brave": {"when":"false"},
   "install.browser.brave-origin": {"when":"false"},
@@ -3881,14 +3975,14 @@ cat > "$W/provision/arm-menu.jsonc" <<'__PAYLOAD_PROVISION_ARM_MENU_JSONC__'
   "setup.default.browser.brave-origin": {"when":"false"},
   "setup.default.browser.zen": {"when":"false"},
 
-  "install.service.1password": {"disabled":"command -v 1password >/dev/null"},
-  "install.service.spotify": {"label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]"},
+  "install.service.1password": {"icon":"󰢁","label":"1Password","disabled":"command -v 1password >/dev/null","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-1password"},
+  "install.service.spotify": {"icon":"󰓇","label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-spotify"},
   "install.service.dropbox": {"when":"false"},
   "install.service.nordvpn": {"when":"false"},
   "install.service.once": {"when":"false"},
   "install.service.bitwarden": {"when":"false"},
 
-  "install.editor.zed": {"disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]"},
+  "install.editor.zed": {"icon":"","label":"Zed","disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-editor-zed"},
   "install.editor.vscode": {"when":"false"},
   "install.editor.cursor": {"when":"false"},
   "install.editor.sublime": {"when":"false"},

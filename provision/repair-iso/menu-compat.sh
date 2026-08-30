@@ -75,24 +75,92 @@ case "$SELF" in
     if ! omarchy-arm-extras 1password 1password-cli; then exit 1; fi
     extension_id=aeblfdkhhhdcdjpifhhbdiojplfjncoa
     extension_dir=/usr/share/chromium/extensions
+    extension_file="$extension_dir/$extension_id.json"
+    extension_json='{ "external_update_url": "https://clients2.google.com/service/update2/crx" }'
     if command -v chromium >/dev/null 2>&1; then
-      sudo mkdir -p "$extension_dir" || exit 1
-      printf '{ "external_update_url": "%s" }\n' 'https://clients2.google.com/service/update2/crx' \
-        | sudo tee "$extension_dir/$extension_id.json" >/dev/null || exit 1
-      sudo chmod 644 "$extension_dir/$extension_id.json" || exit 1
+      if [[ ! -r $extension_file ]] || ! grep -Fqx "$extension_json" "$extension_file"; then
+        sudo mkdir -p "$extension_dir" || exit 1
+        printf '%s\n' "$extension_json" \
+          | sudo tee "$extension_file" >/dev/null || exit 1
+        sudo chmod 644 "$extension_file" || exit 1
+      fi
     fi
-    command -v uwsm-app >/dev/null 2>&1 && command -v 1password >/dev/null 2>&1 \
-      && uwsm-app -- 1password >/dev/null 2>&1 &
+    command -v uwsm-app >/dev/null 2>&1 \
+      && command -v 1password >/dev/null 2>&1 \
+      || { echo "1Password was installed but its launcher is unavailable." >&2; exit 1; }
+    launch_state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+    mkdir -p "$launch_state"
+    setsid uwsm-app -- 1password --ozone-platform=x11 \
+      >"$launch_state/1password-launch.log" 2>&1 &
+    launch_pid=$!
+    launch_ok=0
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      for ((attempt=0; attempt<20; attempt++)); do
+        sleep 0.5
+        if hyprctl clients -j 2>/dev/null \
+            | jq -e 'any(.[]; .mapped == true and ((.class // "") | ascii_downcase | contains("1password")))' \
+            >/dev/null 2>&1; then
+          launch_ok=1
+          break
+        fi
+        kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x 1password >/dev/null 2>&1 \
+          || break
+      done
+    else
+      sleep 5
+      if kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x 1password >/dev/null 2>&1; then
+        launch_ok=1
+      fi
+    fi
+    if (( launch_ok == 0 )); then
+      echo "1Password was installed but failed to launch; see $launch_state/1password-launch.log" >&2
+      tail -5 "$launch_state/1password-launch.log" >&2
+      exit 1
+    fi
     ;;
 
   omarchy-install-service-spotify)
-    exec omarchy-arm-extras spotify-web
+    exec omarchy-arm-extras chrome spotify-web
     ;;
 
   omarchy-install-editor-zed)
     omarchy-arm-extras zed || exit 1
     command -v uwsm-app >/dev/null 2>&1 \
-      && setsid uwsm-app -- gtk-launch dev.zed.Zed >/dev/null 2>&1 &
+      && command -v gtk-launch >/dev/null 2>&1 \
+      || { echo "Zed was installed but its launcher is unavailable." >&2; exit 1; }
+    launch_state="${XDG_STATE_HOME:-$HOME/.local/state}/omarchy"
+    mkdir -p "$launch_state"
+    ZED_ALLOW_EMULATED_GPU=1 setsid uwsm-app -- gtk-launch dev.zed.Zed \
+      >"$launch_state/zed-launch.log" 2>&1 &
+    launch_pid=$!
+    launch_ok=0
+    if command -v hyprctl >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+      for ((attempt=0; attempt<20; attempt++)); do
+        sleep 0.5
+        if hyprctl clients -j 2>/dev/null \
+            | jq -e 'any(.[]; .mapped == true and ((.class // "") | ascii_downcase | contains("zed")))' \
+            >/dev/null 2>&1; then
+          launch_ok=1
+          break
+        fi
+        kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x zed >/dev/null 2>&1 \
+          || break
+      done
+    else
+      sleep 5
+      if kill -0 "$launch_pid" 2>/dev/null \
+          || pgrep -u "$(id -u)" -x zed >/dev/null 2>&1; then
+        launch_ok=1
+      fi
+    fi
+    if (( launch_ok == 0 )); then
+      echo "Zed was installed but failed to launch; see $launch_state/zed-launch.log" >&2
+      tail -5 "$launch_state/zed-launch.log" >&2
+      exit 1
+    fi
     ;;
 
   omarchy-install-terminal)

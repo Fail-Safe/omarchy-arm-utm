@@ -40,6 +40,11 @@ assert items["install.service.spotify"]["label"] == "Spotify (Web)"
 assert "1password" in items["install.service.1password"]["disabled"]
 assert "zed.app" in items["install.editor.zed"]["disabled"]
 assert "google-chrome-stable" in items["install.browser.chrome"]["disabled"]
+for key in ["install.browser.chrome", "install.service.1password",
+            "install.service.spotify", "install.editor.zed"]:
+    assert items[key]["label"], key
+    assert items[key]["icon"], key
+    assert items[key]["action"], key
 PY
 
 mkdir -p "$TMP/bin" "$TMP/real"
@@ -104,7 +109,23 @@ grep -qx available "$TMP/tolerant.log"
 
 rg -q 'status == 0.*omarchy-show-done' "$COMPAT"
 rg -q 'OMARCHY_ARM_STRICT_PACKAGES=1' "$COMPAT" "$STAGE3"
+rg -q 'omarchy-arm-extras chrome spotify-web' "$COMPAT"
+rg -q 'chown -R root:root /opt/1Password' "$ROOT/provision/src/omarchy-arm-extras"
+rg -q '1Password after-install setup failed' "$ROOT/provision/src/omarchy-arm-extras"
+rg -q '1password --ozone-platform=x11' "$COMPAT"
+rg -q 'desktop entry was not installed' "$ROOT/provision/src/omarchy-arm-extras"
+rg -q 'Exec=/opt/1Password/1password --ozone-platform=x11' "$ROOT/provision/src/omarchy-arm-extras"
+rg -q 'hyprctl clients -j' "$COMPAT"
+rg -q 'grep -Fqx.*extension_json' "$COMPAT"
+rg -q 'failed to launch.*1password-launch.log' "$COMPAT"
+rg -q "Spotify web requires Google Chrome's ARM64 Widevine" \
+  "$ROOT/provision/src/omarchy-arm-extras"
+rg -q 'could not create the Spotify web launcher' \
+  "$ROOT/provision/src/omarchy-arm-extras"
 rg -q 'local/zed.app/bin/zed.*local/bin/zeditor' "$ROOT/provision/src/omarchy-arm-extras"
+rg -q 'Exec=env ZED_ALLOW_EMULATED_GPU=1.*local/zed.app/bin/zed' \
+  "$ROOT/provision/src/omarchy-arm-extras"
+rg -q 'failed to launch.*zed-launch.log' "$COMPAT"
 rg -q 'OMARCHY_ARM_MANAGED_MENU_V1' "$MENU" "$ROOT/provision/src/hooks/10-arm-sync"
 rg -q 'Existing custom Omarchy menu extension preserved' \
   "$STAGE3" "$ROOT/provision/src/sanitize.sh"

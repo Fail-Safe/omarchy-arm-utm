@@ -13,7 +13,7 @@
   "install.windows": {"when":"false"},
   "install.preinstalls": {"when":"false"},
 
-  "install.browser.chrome": {"disabled":"command -v google-chrome-stable >/dev/null"},
+  "install.browser.chrome": {"icon":"","label":"Chrome","disabled":"command -v google-chrome-stable >/dev/null","action":"omarchy-launch-floating-terminal-with-presentation 'omarchy-install-browser chrome'"},
   "install.browser.edge": {"when":"false"},
   "install.browser.brave": {"when":"false"},
   "install.browser.brave-origin": {"when":"false"},
@@ -24,14 +24,14 @@
   "setup.default.browser.brave-origin": {"when":"false"},
   "setup.default.browser.zen": {"when":"false"},
 
-  "install.service.1password": {"disabled":"command -v 1password >/dev/null"},
-  "install.service.spotify": {"label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]"},
+  "install.service.1password": {"icon":"󰢁","label":"1Password","disabled":"command -v 1password >/dev/null","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-1password"},
+  "install.service.spotify": {"icon":"󰓇","label":"Spotify (Web)","disabled":"[[ -f \"$HOME/.local/share/applications/Spotify.desktop\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-service-spotify"},
   "install.service.dropbox": {"when":"false"},
   "install.service.nordvpn": {"when":"false"},
   "install.service.once": {"when":"false"},
   "install.service.bitwarden": {"when":"false"},
 
-  "install.editor.zed": {"disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]"},
+  "install.editor.zed": {"icon":"","label":"Zed","disabled":"[[ -x \"$HOME/.local/zed.app/bin/zed\" ]]","action":"omarchy-launch-floating-terminal-with-presentation omarchy-install-editor-zed"},
   "install.editor.vscode": {"when":"false"},
   "install.editor.cursor": {"when":"false"},
   "install.editor.sublime": {"when":"false"},
