@@ -1070,8 +1070,10 @@ cat > ~/.config/hypr/monitors.lua <<'LUA'
 -- Aplicado desde el arranque funciona bien. Si tocas esto, reinicia la VM.
 --
 -- En UTM: ajustes de la VM -> Display -> activar "Retina Mode".
+-- 3840x2160@120 tambien funciono con un panel de 120 Hz, pero 60 Hz es el
+-- valor compatible y de menor coste para la imagen que se distribuye.
 hl.env("GDK_SCALE", "2")
-hl.monitor({ output = "Virtual-1", mode = "3840x2160@120", position = "auto", scale = 2 })
+hl.monitor({ output = "Virtual-1", mode = "3840x2160@60", position = "auto", scale = 2 })
 LUA
 rm -f ~/.config/hypr/monitors.conf ~/.config/hypr/autostart.conf
 
@@ -3685,7 +3687,9 @@ luego `spotify-web`. En terminal ya tienes `spotify-player` instalado.
 La imagen usa un framebuffer de 3840x2160 a escala 2, que da un escritorio
 lógico de 1920x1080 con texto nítido. Activa **Retina Mode** en la pantalla de
 la VM dentro de UTM. El modo es fijo porque `preferred` negocia 1280x800 y
-reduce la ventana de UTM.
+reduce la ventana de UTM. La imagen usa 60 Hz por compatibilidad y menor coste;
+también comprobamos que 120 Hz funciona con un panel anfitrión compatible. Para
+usarlo, cambia `3840x2160@60` por `3840x2160@120` y reinicia.
 
 Para cambiarlo, edita `~/.config/hypr/monitors.lua` y **reinicia la VM** —
 cambiar el modo en caliente deja la pantalla en blanco bajo virtio-gpu.

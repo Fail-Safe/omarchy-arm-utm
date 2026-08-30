@@ -31,8 +31,10 @@ cat > "$config" <<'LUA'
 --
 -- IMPORTANTE: cambiar el modo en caliente rompe el renderizado bajo virgl.
 -- Si modificas este archivo, reinicia la VM en vez de recargar Hyprland.
+-- 3840x2160@120 tambien funciono con un panel de 120 Hz, pero 60 Hz es el
+-- valor compatible y de menor coste que se aplica por defecto.
 hl.env("GDK_SCALE", "2")
-hl.monitor({ output = "Virtual-1", mode = "3840x2160@120", position = "auto", scale = 2 })
+hl.monitor({ output = "Virtual-1", mode = "3840x2160@60", position = "auto", scale = 2 })
 LUA
 
 echo "Configuración Retina escrita en $config"

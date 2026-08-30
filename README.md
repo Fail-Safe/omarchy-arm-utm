@@ -208,6 +208,9 @@ the sharper defaults.
   `preferred` negotiates a small 1280x800 desktop and makes UTM shrink its
   window. The setting is editable in `~/.config/hypr/monitors.lua`; reboot after
   changing it because a runtime mode change whites out the virtio-gpu display.
+  The distributed default is 60 Hz for compatibility and lower rendering cost;
+  120 Hz was also observed working on a compatible 120 Hz host panel by changing
+  the mode from `3840x2160@60` to `3840x2160@120` and rebooting.
 - Single monitor.
 
 ## Clipboard and shared folder
