@@ -137,9 +137,13 @@ luego `spotify-web`. En terminal ya tienes `spotify-player` instalado.
 
 ## Resolución
 
-Fija en 1920x1200. Para cambiarla, edita `~/.config/hypr/monitors.lua` y
-**reinicia la VM** — cambiar el modo en caliente deja la pantalla en blanco bajo
-virtio-gpu.
+La imagen usa un framebuffer de 3840x2160 a escala 2, que da un escritorio
+lógico de 1920x1080 con texto nítido. Activa **Retina Mode** en la pantalla de
+la VM dentro de UTM. El modo es fijo porque `preferred` negocia 1280x800 y
+reduce la ventana de UTM.
+
+Para cambiarlo, edita `~/.config/hypr/monitors.lua` y **reinicia la VM** —
+cambiar el modo en caliente deja la pantalla en blanco bajo virtio-gpu.
 
 ## Nota
 

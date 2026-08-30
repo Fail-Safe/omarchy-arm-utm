@@ -191,15 +191,23 @@ have, run [`fixes/18-avisos-que-no-se-apagan.sh`](fixes/18-avisos-que-no-se-apag
 inside it — no need to re-download. For the clipboard, run
 [`fixes/19-portapapeles.sh`](fixes/19-portapapeles.sh) the same way.
 
+New builds use a Retina-ready 3840x2160 framebuffer at scale 2. Existing VMs
+from the published archives retain their original display configuration; enable
+**Retina Mode** in UTM and run
+[`fixes/20-retina-display.sh`](fixes/20-retina-display.sh), then reboot, to apply
+the sharper defaults.
+
 ## What does not work
 
 - **No GL acceleration inside the VM.** Under virtio-gpu, GPU clients map but
   never paint; only `wl_shm` clients render. Fixed with
   `LIBGL_ALWAYS_SOFTWARE=1`, so blur and shadows are disabled. Fine for normal
   use, not for video or 3D.
-- **Resolution is fixed at boot** (1920x1200 by default, editable in
-  `~/.config/hypr/monitors.lua`). Changing the mode at runtime whites out the
-  screen under virtio-gpu.
+- **Resolution is fixed at boot** at 3840x2160 with scale 2, giving a logical
+  1920x1080 desktop with crisp text when UTM's **Retina Mode** is enabled.
+  `preferred` negotiates a small 1280x800 desktop and makes UTM shrink its
+  window. The setting is editable in `~/.config/hypr/monitors.lua`; reboot after
+  changing it because a runtime mode change whites out the virtio-gpu display.
 - Single monitor.
 
 ## Clipboard and shared folder
@@ -328,7 +336,7 @@ EMPEZAR.md             how to run it (ES) — requirements, timings, troubleshoo
 ARTICULO.md            how it was figured out (ES)
 provision/src/         stage1..3.sh, repair.sh, sanitize.sh, omarchy-arm-extras, hooks/
 scripts/               qemu, expect harnesses, .utm bundle writer
-fixes/                 the 19 corrections found along the way, as a record
+fixes/                 the 20 corrections found along the way, as a record
 dist/LEEME.md          the README that ships inside the image (ES)
 ```
 
